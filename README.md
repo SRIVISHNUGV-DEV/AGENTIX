@@ -107,13 +107,3 @@ Current default network:
 - network: `Sepolia`
 - chain id: `11155111`
 
-## Repository Notes
-
-Do not commit:
-
-- `backend/.env`
-- local SQLite database files
-- proving artifacts from `circuits/build/`
-- `.next/`, `dist/`, or `node_modules/`
-
-The root `.gitignore` is already prepared for GitHub upload.
