@@ -1,0 +1,20 @@
+{
+  "name": "agent-credentials-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "sdk",
+    "contracts"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "build": "npm run build -w backend && npm run build -w sdk && npm run compile -w contracts",
+    "dev": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-dev.ps1",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "example:create-session": "npm run example:create-session -w sdk",
+    "test:contracts": "npm run test -w contracts"
+  }
+}

@@ -1,0 +1,571 @@
+import { ethers } from "ethers"
+import fs from "fs"
+import path from "path"
+
+const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545"
+const PRIVATE_KEY = process.env.PRIVATE_KEY || ""
+const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
+const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia"
+
+const DEFAULT_SESSION_MANAGER_ADDRESS = process.env.SESSION_MANAGER_ADDRESS || ""
+const DEFAULT_CREDENTIAL_REGISTRY_ADDRESS = process.env.CREDENTIAL_REGISTRY_ADDRESS || ""
+const DEFAULT_AGENT_WALLET_FACTORY_ADDRESS = process.env.AGENT_WALLET_FACTORY_ADDRESS || ""
+const DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS = process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS || ""
+const DEFAULT_VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS || ""
+
+const SESSION_MANAGER_ARTIFACT = "src_SessionManager_sol_SessionManager"
+const FACTORY_ARTIFACT = "src_AgentWalletFactory_sol_AgentWalletFactory"
+const REGISTRY_ARTIFACT = "src_CredentialRegistry_sol_CredentialRegistry"
+const VERIFIER_ARTIFACT = "src_Verifier_sol_Groth16Verifier"
+const WALLET_ARTIFACT = "src_AgentWallet_sol_AgentWallet"
+
+export type OrganizationContracts = {
+    orgId:number
+    chainId:number
+    networkName:string
+    verifierAddress:string
+    credentialRegistryAddress:string
+    sessionManagerAddress:string
+    agentWalletFactoryAddress:string
+    agentWalletImplementationAddress:string
+    deploymentTxHashes:any
+}
+
+function sleep(ms:number){
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRateLimitError(error:any){
+    const message = String(error?.message ?? error ?? "")
+    return (
+        message.includes("\"code\": 429") ||
+        message.includes("compute units per second capacity") ||
+        message.includes("Too Many Requests") ||
+        message.includes("rate limit")
+    )
+}
+
+function loadArtifact(name:string){
+    const baseDir = path.join(__dirname, "../../../contracts")
+    const nestedAbi = path.join(baseDir, `contracts_${name}.abi`)
+    const nestedBin = path.join(baseDir, `contracts_${name}.bin`)
+    const directAbi = path.join(baseDir, `${name}.abi`)
+    const directBin = path.join(baseDir, `${name}.bin`)
+    const abiPath = fs.existsSync(nestedAbi) ? nestedAbi : directAbi
+    const binPath = fs.existsSync(nestedBin) ? nestedBin : directBin
+
+    return {
+        abi: JSON.parse(fs.readFileSync(abiPath, "utf8")),
+        bytecode: `0x${fs.readFileSync(binPath, "utf8").trim()}`
+    }
+}
+
+export class BlockchainService {
+
+    provider: ethers.JsonRpcProvider
+    wallet: ethers.Wallet
+
+    constructor(){
+        this.provider = new ethers.JsonRpcProvider(
+            RPC_URL,
+            { chainId: CHAIN_ID, name: NETWORK_NAME },
+            { staticNetwork: true }
+        )
+
+        this.wallet = new ethers.Wallet(
+            PRIVATE_KEY,
+            this.provider
+        )
+    }
+
+    private getRegistryAbi(){
+        return loadArtifact(REGISTRY_ARTIFACT).abi
+    }
+
+    private getSessionManagerAbi(){
+        return loadArtifact(SESSION_MANAGER_ARTIFACT).abi
+    }
+
+    private getFactoryAbi(){
+        return loadArtifact(FACTORY_ARTIFACT).abi
+    }
+
+    getWalletAbi(){
+        return loadArtifact(WALLET_ARTIFACT).abi
+    }
+
+    private getContract(address:string, abi:any){
+        return new ethers.Contract(address, abi, this.wallet)
+    }
+
+    private async withRpcRetry<T>(label:string, operation:()=>Promise<T>, attempts = 5):Promise<T>{
+        let delayMs = 1200
+
+        for(let attempt = 1; attempt <= attempts; attempt++){
+            try{
+                return await operation()
+            }catch(error:any){
+                if(!isRateLimitError(error) || attempt === attempts){
+                    throw error
+                }
+
+                console.warn(`${label} hit RPC rate limit; retrying in ${delayMs}ms (attempt ${attempt}/${attempts})`)
+                await sleep(delayMs)
+                delayMs *= 2
+            }
+        }
+
+        throw new Error(`${label} failed after retries`)
+    }
+
+    private async deployArtifact(name:string, args:any[] = []){
+        const { abi, bytecode } = loadArtifact(name)
+        const factory = new ethers.ContractFactory(abi, bytecode, this.wallet)
+        const contract = await this.withRpcRetry(
+            `deploy ${name}`,
+            () => factory.deploy(...args)
+        )
+        await this.withRpcRetry(
+            `wait deployment ${name}`,
+            () => contract.waitForDeployment()
+        )
+        return contract
+    }
+
+    private normalizeScalars(value:any):any{
+        if (typeof value === "bigint") {
+            return value
+        }
+
+        if (typeof value === "number") {
+            return BigInt(Math.trunc(value))
+        }
+
+        if (typeof value === "string" && /^\d+$/.test(value)) {
+            return BigInt(value)
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item) => this.normalizeScalars(item))
+        }
+
+        if (value && typeof value === "object") {
+            return Object.fromEntries(
+                Object.entries(value).map(([key, item]) => [key, this.normalizeScalars(item)])
+            )
+        }
+
+        return value
+    }
+
+    async getOrganizationContracts(db:any, orgId:number):Promise<OrganizationContracts>{
+        const row = await db.get(
+            `
+            SELECT *
+            FROM organization_contracts
+            WHERE org_id = ?
+            `,
+            orgId
+        )
+
+        if (row) {
+            return {
+                orgId,
+                chainId: row.chain_id,
+                networkName: row.network_name,
+                verifierAddress: row.verifier_address,
+                credentialRegistryAddress: row.credential_registry_address,
+                sessionManagerAddress: row.session_manager_address,
+                agentWalletFactoryAddress: row.agent_wallet_factory_address,
+                agentWalletImplementationAddress: row.agent_wallet_implementation_address,
+                deploymentTxHashes: row.deployment_tx_hashes ? JSON.parse(row.deployment_tx_hashes) : null
+            }
+        }
+
+        return {
+            orgId,
+            chainId: CHAIN_ID,
+            networkName: NETWORK_NAME,
+            verifierAddress: DEFAULT_VERIFIER_ADDRESS,
+            credentialRegistryAddress: DEFAULT_CREDENTIAL_REGISTRY_ADDRESS,
+            sessionManagerAddress: DEFAULT_SESSION_MANAGER_ADDRESS,
+            agentWalletFactoryAddress: DEFAULT_AGENT_WALLET_FACTORY_ADDRESS,
+            agentWalletImplementationAddress: DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS,
+            deploymentTxHashes: null
+        }
+    }
+
+    async ensureOrganizationContracts(db:any, orgId:number){
+        const existing = await db.get(
+            `
+            SELECT org_id
+            FROM organization_contracts
+            WHERE org_id = ?
+            `,
+            orgId
+        )
+
+        if(!existing){
+            return this.deployOrganizationContracts(db, orgId)
+        }
+
+        return this.getOrganizationContracts(db, orgId)
+    }
+
+    private async ensureSharedContracts(db:any){
+        const existing = await db.get(
+            `
+            SELECT *
+            FROM shared_contracts
+            WHERE id = 1
+            `
+        )
+
+        if(existing?.verifier_address && existing?.agent_wallet_implementation_address){
+            return {
+                verifierAddress: existing.verifier_address,
+                walletImplementationAddress: existing.agent_wallet_implementation_address,
+            }
+        }
+
+        const verifier = DEFAULT_VERIFIER_ADDRESS
+            ? null
+            : await this.deployArtifact(VERIFIER_ARTIFACT)
+        const walletImplementation = DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS
+            ? null
+            : await this.deployArtifact(WALLET_ARTIFACT)
+
+        const verifierAddress = DEFAULT_VERIFIER_ADDRESS || await verifier!.getAddress()
+        const walletImplementationAddress =
+            DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS || await walletImplementation!.getAddress()
+
+        await db.run(
+            `
+            INSERT INTO shared_contracts (
+                id,
+                verifier_address,
+                agent_wallet_implementation_address,
+                deployment_tx_hashes,
+                updated_at
+            )
+            VALUES (1, ?, ?, ?, strftime('%s','now'))
+            ON CONFLICT(id) DO UPDATE SET
+                verifier_address = excluded.verifier_address,
+                agent_wallet_implementation_address = excluded.agent_wallet_implementation_address,
+                deployment_tx_hashes = excluded.deployment_tx_hashes,
+                updated_at = strftime('%s','now')
+            `,
+            verifierAddress,
+            walletImplementationAddress,
+            JSON.stringify({
+                verifier: verifier?.deploymentTransaction()?.hash ?? null,
+                walletImplementation: walletImplementation?.deploymentTransaction()?.hash ?? null
+            })
+        )
+
+        return {
+            verifierAddress,
+            walletImplementationAddress
+        }
+    }
+
+    async deployOrganizationContracts(db:any, orgId:number){
+        const existing = await db.get(
+            `SELECT org_id FROM organization_contracts WHERE org_id = ?`,
+            orgId
+        )
+
+        if(existing){
+            return this.getOrganizationContracts(db, orgId)
+        }
+
+        const shared = await this.ensureSharedContracts(db)
+        const verifierAddress = shared.verifierAddress
+        const walletImplementationAddress = shared.walletImplementationAddress
+
+        const registry = await this.deployArtifact(REGISTRY_ARTIFACT)
+        const sessionManager = await this.deployArtifact(SESSION_MANAGER_ARTIFACT, [
+            verifierAddress,
+            await registry.getAddress()
+        ])
+        const walletFactory = await this.deployArtifact(FACTORY_ARTIFACT, [
+            walletImplementationAddress,
+            await sessionManager.getAddress()
+        ])
+
+        const registryContract = this.getContract(await registry.getAddress(), this.getRegistryAbi())
+        const sessionManagerAddress = await sessionManager.getAddress()
+        const setSessionManagerTx = await this.withRpcRetry(
+            "setSessionManager",
+            () => registryContract.setSessionManager(sessionManagerAddress, true)
+        )
+        await this.withRpcRetry(
+            "wait setSessionManager",
+            () => setSessionManagerTx.wait()
+        )
+
+        const deploymentTxHashes = {
+            registry: registry.deploymentTransaction()?.hash ?? null,
+            sessionManager: sessionManager.deploymentTransaction()?.hash ?? null,
+            walletFactory: walletFactory.deploymentTransaction()?.hash ?? null,
+            setSessionManager: setSessionManagerTx.hash,
+            verifier: verifierAddress,
+            walletImplementation: walletImplementationAddress
+        }
+
+        await db.run(
+            `
+            INSERT INTO organization_contracts
+            (
+                org_id,
+                chain_id,
+                network_name,
+                verifier_address,
+                credential_registry_address,
+                session_manager_address,
+                agent_wallet_factory_address,
+                agent_wallet_implementation_address,
+                deployment_tx_hashes,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,strftime('%s','now'))
+            ON CONFLICT(org_id) DO UPDATE SET
+                chain_id = excluded.chain_id,
+                network_name = excluded.network_name,
+                verifier_address = excluded.verifier_address,
+                credential_registry_address = excluded.credential_registry_address,
+                session_manager_address = excluded.session_manager_address,
+                agent_wallet_factory_address = excluded.agent_wallet_factory_address,
+                agent_wallet_implementation_address = excluded.agent_wallet_implementation_address,
+                deployment_tx_hashes = excluded.deployment_tx_hashes,
+                updated_at = strftime('%s','now')
+            `,
+            orgId,
+            CHAIN_ID,
+            NETWORK_NAME,
+            verifierAddress,
+            await registry.getAddress(),
+            await sessionManager.getAddress(),
+            await walletFactory.getAddress(),
+            walletImplementationAddress,
+            JSON.stringify(deploymentTxHashes)
+        )
+
+        return this.getOrganizationContracts(db, orgId)
+    }
+
+    async submitSessionForOrg(
+        db:any,
+        orgId:number,
+        sessionId:string,
+        sessionKey:string,
+        maxValue:number,
+        expiry:number,
+        proof:any,
+        publicSignals:any[]
+    ){
+        const contracts = await this.ensureOrganizationContracts(db, orgId)
+        const sessionManager = this.getContract(
+            contracts.sessionManagerAddress,
+            this.getSessionManagerAbi()
+        )
+
+        const normalizedProof = this.normalizeScalars(proof)
+        const normalizedPublicSignals = this.normalizeScalars(publicSignals)
+        const nullifierHex = ethers.toBeHex(normalizedPublicSignals[0], 32)
+
+        const a = [
+            normalizedProof.pi_a[0],
+            normalizedProof.pi_a[1]
+        ]
+
+        const b = [
+            [normalizedProof.pi_b[0][1], normalizedProof.pi_b[0][0]],
+            [normalizedProof.pi_b[1][1], normalizedProof.pi_b[1][0]]
+        ]
+
+        const c = [
+            normalizedProof.pi_c[0],
+            normalizedProof.pi_c[1]
+        ]
+
+        const tx = await this.withRpcRetry(
+            "createSession",
+            () => sessionManager.createSession(
+                sessionId,
+                sessionKey,
+                BigInt(maxValue),
+                BigInt(expiry),
+                nullifierHex,
+                a,
+                b,
+                c,
+                normalizedPublicSignals
+            )
+        )
+
+        const receipt:any = await this.withRpcRetry(
+            "wait createSession",
+            () => tx.wait()
+        )
+
+        return {
+            txHash: receipt.hash,
+            contractAddress: contracts.sessionManagerAddress
+        }
+    }
+
+    async updateActiveRootForOrg(db:any, orgId:number, root:string){
+        const contracts = await this.ensureOrganizationContracts(db, orgId)
+        const registry = this.getContract(
+            contracts.credentialRegistryAddress,
+            this.getRegistryAbi()
+        )
+
+        const tx = await this.withRpcRetry(
+            "updateActiveRoot",
+            () => registry.updateActiveRoot(root)
+        )
+        const receipt:any = await this.withRpcRetry(
+            "wait updateActiveRoot",
+            () => tx.wait()
+        )
+
+        return {
+            txHash: receipt.hash,
+            contractAddress: contracts.credentialRegistryAddress
+        }
+    }
+
+    async updateRevokedRootForOrg(db:any, orgId:number, root:string){
+        const contracts = await this.ensureOrganizationContracts(db, orgId)
+        const registry = this.getContract(
+            contracts.credentialRegistryAddress,
+            this.getRegistryAbi()
+        )
+
+        const tx = await this.withRpcRetry(
+            "updateRevokedSecretRoot",
+            () => registry.updateRevokedSecretRoot(root)
+        )
+        const receipt:any = await this.withRpcRetry(
+            "wait updateRevokedSecretRoot",
+            () => tx.wait()
+        )
+
+        return {
+            txHash: receipt.hash,
+            contractAddress: contracts.credentialRegistryAddress
+        }
+    }
+
+    async createWalletForOrg(db:any, orgId:number, owner:string){
+        const contracts = await this.ensureOrganizationContracts(db, orgId)
+        const walletFactory = this.getContract(
+            contracts.agentWalletFactoryAddress,
+            this.getFactoryAbi()
+        )
+
+        const tx = await this.withRpcRetry(
+            "createWallet",
+            () => walletFactory.createWallet(owner)
+        )
+        const receipt:any = await this.withRpcRetry(
+            "wait createWallet",
+            () => tx.wait()
+        )
+
+        const walletCreated = receipt.logs
+            .map((log:any) => {
+                try {
+                    return walletFactory.interface.parseLog(log)
+                } catch {
+                    return null
+                }
+            })
+            .find((parsed:any) => parsed && parsed.name === "WalletCreated")
+
+        return {
+            txHash: receipt.hash,
+            walletAddress: walletCreated?.args?.wallet,
+            ownerAddress: owner,
+            sessionManagerAddress: contracts.sessionManagerAddress,
+            implementationAddress: contracts.agentWalletImplementationAddress,
+            factoryAddress: contracts.agentWalletFactoryAddress
+        }
+    }
+
+    async fundAddress(to:string, amountEth:string){
+        const tx = await this.withRpcRetry(
+            "fundAddress",
+            () => this.wallet.sendTransaction({
+                to,
+                value: ethers.parseEther(amountEth)
+            })
+        )
+
+        const receipt:any = await this.withRpcRetry(
+            "wait fundAddress",
+            () => tx.wait()
+        )
+        return {
+            txHash: receipt?.hash ?? tx.hash,
+            to,
+            amountEth
+        }
+    }
+
+    async getEventContracts(db:any){
+        const deployments = await db.all(
+            `
+            SELECT *
+            FROM organization_contracts
+            ORDER BY org_id ASC
+            `
+        )
+
+        if(deployments.length === 0){
+            return [
+                {
+                    orgId: 0,
+                    name: "CredentialRegistry",
+                    address: DEFAULT_CREDENTIAL_REGISTRY_ADDRESS,
+                    abi: this.getRegistryAbi()
+                },
+                {
+                    orgId: 0,
+                    name: "SessionManager",
+                    address: DEFAULT_SESSION_MANAGER_ADDRESS,
+                    abi: this.getSessionManagerAbi()
+                },
+                {
+                    orgId: 0,
+                    name: "AgentWalletFactory",
+                    address: DEFAULT_AGENT_WALLET_FACTORY_ADDRESS,
+                    abi: this.getFactoryAbi()
+                }
+            ].filter((entry) => entry.address)
+        }
+
+        return deployments.flatMap((deployment:any) => [
+            {
+                orgId: deployment.org_id,
+                name: "CredentialRegistry",
+                address: deployment.credential_registry_address,
+                abi: this.getRegistryAbi()
+            },
+            {
+                orgId: deployment.org_id,
+                name: "SessionManager",
+                address: deployment.session_manager_address,
+                abi: this.getSessionManagerAbi()
+            },
+            {
+                orgId: deployment.org_id,
+                name: "AgentWalletFactory",
+                address: deployment.agent_wallet_factory_address,
+                abi: this.getFactoryAbi()
+            }
+        ])
+    }
+}
