@@ -99,6 +99,7 @@ The dev launcher starts both services and prints the live URLs:
 - [docs/API.md](./docs/API.md): backend routes and operator actions
 - [docs/SETUP.md](./docs/SETUP.md): environment and deployment setup
 - [sdk/README.md](./sdk/README.md): Agentix SDK and self-hosted flow
+- [LICENSE.md](./LICENSE.md): Apache 2.0 license
 
 ## Network
 
@@ -106,4 +107,3 @@ Current default network:
 
 - network: `Sepolia`
 - chain id: `11155111`
-
