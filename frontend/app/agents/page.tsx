@@ -31,7 +31,7 @@ const agentHighlights: Array<{ title: string; body: string; icon: LucideIcon }> 
 ]
 
 export const metadata = {
-  title: 'Agents - Agent Credentials',
+  title: 'Agents - Agentix',
   description: 'Browse issued agents, credentials, wallets, and session counts.',
 }
 

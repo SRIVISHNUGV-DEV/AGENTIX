@@ -14,76 +14,63 @@ interface IntegrationStep {
 const integrationSteps: IntegrationStep[] = [
   {
     number: 1,
-    title: 'Initialize Agent',
-    description: 'Create a new agent instance with your organization credentials',
-    code: `import { AgentCredentials } from '@agent-credentials/sdk';
+    title: 'Create a client',
+    description: 'Point the Agentix SDK at your deployment or hosted backend.',
+    code: `import { AgentClient } from '@agentix/sdk';
 
-const agent = new AgentCredentials({
-  orgId: 'org_1a2b3c4d5e6f7g8h9i0j',
-  apiKey: 'sk_live_...',
-});`,
+const client = new AgentClient('http://127.0.0.1:3000');
+await client.init();`,
   },
   {
     number: 2,
-    title: 'Issue Credential',
-    description: 'Issue a zero-knowledge credential to authorize the agent',
-    code: `const credential = await agent.issueCredential({
-  type: 'AUTHORIZATION',
-  expiresIn: '365d',
-  scope: ['transaction:sign', 'wallet:read'],
+    title: 'Register an agent',
+    description: 'Provision an organization and agent identity through the Agentix API.',
+    code: `const registration = await client.registerAgent({
+  orgName: 'Acme Treasury',
+  agentName: 'Payout Agent',
+  permissions: 7,
+  expiry: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 14,
 });
 
-console.log('Credential ID:', credential.id);`,
+console.log(registration);`,
   },
   {
     number: 3,
-    title: 'Register Wallet',
-    description: 'Register a blockchain wallet for the agent to use',
-    code: `const wallet = await agent.registerWallet({
-  address: '0x742d35Cc6634C0532925a3b844Bc1e7595f2d90d',
-  chain: 'ethereum',
-  credentialId: credential.id,
+    title: 'Create a wallet',
+    description: 'Deploy an AgentWallet that can later execute approved session actions.',
+    code: `const wallet = await client.createWallet({
+  agentId: registration.agentId,
 });
 
-console.log('Wallet registered:', wallet.id);`,
+console.log(wallet);`,
   },
   {
     number: 4,
-    title: 'Create Session',
-    description: 'Create a session to enable transaction signing',
-    code: `const session = await agent.createSession({
-  credentialId: credential.id,
-  walletId: wallet.id,
-  expiresIn: '24h',
+    title: 'Create a session',
+    description: 'Generate a proof and submit the on-chain session transaction.',
+    code: `const session = await client.createSession({
+  agentId: registration.agentId,
 });
 
-console.log('Session created:', session.sessionKey);`,
+console.log(session);`,
   },
   {
     number: 5,
-    title: 'Sign Transaction',
-    description: 'Use the session to sign and execute transactions',
-    code: `const signature = await agent.signTransaction({
-  sessionId: session.id,
-  transaction: {
-    to: '0x...',
-    value: '1.5',
-    data: '0x...',
-  },
-});
-
-console.log('Transaction signed:', signature.txHash);`,
+    title: 'Read state',
+    description: 'Pull the latest Agentix state, including wallets, sessions, and events.',
+    code: `const state = await client.getAgentState(registration.agentId);
+console.log(state);`,
   },
 ]
 
 export function IntegrationSteps() {
   return (
     <div className="space-y-8">
-      {integrationSteps.map(step => (
+      {integrationSteps.map((step) => (
         <Card key={step.number} className="overflow-hidden">
           <CardHeader>
             <div className="flex items-start gap-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-foreground flex-shrink-0">
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div>

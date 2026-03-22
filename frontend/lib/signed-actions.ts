@@ -11,7 +11,7 @@ export type SignedActionInput = {
 
 export function buildSignedActionMessage(input: SignedActionInput) {
   return [
-    'Agent Credentials Authorization',
+    'Agentix Authorization',
     `Action: ${input.action}`,
     `Org: ${input.orgId}`,
     `Target: ${input.target}`,

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-credentials/contracts",
+  "name": "@agentix/contracts",
   "version": "0.1.0",
   "private": true,
   "scripts": {

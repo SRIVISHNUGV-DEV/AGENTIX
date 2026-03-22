@@ -9,7 +9,7 @@ import { getSelectedOrgId } from '@/lib/org-session'
 import { WorkspaceControls } from '@/components/platform/workspace-controls'
 
 export const metadata = {
-  title: 'Events - Agent Credentials',
+  title: 'Events - Agentix',
   description: 'Indexed contract events across sessions, wallets, and credentials.',
 }
 

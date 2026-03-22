@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { ConnectWalletButton } from '@/components/wallet/connect-wallet-button'
 
 export const metadata = {
-  title: 'Connect Wallet - Agent Credentials',
+  title: 'Connect Wallet - Agentix',
   description: 'Connect your wallet to access the MVP platform and manage agent credentials, sessions, and treasury controls.',
 }
 

@@ -1,4 +1,4 @@
-# Setup
+# Agentix Setup
 
 ## Required Environment
 

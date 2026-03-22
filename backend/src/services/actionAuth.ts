@@ -33,7 +33,7 @@ export function buildSignedActionMessage({
     requestedAt:number
 }){
     return [
-        "Agent Credentials Authorization",
+        "Agentix Authorization",
         `Action: ${action}`,
         `Org: ${orgId}`,
         `Target: ${target}`,

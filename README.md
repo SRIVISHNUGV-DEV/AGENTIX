@@ -1,95 +1,113 @@
-# Agent Credentials
+# Agentix
 
-Agent Credentials is a platform for issuing private credentials to AI agents, proving those credentials with zero knowledge, and creating on-chain sessions and wallets under policy control.
+Agentix is a protocol and operator platform for issuing private credentials to AI agents, proving authorization with zero knowledge, and creating on-chain sessions and wallets under explicit policy control.
 
-The project is split into four layers:
+It is built for teams that want:
 
-- `frontend/`: operator platform for organizations
-- `backend/`: API, state management, proofs, event indexing, and blockchain orchestration
-- `contracts/`: Solidity contracts for credential roots, sessions, and agent wallets
-- `circuits/`: Circom circuit and proving artifacts for credential proofs
+- private agent credentials instead of public allowlists
+- signed platform operations for every on-chain write
+- per-organization contract isolation
+- a hosted operator workflow and a self-hosted SDK path
 
-## What It Does
+## What Agentix Does
 
-An organization can:
+With Agentix, an organization can:
 
-- connect a wallet
+- connect an owner wallet
 - create an organization workspace
-- add agent identities
+- register agent identities
 - deploy an organization-specific contract stack
 - issue credentials to agents
-- create agent wallets
-- fund wallets
-- create sessions
-- revoke credentials
-- inspect indexed on-chain events
+- create and fund agent wallets
+- open policy-bound sessions
+- revoke credential-based access
+- inspect indexed on-chain events with direct Etherscan links
 
-The system is built so that:
+## System Flow
 
-- credential commitments are stored, not raw secrets
-- session creation is gated by a zero-knowledge proof
-- every platform-triggered on-chain action is approved by a wallet signature
-- each organization gets its own `CredentialRegistry`, `SessionManager`, and `AgentWalletFactory`
-
-## Main Flow
-
-1. The organization connects a Sepolia wallet in the frontend.
-2. The organization creates a workspace and adds agents.
-3. The backend deploys an org-specific contract stack.
-4. A credential commitment is inserted into the active Poseidon Merkle tree.
-5. The agent or managed backend flow generates a proof against:
-   - the active credential root
-   - the revocation root
-6. `SessionManager.sol` verifies the proof and opens an on-chain session.
-7. Wallet and session events are indexed back into the backend and shown in the frontend.
-
-## Repository Layout
-
-```text
-agent-credentials-mvp/
-├─ backend/
-├─ circuits/
-├─ contracts/
-├─ docs/
-├─ frontend/
-├─ scripts/
-├─ sdk/
-├─ quickstart.md
-└─ README.md
+```mermaid
+flowchart LR
+    A[Organization Wallet] --> B[Agentix Frontend]
+    B --> C[Agentix Backend]
+    C --> D[Circuits and Proof Inputs]
+    C --> E[Org Contract Stack]
+    D --> E
+    E --> F[Session and Wallet Events]
+    F --> C
+    C --> B
 ```
 
-## Quick Start
+## Session Creation Flow
 
-From the repo root:
+```mermaid
+sequenceDiagram
+    participant Org as Organization
+    participant UI as Frontend
+    participant API as Backend
+    participant ZK as Circuit/Prover
+    participant Chain as SessionManager
+
+    Org->>UI: Connect wallet and approve action
+    UI->>API: Create agent or issue credential
+    API->>API: Update active root and revocation state
+    API->>ZK: Build proof inputs
+    ZK-->>API: Groth16 proof and public signals
+    API->>Chain: createSession(proof, signals)
+    Chain-->>API: SessionCreated event
+    API-->>UI: Indexed session state
+```
+
+## Architecture
+
+```text
+agentix/
+|-- frontend/    Next.js operator platform
+|-- backend/     Express API, storage, proofs, event sync
+|-- circuits/    Circom circuit and proving artifacts
+|-- contracts/   Solidity protocol contracts
+|-- sdk/         Self-hosted SDK path
+|-- docs/        Setup, API, and architecture docs
+`-- quickstart.md
+```
+
+## Start The Application
+
+From the repository root:
 
 ```powershell
 npm install --workspaces
 npm run dev
 ```
 
-Then open:
+The dev launcher starts both services and prints the live URLs:
 
 - frontend: `http://127.0.0.1:3001`
 - backend: `http://127.0.0.1:3000`
 
-Full setup and redeploy instructions are in [quickstart.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/quickstart.md).
+## Core Product Properties
+
+- Credentials are stored as commitments, not raw secrets.
+- Session creation is gated by a zero-knowledge proof.
+- Every platform-triggered on-chain action requires a wallet signature.
+- Each organization gets its own `CredentialRegistry`, `SessionManager`, and `AgentWalletFactory`.
+- `Verifier` and wallet implementation are shared infrastructure, while organization state remains isolated.
 
 ## Documentation
 
-- [quickstart.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/quickstart.md): start, run, and redeploy
-- [docs/ARCHITECTURE.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/docs/ARCHITECTURE.md): system design
-- [docs/API.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/docs/API.md): important backend routes
-- [docs/SETUP.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/docs/SETUP.md): environment and deployment setup
-- [sdk/README.md](/d:/BLOCKCHAIN%20AND%20ZK%20PROJECTS/AGENT_CREDENTIAL/agent-credentials-mvp/sdk/README.md): SDK and self-hosted flow
+- [quickstart.md](./quickstart.md): start, run, redeploy, and troubleshoot
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md): system design
+- [docs/API.md](./docs/API.md): backend routes and operator actions
+- [docs/SETUP.md](./docs/SETUP.md): environment and deployment setup
+- [sdk/README.md](./sdk/README.md): Agentix SDK and self-hosted flow
 
-## Current Network
+## Network
 
-The current MVP is configured for:
+Current default network:
 
 - network: `Sepolia`
 - chain id: `11155111`
 
-## Notes Before GitHub
+## Repository Notes
 
 Do not commit:
 

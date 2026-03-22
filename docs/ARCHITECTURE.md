@@ -1,8 +1,8 @@
-# Architecture
+# Agentix Architecture
 
 ## Overview
 
-Agent Credentials is a four-part system:
+Agentix is a four-part system:
 
 - frontend: organization operator platform
 - backend: API, state, proof orchestration, and chain integration
@@ -58,10 +58,10 @@ Shared infrastructure:
 
 The system deploys a separate contract stack per organization so:
 
-- roots are org-scoped
-- wallet creation is org-scoped
-- event indexing can attribute state changes to the right org
-- one organization’s operational load does not share the same registry/session contracts as another
+- roots are organization-scoped
+- wallet creation is organization-scoped
+- event indexing can attribute state changes to the right organization
+- one organization's operational load does not share the same registry or session contracts as another
 
 ## Data Flow
 
@@ -84,10 +84,10 @@ Current protections:
 
 - wallet signatures required for platform-triggered on-chain actions
 - on-chain session verification using Groth16
-- root updates and session creation scoped to org contracts
+- root updates and session creation scoped to organization contracts
 - event indexing for auditability
 
 Current MVP limitations:
 
-- wallet-based operator control is present, but not full user/session auth
+- wallet-based operator control is present, but not full user or session auth
 - this is still an MVP and should be hardened further before production use

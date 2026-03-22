@@ -20,7 +20,7 @@ import { getAddressExplorerUrl, getTxExplorerUrl } from '@/lib/explorer'
 import { ArrowUpRight, Boxes, ShieldCheck, Sparkles, WalletCards } from 'lucide-react'
 
 export const metadata = {
-  title: 'Workspace - Agent Credentials',
+  title: 'Workspace - Agentix',
   description: 'Operate an organization workspace for agent credentials, sessions, wallets, and treasury actions.',
 }
 

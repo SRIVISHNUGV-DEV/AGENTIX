@@ -5,11 +5,11 @@ import { SpotlightCard } from '@/components/effects/spotlight-card'
 import { CodeBlock } from '@/components/common/code-block'
 
 export const metadata = {
-  title: 'SDK & Self-host - Agent Credentials',
-  description: 'Use the SDK and self-hosted flow if you want to run the platform in your own environment.',
+  title: 'SDK & Self-host - Agentix',
+  description: 'Use the Agentix SDK and self-hosted flow if you want to run the protocol in your own environment.',
 }
 
-const quickstart = `import { AgentClient } from "@agent-credentials/sdk"
+const quickstart = `import { AgentClient } from "@agentix/sdk"
 
 const client = new AgentClient("http://127.0.0.1:3000")
 await client.init()

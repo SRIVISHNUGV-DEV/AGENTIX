@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     }
   }
   return {
-    title: `${agentRes.data.name} - Agent Credentials`,
+    title: `${agentRes.data.name} - Agentix`,
     description: agentRes.data.description,
   }
 }

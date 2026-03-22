@@ -292,7 +292,7 @@ export async function getOrganization(): Promise<ApiResponse<Organization>> {
   const organizations = await apiFetch<Array<{ id: number; name: string; created_at: number }>>("/orgs")
   const org = organizations[organizations.length - 1] ?? {
     id: 0,
-    name: "Agent Credentials",
+    name: "Agentix",
     created_at: Math.floor(Date.now() / 1000),
   }
 

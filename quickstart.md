@@ -1,4 +1,4 @@
-# Quickstart
+# Agentix Quickstart
 
 This document covers the shortest path to:
 

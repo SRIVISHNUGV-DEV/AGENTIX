@@ -16,7 +16,7 @@ export function HeroSection() {
         </div>
 
         <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight text-foreground mb-6 text-balance leading-tight">
-          AI Agent Credentials
+          Agentix Protocol
         </h1>
 
         <p className="text-lg sm:text-xl text-foreground/70 mb-12 max-w-3xl mx-auto text-balance leading-relaxed">

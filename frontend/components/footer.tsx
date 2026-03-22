@@ -42,7 +42,8 @@ export default function Footer() {
               Zero-knowledge authorization infrastructure for AI agents.
             </h3>
             <p className="mt-4 max-w-md text-sm leading-7 text-foreground/60">
-              The stack combines backend proof orchestration, zk circuits, contract verification, session wallets, and indexed on-chain events into one product surface.
+              The stack combines backend proof orchestration, zk circuits, contract verification,
+              session wallets, and indexed on-chain events into one product surface.
             </p>
           </div>
           {footerGroups.map((group) => (
@@ -63,7 +64,7 @@ export default function Footer() {
           ))}
         </div>
         <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 text-xs text-foreground/45 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 Agent Credentials. Private credentials. Public enforcement.</p>
+          <p>{'\u00A9'} 2026 Agentix. Private credentials. Public enforcement.</p>
           <p>Live backend, SDK, circuits, contracts, and event indexing are wired into this frontend.</p>
         </div>
       </div>

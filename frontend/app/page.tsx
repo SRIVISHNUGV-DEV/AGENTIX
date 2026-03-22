@@ -8,9 +8,9 @@ import { SpotlightCard } from '@/components/effects/spotlight-card'
 import { getDashboardStats } from '@/lib/mock-api'
 
 export const metadata = {
-  title: 'Agent Credentials',
+  title: 'Agentix',
   description:
-    'A platform for issuing private agent credentials, creating signed on-chain sessions, and operating agent wallets from one workspace.',
+    'Agentix is the operator platform for issuing private agent credentials, creating signed on-chain sessions, and operating agent wallets from one workspace.',
 }
 
 const pillars = [

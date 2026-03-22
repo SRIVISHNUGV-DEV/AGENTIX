@@ -20,11 +20,11 @@ export default function Header() {
       <div className="shell flex h-16 items-center justify-between gap-6">
         <Link href="/" className="flex items-center gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white text-xs font-bold tracking-[0.18em] text-background">
-            AC
+            AX
           </span>
           <div>
             <span className="block text-sm font-semibold tracking-tight text-foreground">
-              Agent Credentials
+              Agentix
             </span>
             <span className="block text-[11px] uppercase tracking-[0.22em] text-foreground/45">
               Platform

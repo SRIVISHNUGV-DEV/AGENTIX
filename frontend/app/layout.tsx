@@ -5,9 +5,9 @@ import { WalletProvider } from '@/components/wallet/wallet-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Agent Credentials - Zero-Knowledge Proof Authorization for AI Agents',
+  title: 'Agentix - Private Credentials and Session Control for AI Agents',
   description:
-    'Securely authorize and manage AI agent access without exposing private credentials. Built for Web3, designed for trust.',
+    'Agentix is a protocol and operator platform for issuing private agent credentials, verifying them with zero knowledge, and controlling on-chain sessions.',
   icons: {
     icon: [
       {
