@@ -6,6 +6,7 @@
 :root {
   --font-space: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
   --font-jetbrains: "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+  --font-display: "Plus Jakarta Sans", "Space Grotesk", "Avenir Next", sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.12 0 0);
   --card: oklch(0.985 0 0);
@@ -78,6 +79,7 @@
 
 @theme inline {
   --font-sans: var(--font-space);
+  --font-display: var(--font-display);
   --font-mono: var(--font-jetbrains);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -124,8 +126,10 @@
   body {
     @apply bg-background text-foreground;
     background-image:
-      radial-gradient(circle at top left, rgba(255, 255, 255, 0.04), transparent 24%),
-      linear-gradient(180deg, rgba(5, 5, 5, 1), rgba(10, 10, 10, 1));
+      radial-gradient(circle at 14% 16%, rgba(255, 255, 255, 0.065), transparent 20%),
+      radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.04), transparent 22%),
+      radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.035), transparent 30%),
+      linear-gradient(180deg, rgba(4, 4, 4, 1), rgba(10, 10, 10, 1));
     min-height: 100vh;
   }
 }
@@ -138,6 +142,32 @@
   .glass-panel {
     @apply border border-white/10 bg-card/90 backdrop-blur-xl;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  }
+
+  .hero-panel {
+    @apply overflow-hidden rounded-[2rem] border border-white/10 bg-card/90 backdrop-blur-xl;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32);
+    background-image:
+      linear-gradient(135deg, rgba(255,255,255,0.06), transparent 22%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+      radial-gradient(circle at top right, rgba(255,255,255,0.09), transparent 24%);
+  }
+
+  .noise-overlay {
+    position: relative;
+  }
+
+  .noise-overlay::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.11;
+    mix-blend-mode: soft-light;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.16) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px);
+    background-size: 3px 3px, 5px 5px;
   }
 
   .section-title {
@@ -155,8 +185,9 @@
   .spotlight-card {
     border: 1px solid rgba(255, 255, 255, 0.08);
     background:
-      radial-gradient(circle at var(--spotlight-x) var(--spotlight-y), rgba(255, 255, 255, 0.08), transparent 20%),
-      rgba(12, 12, 12, 0.82);
+      radial-gradient(circle at var(--spotlight-x) var(--spotlight-y), rgba(255, 255, 255, 0.12), transparent 18%),
+      linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01)),
+      rgba(12, 12, 12, 0.88);
   }
 
   .spotlight-surface {
@@ -171,6 +202,27 @@
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask-composite: exclude;
     padding: 1px;
+  }
+
+  .halo-divider {
+    position: relative;
+  }
+
+  .halo-divider::before {
+    content: "";
+    position: absolute;
+    inset: auto 10% 100% 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  }
+
+  .metric-tile {
+    @apply rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-5 backdrop-blur-xl;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  .micro-label {
+    @apply text-[11px] uppercase tracking-[0.24em] text-foreground/45;
   }
 }
 

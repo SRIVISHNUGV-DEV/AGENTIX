@@ -11,6 +11,7 @@ import { formatDate, truncateAddress } from '@/lib/utils'
 import { StatusBadge } from '@/components/common/status-badge'
 import { getSelectedOrgId } from '@/lib/org-session'
 import { WorkspaceControls } from '@/components/platform/workspace-controls'
+import { StackMetrics } from '@/components/common/stack-metrics'
 
 const agentHighlights: Array<{ title: string; body: string; icon: LucideIcon }> = [
   {
@@ -44,35 +45,56 @@ export default async function AgentsPage() {
   const agentsRes = await getAgents(currentOrgId)
   const agents = agentsRes.data
 
+  const readyAgents = agents.filter((agent) => agent.credentials.length > 0 && agent.wallets.length > 0)
+  const fundedAgents = agents.filter((agent) => agent.wallets.length > 0)
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <GridBackdrop />
       <Header />
       <main className="relative z-10 shell py-16 sm:py-20">
-        <section className="rounded-[2rem] border border-white/10 bg-card p-8 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+        <section className="hero-panel p-8 sm:p-10">
+          <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="max-w-3xl">
               <span className="section-kicker">Agent inventory</span>
-              <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-                Connected agents and deployable agent IDs
+              <h1 className="font-display text-4xl font-semibold tracking-[-0.05em] sm:text-6xl">
+                Connected agents and deployable execution surfaces
               </h1>
-              <p className="mt-4 text-foreground/62">
-                Review which agents are provisioned, how many credentials and wallets they hold, and which ones are
-                ready for session creation.
+              <p className="mt-4 text-lg leading-8 text-foreground/62">
+                Review which agents are provisioned, which ones are session-ready, and which ones still need wallet,
+                credential, or treasury setup.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <div className="rounded-full border border-white/10 bg-background px-4 py-2 text-sm text-foreground/65">
-                {agents.length} agents loaded
-              </div>
-              <div className="rounded-full border border-white/10 bg-background px-4 py-2 text-sm text-foreground/65">
-                Workspace scoped
+            <div className="rounded-[1.75rem] border border-white/10 bg-background/70 p-6 backdrop-blur-xl">
+              <div className="micro-label">Inventory posture</div>
+              <div className="mt-4 space-y-4">
+                <div className="metric-tile">
+                  <div className="micro-label">Agent readiness</div>
+                  <div className="mt-2 text-2xl font-semibold">{readyAgents.length} fully prepared</div>
+                  <div className="mt-2 text-sm text-foreground/58">Credential issued, wallet deployed, and ready for session flow.</div>
+                </div>
+                <div className="metric-tile">
+                  <div className="micro-label">Wallet coverage</div>
+                  <div className="mt-2 text-2xl font-semibold">{fundedAgents.length} agents with wallets</div>
+                  <div className="mt-2 text-sm text-foreground/58">Operators can move from provisioning to action without leaving the page.</div>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="mt-8">
             <WorkspaceControls organizations={orgListRes.data} currentOrgId={currentOrgId} />
+          </div>
+
+          <div className="mt-8">
+            <StackMetrics
+              items={[
+                { label: 'Total agents', value: agents.length, detail: 'Loaded into the current workspace' },
+                { label: 'Ready agents', value: readyAgents.length, detail: 'Credential + wallet established' },
+                { label: 'Wallet coverage', value: fundedAgents.length, detail: 'Agents that can receive funding' },
+                { label: 'Workspace mode', value: currentOrgId ? `Org ${currentOrgId}` : 'Global', detail: 'Scoped through the selected organization' },
+              ]}
+            />
           </div>
 
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
@@ -95,7 +117,7 @@ export default async function AgentsPage() {
             <SpotlightCard key={agent.id} className="p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-foreground/45">Agent #{agent.id}</p>
+                  <p className="micro-label">Agent #{agent.id}</p>
                   <h2 className="mt-2 text-2xl font-semibold">{agent.name}</h2>
                 </div>
                 <StatusBadge status={agent.status} />
@@ -104,17 +126,17 @@ export default async function AgentsPage() {
               <p className="mt-3 min-h-14 text-sm leading-7 text-foreground/65">{agent.description}</p>
 
               <div className="mt-5 grid grid-cols-3 gap-3 text-center text-sm">
-                <div className="rounded-2xl border border-white/10 bg-background p-3">
+                <div className="metric-tile p-3">
                   <div className="text-xl font-semibold text-foreground">{agent.credentials.length}</div>
-                  <div className="text-xs uppercase tracking-[0.16em] text-foreground/45">Credentials</div>
+                  <div className="micro-label mt-1">Credentials</div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-background p-3">
+                <div className="metric-tile p-3">
                   <div className="text-xl font-semibold text-foreground">{agent.wallets.length}</div>
-                  <div className="text-xs uppercase tracking-[0.16em] text-foreground/45">Wallets</div>
+                  <div className="micro-label mt-1">Wallets</div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-background p-3">
+                <div className="metric-tile p-3">
                   <div className="text-xl font-semibold text-foreground">{agent.sessions.length}</div>
-                  <div className="text-xs uppercase tracking-[0.16em] text-foreground/45">Sessions</div>
+                  <div className="micro-label mt-1">Sessions</div>
                 </div>
               </div>
 

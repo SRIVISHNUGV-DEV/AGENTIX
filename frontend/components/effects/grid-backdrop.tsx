@@ -13,10 +13,12 @@ export function GridBackdrop({ className }: GridBackdropProps) {
         className
       )}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(106,227,255,0.18),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(255,186,106,0.14),transparent_28%),radial-gradient(circle_at_50%_80%,rgba(114,255,184,0.12),transparent_28%)]" />
-      <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:48px_48px]" />
-      <div className="absolute inset-x-0 top-[-20%] h-[28rem] rounded-full bg-[radial-gradient(circle,rgba(20,167,191,0.2),transparent_65%)] blur-3xl" />
-      <div className="absolute bottom-[-12rem] right-[-8rem] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(255,177,107,0.16),transparent_65%)] blur-3xl" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,255,255,0.12),transparent_18%),radial-gradient(circle_at_85%_22%,rgba(255,255,255,0.08),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]" />
+      <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(255,255,255,0.055)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.055)_1px,transparent_1px)] [background-size:52px_52px]" />
+      <div className="absolute inset-x-[-20%] top-[-14rem] h-[30rem] rounded-full border border-white/10 opacity-40 blur-3xl" />
+      <div className="absolute right-[-10rem] top-24 h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.08),transparent_62%)] blur-3xl" />
+      <div className="absolute bottom-[-16rem] left-[-8rem] h-[26rem] w-[26rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.06),transparent_65%)] blur-3xl" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
     </div>
   )
 }

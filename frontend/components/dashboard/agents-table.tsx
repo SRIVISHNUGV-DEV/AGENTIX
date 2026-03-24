@@ -21,31 +21,21 @@ interface AgentsTableProps {
 
 export function AgentsTable({ agents }: AgentsTableProps) {
   return (
-    <div className="overflow-hidden rounded-3xl border border-white/10 bg-background">
+    <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-background/75 backdrop-blur-xl">
       <Table>
         <TableHeader>
           <TableRow className="border-white/10 hover:bg-transparent">
-            <TableHead className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/45">
-              Agent
-            </TableHead>
-            <TableHead className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/45">
-              Status
-            </TableHead>
-            <TableHead className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/45">
-              Public Key
-            </TableHead>
-            <TableHead className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/45">
-              Created
-            </TableHead>
-            <TableHead className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/45">
-              Action
-            </TableHead>
+            <TableHead className="micro-label px-6 py-4">Agent</TableHead>
+            <TableHead className="micro-label">Status</TableHead>
+            <TableHead className="micro-label">Public Key</TableHead>
+            <TableHead className="micro-label">Created</TableHead>
+            <TableHead className="micro-label">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {agents.map((agent) => (
             <TableRow key={agent.id} className="border-white/10 hover:bg-white/[0.03]">
-              <TableCell>
+              <TableCell className="px-6 py-5">
                 <div className="flex flex-col gap-1">
                   <span className="font-medium text-foreground">{agent.name}</span>
                   <span className="text-xs text-muted-foreground">
