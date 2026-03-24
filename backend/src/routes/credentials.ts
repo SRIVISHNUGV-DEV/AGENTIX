@@ -3,38 +3,26 @@ import { initDB } from "../db"
 import { IncrementalMerkleTree } from "../services/merkle"
 import { BlockchainService } from "../services/blockchain"
 import { SparseRevocationTree, toRevocationKey } from "../services/revocationTree"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { ensureBodyObject, requireInteger, requireString } from "../utils/validation"
 
 const router = express.Router()
 const blockchain = new BlockchainService()
 
-
-// Issue credential
 router.post("/", async (req,res)=>{
-
     try{
-
         const db = await initDB()
+        ensureBodyObject(req.body)
 
-        const {
-            agentId,
-            orgId,
-            permissions,
-            expiry,
-            commitment,
-            secretHash
-        } = req.body
-
-        if(
-            agentId === undefined ||
-            orgId === undefined ||
-            permissions === undefined ||
-            expiry === undefined ||
-            !commitment
-        ){
-            return res.status(400).json({
-                error:"agentId, orgId, permissions, expiry and commitment are required"
-            })
-        }
+        const agentId = requireInteger(req.body.agentId, "agentId", 1)
+        const orgId = requireInteger(req.body.orgId, "orgId", 1)
+        const permissions = requireInteger(req.body.permissions, "permissions", 0)
+        const expiry = requireInteger(req.body.expiry, "expiry", 1)
+        const commitment = requireString(req.body.commitment, "commitment", { minLength: 1, maxLength: 256 })
+        const secretHash = req.body.secretHash === undefined || req.body.secretHash === null
+            ? null
+            : requireString(req.body.secretHash, "secretHash", { minLength: 1, maxLength: 256 })
 
         const existing = await db.get(
             `
@@ -65,16 +53,11 @@ router.post("/", async (req,res)=>{
             permissions,
             expiry,
             commitment,
-            secretHash ?? null,
+            secretHash,
             leafIndex
         )
 
-        await tree.insert(
-            db,
-            BigInt(commitment),
-            leafIndex
-        )
-
+        await tree.insert(db, BigInt(commitment), leafIndex)
         await tree.rebuildFromCredentials(db)
 
         const root = await tree.getRoot(db)
@@ -88,53 +71,46 @@ router.post("/", async (req,res)=>{
             root: root.toString(),
             rootHex
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error:err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "credentials.issue")
     }
 })
-// List credentials
-router.get("/", async (req:any,res)=>{
 
-    const db = await initDB()
+router.get("/", async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
 
-    const creds = req.auth
-        ? await db.all(
-            `
-            SELECT *
-            FROM credentials
-            WHERE org_id = ?
-            ORDER BY leaf_index ASC
-            `,
-            req.auth.orgId
-        )
-        : await db.all(
-            `
-            SELECT *
-            FROM credentials
-            ORDER BY leaf_index ASC
-            `
-        )
+        const creds = req.auth
+            ? await db.all(
+                `
+                SELECT *
+                FROM credentials
+                WHERE org_id = ?
+                ORDER BY leaf_index ASC
+                `,
+                req.auth.orgId
+            )
+            : await db.all(
+                `
+                SELECT id, agent_id, org_id, permissions, expiry, leaf_index, created_at
+                FROM credentials
+                ORDER BY leaf_index ASC
+                `
+            )
 
-    res.json(creds)
-
+        res.json(creds)
+    }catch(error){
+        respondWithError(res, error, "credentials.list")
+    }
 })
 
 router.post("/revoke", async (req,res)=>{
-
     try{
-
         const db = await initDB()
-        const { agentId, secretHash } = req.body
+        ensureBodyObject(req.body)
 
-        if(agentId === undefined || !secretHash){
-            return res.status(400).json({
-                error:"agentId and secretHash are required"
-            })
-        }
+        const agentId = requireInteger(req.body.agentId, "agentId", 1)
+        const secretHash = requireString(req.body.secretHash, "secretHash", { minLength: 1, maxLength: 256 })
 
         const agent = await db.get(
             `SELECT org_id FROM agents WHERE id = ?`,
@@ -212,12 +188,8 @@ router.post("/revoke", async (req,res)=>{
             root: root.toString(),
             rootHex
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error:err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "credentials.revoke")
     }
 })
 

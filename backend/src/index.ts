@@ -14,11 +14,17 @@ import authRoutes from "./routes/auth"
 import { initCrypto } from "./utils/crypto"
 import { EventSyncService } from "./services/eventSync"
 import { attachAuth } from "./middleware/auth"
+import { corsMiddleware, createRateLimitMiddleware, securityHeaders } from "./middleware/security"
+import { AppError } from "./utils/errors"
 
 const app = express()
 const eventSync = new EventSyncService()
 
-app.use(express.json())
+app.disable("x-powered-by")
+app.use(securityHeaders)
+app.use(corsMiddleware)
+app.use(createRateLimitMiddleware(15 * 60 * 1000, 300))
+app.use(express.json({ limit: "32kb" }))
 app.use(attachAuth)
 
 app.use("/auth", authRoutes)
@@ -31,8 +37,20 @@ app.use("/wallets", walletRoutes)
 app.use("/events", eventRoutes)
 app.use("/v1", simpleRoutes)
 
-async function start(){
+app.use((error:any,_req:any,res:any,_next:any)=>{
+    if(error instanceof AppError){
+        return res.status(error.statusCode).json({
+            error: error.expose ? error.message : "internal server error"
+        })
+    }
 
+    console.error("[server]", error?.message ?? error)
+    return res.status(500).json({
+        error: "internal server error"
+    })
+})
+
+async function start(){
     await initCrypto()
 
     app.listen(3000, ()=>{
@@ -42,7 +60,6 @@ async function start(){
     eventSync.start().catch((error) => {
         console.error("Event sync bootstrap failed:", error.message)
     })
-
 }
 
 start()

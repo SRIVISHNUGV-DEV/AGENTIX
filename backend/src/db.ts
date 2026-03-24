@@ -6,16 +6,32 @@ import path from "path"
 const DB_PATH = path.resolve(__dirname, "../db/database.sqlite")
 const SCHEMA_PATH = path.resolve(__dirname, "../db/schema.sql")
 const REVOCATION_KEY_SPACE = 1n << 20n
+const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+const SAFE_DEFINITION = /^[A-Za-z0-9_ (),'-]+$/
+
+let dbPromise: Promise<any> | null = null
 
 export async function initDB() {
+    if(!dbPromise){
+        dbPromise = createDB().catch((error) => {
+            dbPromise = null
+            throw error
+        })
+    }
 
+    return dbPromise
+}
+
+async function createDB() {
     const db = await open({
         filename: DB_PATH,
         driver: sqlite3.Database
     })
 
     await db.exec(`
+        PRAGMA foreign_keys = ON;
         PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
     `)
 
     await db.exec(fs.readFileSync(SCHEMA_PATH, "utf8"))
@@ -34,14 +50,13 @@ export async function initDB() {
 }
 
 async function ensureLeafIndex(db:any){
-
-    const columns = await db.all(`PRAGMA table_info(credentials)`)
+    const columns = await db.all(`PRAGMA table_info("credentials")`)
     const hasLeafIndex = columns.some((column:any) => column.name === "leaf_index")
 
     if(!hasLeafIndex){
         await db.exec(`
-            ALTER TABLE credentials
-            ADD COLUMN leaf_index INTEGER NOT NULL DEFAULT 0
+            ALTER TABLE "credentials"
+            ADD COLUMN "leaf_index" INTEGER NOT NULL DEFAULT 0
         `)
 
         const credentials = await db.all(`
@@ -65,48 +80,45 @@ async function ensureLeafIndex(db:any){
 }
 
 async function ensureSecretHash(db:any){
-
-    const columns = await db.all(`PRAGMA table_info(credentials)`)
+    const columns = await db.all(`PRAGMA table_info("credentials")`)
     const hasSecretHash = columns.some((column:any) => column.name === "secret_hash")
 
     if(!hasSecretHash){
         await db.exec(`
-            ALTER TABLE credentials
-            ADD COLUMN secret_hash TEXT
+            ALTER TABLE "credentials"
+            ADD COLUMN "secret_hash" TEXT
         `)
     }
 }
 
 async function ensureRevokedLeafIndex(db:any){
-
-    const columns = await db.all(`PRAGMA table_info(revoked_secrets)`)
+    const columns = await db.all(`PRAGMA table_info("revoked_secrets")`)
     const hasLeafIndex = columns.some((column:any) => column.name === "leaf_index")
 
     if(columns.length > 0 && !hasLeafIndex){
         await db.exec(`
-            ALTER TABLE revoked_secrets
-            ADD COLUMN leaf_index INTEGER NOT NULL DEFAULT 0
+            ALTER TABLE "revoked_secrets"
+            ADD COLUMN "leaf_index" INTEGER NOT NULL DEFAULT 0
         `)
     }
 }
 
 async function ensureRevokedSparseColumns(db:any){
-
-    const columns = await db.all(`PRAGMA table_info(revoked_secrets)`)
+    const columns = await db.all(`PRAGMA table_info("revoked_secrets")`)
     const hasSmtKey = columns.some((column:any) => column.name === "smt_key")
     const hasRevokedValue = columns.some((column:any) => column.name === "revoked_value")
 
     if(columns.length > 0 && !hasSmtKey){
         await db.exec(`
-            ALTER TABLE revoked_secrets
-            ADD COLUMN smt_key TEXT
+            ALTER TABLE "revoked_secrets"
+            ADD COLUMN "smt_key" TEXT
         `)
     }
 
     if(columns.length > 0 && !hasRevokedValue){
         await db.exec(`
-            ALTER TABLE revoked_secrets
-            ADD COLUMN revoked_value INTEGER NOT NULL DEFAULT 1
+            ALTER TABLE "revoked_secrets"
+            ADD COLUMN "revoked_value" INTEGER NOT NULL DEFAULT 1
         `)
     }
 
@@ -139,22 +151,21 @@ async function ensureRevokedSparseColumns(db:any){
 }
 
 async function ensureSessionColumns(db:any){
-
-    const columns = await db.all(`PRAGMA table_info(sessions)`)
+    const columns = await db.all(`PRAGMA table_info("sessions")`)
     const hasSessionId = columns.some((column:any) => column.name === "session_id")
     const hasTxHash = columns.some((column:any) => column.name === "tx_hash")
 
     if(!hasSessionId){
         await db.exec(`
-            ALTER TABLE sessions
-            ADD COLUMN session_id TEXT
+            ALTER TABLE "sessions"
+            ADD COLUMN "session_id" TEXT
         `)
     }
 
     if(!hasTxHash){
         await db.exec(`
-            ALTER TABLE sessions
-            ADD COLUMN tx_hash TEXT
+            ALTER TABLE "sessions"
+            ADD COLUMN "tx_hash" TEXT
         `)
     }
 }
@@ -247,13 +258,17 @@ async function ensureSharedContractsTable(db:any){
 }
 
 async function ensureColumn(db:any, table:string, column:string, definition:string){
-    const columns = await db.all(`PRAGMA table_info(${table})`)
+    assertSafeIdentifier(table, "table")
+    assertSafeIdentifier(column, "column")
+    assertSafeDefinition(definition)
+
+    const columns = await db.all(`PRAGMA table_info("${table}")`)
     const hasColumn = columns.some((existing:any) => existing.name === column)
 
     if(!hasColumn){
         await db.exec(`
-            ALTER TABLE ${table}
-            ADD COLUMN ${column} ${definition}
+            ALTER TABLE "${table}"
+            ADD COLUMN "${column}" ${definition}
         `)
     }
 }
@@ -264,4 +279,16 @@ async function ensureManagedSecretColumn(db:any){
 
 async function ensureOrganizationOwnerWalletColumn(db:any){
     await ensureColumn(db, "organizations", "owner_wallet_address", "TEXT")
+}
+
+function assertSafeIdentifier(value:string, field:string){
+    if(!SAFE_IDENTIFIER.test(value)){
+        throw new Error(`unsafe ${field} identifier`)
+    }
+}
+
+function assertSafeDefinition(value:string){
+    if(!SAFE_DEFINITION.test(value)){
+        throw new Error("unsafe column definition")
+    }
 }

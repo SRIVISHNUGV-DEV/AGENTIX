@@ -2,15 +2,16 @@ import express from "express"
 import { initDB } from "../db"
 import { IncrementalMerkleTree } from "../services/merkle"
 import { SparseRevocationTree } from "../services/revocationTree"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { requireInteger } from "../utils/validation"
 
 const router = express.Router()
 
-router.get("/:agentId", async (req:any,res)=>{
-
+router.get("/:agentId", async (req:AuthRequest,res)=>{
     try{
-
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
 
         const credential = req.auth
             ? await db.get(
@@ -41,10 +42,7 @@ router.get("/:agentId", async (req:any,res)=>{
 
         const tree = new IncrementalMerkleTree(20, { orgId: credential.org_id })
         await tree.rebuildFromCredentials(db)
-        const proof = await tree.generateProof(
-            db,
-            credential.leaf_index
-        )
+        const proof = await tree.generateProof(db, credential.leaf_index)
         const root = await tree.getRoot(db)
         if(!credential.secret_hash){
             return res.status(400).json({
@@ -67,15 +65,9 @@ router.get("/:agentId", async (req:any,res)=>{
             revokedIsOld0: revokedProof.isOld0,
             revokedRoot: revokedProof.root
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error:err.message
-        })
-
+    }catch(error){
+        respondWithError(res, error, "proofs.get")
     }
-
 })
 
 export default router

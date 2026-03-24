@@ -11,6 +11,10 @@ export class AuthService {
 
     verifyPassword(password:string, storedHash:string){
         const [salt, expected] = storedHash.split(":")
+        if(!salt || !expected){
+            return false
+        }
+
         const actual = crypto.scryptSync(password, salt, 64).toString("hex")
         return crypto.timingSafeEqual(
             Buffer.from(actual, "hex"),

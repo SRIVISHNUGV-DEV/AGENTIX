@@ -3,6 +3,9 @@ import { initDB } from "../db"
 import { AuthService } from "../services/auth"
 import { BlockchainService } from "../services/blockchain"
 import { requireAuth } from "../middleware/auth"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { ensureBodyObject, requireEmail, requirePassword, requireString } from "../utils/validation"
 
 const router = express.Router()
 const auth = new AuthService()
@@ -11,13 +14,14 @@ const blockchain = new BlockchainService()
 router.post("/register", async (req,res)=>{
     try{
         const db = await initDB()
-        const { orgName, name, email, password } = req.body
+        ensureBodyObject(req.body)
 
-        if(!orgName || !name || !email || !password){
-            return res.status(400).json({ error:"orgName, name, email and password are required" })
-        }
+        const orgName = requireString(req.body.orgName, "orgName", { minLength: 2, maxLength: 120 })
+        const name = requireString(req.body.name, "name", { minLength: 2, maxLength: 120 })
+        const email = requireEmail(req.body.email)
+        const password = requirePassword(req.body.password)
 
-        const existing = await db.get(`SELECT id FROM users WHERE email = ?`, email.toLowerCase())
+        const existing = await db.get(`SELECT id FROM users WHERE email = ?`, email)
         if(existing){
             return res.status(409).json({ error:"user already exists" })
         }
@@ -35,7 +39,7 @@ router.post("/register", async (req,res)=>{
             VALUES (?, ?, ?, ?, 'owner')
             `,
             orgId,
-            email.toLowerCase(),
+            email,
             name,
             auth.hashPassword(password)
         )
@@ -49,24 +53,23 @@ router.post("/register", async (req,res)=>{
             user: {
                 id: userResult.lastID,
                 orgId,
-                email: email.toLowerCase(),
+                email,
                 name,
                 role: "owner"
             }
         })
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "auth.register")
     }
 })
 
 router.post("/login", async (req,res)=>{
     try{
         const db = await initDB()
-        const { email, password } = req.body
+        ensureBodyObject(req.body)
 
-        if(!email || !password){
-            return res.status(400).json({ error:"email and password are required" })
-        }
+        const email = requireEmail(req.body.email)
+        const password = requireString(req.body.password, "password", { minLength: 1, maxLength: 128 })
 
         const user = await db.get(
             `
@@ -74,7 +77,7 @@ router.post("/login", async (req,res)=>{
             FROM users
             WHERE email = ?
             `,
-            email.toLowerCase()
+            email
         )
 
         if(!user || !auth.verifyPassword(password, user.password_hash)){
@@ -95,32 +98,41 @@ router.post("/login", async (req,res)=>{
                 role: user.role
             }
         })
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "auth.login")
     }
 })
 
-router.post("/logout", requireAuth, async (req:any,res)=>{
-    const db = await initDB()
-    const token = req.headers.authorization?.slice("Bearer ".length)
-    if(token){
-        await auth.revokeSession(db, token)
+router.post("/logout", requireAuth, async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
+        const header = req.headers.authorization
+        const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : null
+        if(token){
+            await auth.revokeSession(db, token)
+        }
+        res.json({ success:true })
+    }catch(error){
+        respondWithError(res, error, "auth.logout")
     }
-    res.json({ success:true })
 })
 
-router.get("/me", requireAuth, async (req:any,res)=>{
-    const db = await initDB()
-    const organization = await db.get(
-        `SELECT * FROM organizations WHERE id = ?`,
-        req.auth.orgId
-    )
+router.get("/me", requireAuth, async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
+        const organization = await db.get(
+            `SELECT * FROM organizations WHERE id = ?`,
+            req.auth!.orgId
+        )
 
-    res.json({
-        success:true,
-        user: req.auth,
-        organization
-    })
+        res.json({
+            success:true,
+            user: req.auth,
+            organization
+        })
+    }catch(error){
+        respondWithError(res, error, "auth.me")
+    }
 })
 
 export default router

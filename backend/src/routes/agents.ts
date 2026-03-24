@@ -2,25 +2,29 @@ import express from "express"
 import { initDB } from "../db"
 import { PlatformService } from "../services/platform"
 import { requireSignedAction } from "../services/actionAuth"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { ensureBodyObject, optionalAddress, optionalInteger, requireInteger, requireString } from "../utils/validation"
 
 const router = express.Router()
 const platform = new PlatformService()
 
-
-// Create agent
-router.post("/", async (req:any,res)=>{
-
+router.post("/", async (req:AuthRequest,res)=>{
     try{
-
         const db = await initDB()
+        ensureBodyObject(req.body)
 
-        const { agentName, orgId: requestedOrgId } = req.body
-        const orgId = req.auth?.orgId ?? Number(requestedOrgId)
+        const agentName = requireString(req.body.agentName, "agentName", { minLength: 2, maxLength: 120 })
+        const requestedOrgId = optionalInteger(req.body.orgId, "orgId", 1)
+        const orgId = req.auth?.orgId ?? requestedOrgId
 
         if(!orgId){
-            return res.status(400).json({
-                error:"orgId required"
-            })
+            return res.status(400).json({ error:"orgId required" })
+        }
+
+        const org = await db.get(`SELECT id FROM organizations WHERE id = ?`, orgId)
+        if(!org){
+            return res.status(404).json({ error:"organization not found" })
         }
 
         const result = await db.run(
@@ -35,55 +39,49 @@ router.post("/", async (req:any,res)=>{
         res.json({
             agentId: result.lastID
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error: err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "agents.create")
     }
-
 })
 
-
-// List agents
-router.get("/", async (req:any,res)=>{
-
-    const db = await initDB()
-
-    const agents = req.auth
-        ? await db.all(
-            `
-            SELECT *
-            FROM agents
-            WHERE org_id = ?
-            `,
-            req.auth.orgId
-        )
-        : await db.all(
-            `
-            SELECT *
-            FROM agents
-            `
-        )
-
-    res.json(agents)
-
-})
-
-router.post("/:agentId/credentials/issue", async (req:any,res)=>{
+router.get("/", async (req:AuthRequest,res)=>{
     try{
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+
+        const agents = req.auth
+            ? await db.all(
+                `
+                SELECT *
+                FROM agents
+                WHERE org_id = ?
+                `,
+                req.auth.orgId
+            )
+            : await db.all(
+                `
+                SELECT id, org_id, agent_name, created_at
+                FROM agents
+                `
+            )
+
+        res.json(agents)
+    }catch(error){
+        respondWithError(res, error, "agents.list")
+    }
+})
+
+router.post("/:agentId/credentials/issue", async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
         if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
             return res.status(403).json({ error:"forbidden" })
         }
-        const { permissions, expiry } = req.body
 
-        if(permissions === undefined || expiry === undefined){
-            return res.status(400).json({ error:"permissions and expiry are required" })
-        }
+        ensureBodyObject(req.body)
+        const permissions = requireInteger(req.body.permissions, "permissions", 0)
+        const expiry = requireInteger(req.body.expiry, "expiry", 1)
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -92,22 +90,25 @@ router.post("/:agentId/credentials/issue", async (req:any,res)=>{
             payload: req.body ?? {}
         })
 
-        const result = await platform.issueCredential(db, agentId, Number(permissions), Number(expiry))
+        const result = await platform.issueCredential(db, agentId, permissions, expiry)
         res.json(result)
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "agents.issueCredential")
     }
 })
 
-router.post("/:agentId/sessions/create", async (req:any,res)=>{
+router.post("/:agentId/sessions/create", async (req:AuthRequest,res)=>{
     try{
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
         if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
             return res.status(403).json({ error:"forbidden" })
         }
-        const { maxValue, expiry } = req.body ?? {}
+
+        ensureBodyObject(req.body)
+        const maxValue = optionalInteger(req.body.maxValue, "maxValue", 0)
+        const expiry = optionalInteger(req.body.expiry, "expiry", 1)
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -116,20 +117,17 @@ router.post("/:agentId/sessions/create", async (req:any,res)=>{
             payload: req.body ?? {}
         })
 
-        const result = await platform.createSession(db, agentId, {
-            maxValue: maxValue === undefined ? undefined : Number(maxValue),
-            expiry: expiry === undefined ? undefined : Number(expiry)
-        })
+        const result = await platform.createSession(db, agentId, { maxValue, expiry })
         res.json(result)
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "agents.createSession")
     }
 })
 
-router.post("/:agentId/revoke", async (req:any,res)=>{
+router.post("/:agentId/revoke", async (req:AuthRequest,res)=>{
     try{
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
         if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
             return res.status(403).json({ error:"forbidden" })
@@ -144,20 +142,22 @@ router.post("/:agentId/revoke", async (req:any,res)=>{
 
         const result = await platform.revokeCredential(db, agentId)
         res.json(result)
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "agents.revoke")
     }
 })
 
-router.post("/:agentId/wallets/create", async (req:any,res)=>{
+router.post("/:agentId/wallets/create", async (req:AuthRequest,res)=>{
     try{
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
         if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
             return res.status(403).json({ error:"forbidden" })
         }
-        const { ownerAddress } = req.body ?? {}
+
+        ensureBodyObject(req.body)
+        const ownerAddress = optionalAddress(req.body.ownerAddress, "ownerAddress")
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -166,26 +166,24 @@ router.post("/:agentId/wallets/create", async (req:any,res)=>{
             payload: req.body ?? {}
         })
 
-        const result = await platform.createWallet(db, agentId, ownerAddress)
+        const result = await platform.createWallet(db, agentId, ownerAddress ?? undefined)
         res.json(result)
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "agents.createWallet")
     }
 })
 
-router.post("/:agentId/fund", async (req:any,res)=>{
+router.post("/:agentId/fund", async (req:AuthRequest,res)=>{
     try{
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
         if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
             return res.status(403).json({ error:"forbidden" })
         }
-        const { amountEth } = req.body ?? {}
 
-        if(!amountEth){
-            return res.status(400).json({ error:"amountEth is required" })
-        }
+        ensureBodyObject(req.body)
+        const amountEth = requireString(req.body.amountEth, "amountEth", { minLength: 1, maxLength: 40 })
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -196,8 +194,8 @@ router.post("/:agentId/fund", async (req:any,res)=>{
 
         const result = await platform.fundAgent(db, agentId, amountEth)
         res.json({ success:true, ...result })
-    }catch(err:any){
-        res.status(500).json({ error: err.message })
+    }catch(error){
+        respondWithError(res, error, "agents.fund")
     }
 })
 

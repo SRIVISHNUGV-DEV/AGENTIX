@@ -3,38 +3,25 @@ import { initDB } from "../db"
 import { BlockchainService } from "../services/blockchain"
 import { IncrementalMerkleTree } from "../services/merkle"
 import { SparseRevocationTree } from "../services/revocationTree"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { ensureBodyObject, requireAddress, requireArray, requireInteger, requireObject, requireString } from "../utils/validation"
 
 const blockchain = new BlockchainService()
 const router = express.Router()
 
 router.post("/", async (req,res)=>{
-
     try{
-
         const db = await initDB()
-        const {
-            agentId,
-            sessionId,
-            sessionKey,
-            maxValue,
-            expiry,
-            proof,
-            publicSignals
-        } = req.body
+        ensureBodyObject(req.body)
 
-        if(
-            agentId === undefined ||
-            !sessionId ||
-            !sessionKey ||
-            maxValue === undefined ||
-            expiry === undefined ||
-            !proof ||
-            !publicSignals
-        ){
-            return res.status(400).json({
-                error:"agentId, sessionId, sessionKey, maxValue, expiry, proof and publicSignals are required"
-            })
-        }
+        const agentId = requireInteger(req.body.agentId, "agentId", 1)
+        const sessionId = requireString(req.body.sessionId, "sessionId", { minLength: 1, maxLength: 256 })
+        const sessionKey = requireAddress(req.body.sessionKey, "sessionKey")
+        const maxValue = requireInteger(req.body.maxValue, "maxValue", 0)
+        const expiry = requireInteger(req.body.expiry, "expiry", 1)
+        const proof = requireObject(req.body.proof, "proof")
+        const publicSignals = requireArray(req.body.publicSignals, "publicSignals")
 
         const agent = await db.get(
             `SELECT org_id FROM agents WHERE id = ?`,
@@ -80,49 +67,42 @@ router.post("/", async (req,res)=>{
             success:true,
             txHash:tx.txHash
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error:err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "sessions.create")
     }
-
 })
 
+router.get("/", async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
 
-// List sessions
-router.get("/", async (req:any,res)=>{
+        const sessions = req.auth
+            ? await db.all(
+                `
+                SELECT s.*
+                FROM sessions s
+                INNER JOIN agents a ON a.id = s.agent_id
+                WHERE a.org_id = ?
+                `,
+                req.auth.orgId
+            )
+            : await db.all(
+                `
+                SELECT id, agent_id, session_id, nullifier, tx_hash, created_at
+                FROM sessions
+                `
+            )
 
-    const db = await initDB()
-
-    const sessions = req.auth
-        ? await db.all(
-            `
-            SELECT s.*
-            FROM sessions s
-            INNER JOIN agents a ON a.id = s.agent_id
-            WHERE a.org_id = ?
-            `,
-            req.auth.orgId
-        )
-        : await db.all(
-            `
-            SELECT *
-            FROM sessions
-            `
-        )
-
-    res.json(sessions)
-
+        res.json(sessions)
+    }catch(error){
+        respondWithError(res, error, "sessions.list")
+    }
 })
 
 router.get("/proof/:agentId", async (req,res)=>{
-
     try{
-
         const db = await initDB()
-        const agentId = Number(req.params.agentId)
+        const agentId = requireInteger(req.params.agentId, "agentId", 1)
 
         const credential = await db.get(
             `
@@ -141,10 +121,7 @@ router.get("/proof/:agentId", async (req,res)=>{
 
         const tree = new IncrementalMerkleTree(20, { orgId: credential.org_id })
         await tree.rebuildFromCredentials(db)
-        const proof = await tree.generateProof(
-            db,
-            credential.leaf_index
-        )
+        const proof = await tree.generateProof(db, credential.leaf_index)
 
         const root = await tree.getRoot(db)
         if(!credential.secret_hash){
@@ -168,12 +145,8 @@ router.get("/proof/:agentId", async (req,res)=>{
             revokedIsOld0: revokedProof.isOld0,
             revokedRoot: revokedProof.root
         })
-
-    }catch(err:any){
-
-        res.status(500).json({
-            error:err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "sessions.proof")
     }
 })
 

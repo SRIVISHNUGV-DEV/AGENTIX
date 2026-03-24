@@ -1,4 +1,5 @@
 import { verifyMessage } from "ethers"
+import { AppError } from "../utils/errors"
 
 const SIGNED_ACTION_CHAIN_ID = 11155111
 const MAX_SIGNATURE_AGE_SECONDS = 5 * 60
@@ -53,7 +54,7 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
     const requestedAt = Number(payload.requestedAt)
 
     if(!walletAddress || !signature || !nonce || !Number.isFinite(requestedAt)){
-        throw new Error("wallet signature is required")
+        throw new AppError(401, "wallet signature is required")
     }
 
     const org = await db.get(
@@ -66,17 +67,17 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
     )
 
     if(!org){
-        throw new Error("organization not found")
+        throw new AppError(404, "organization not found")
     }
 
     const ownerWalletAddress = org.owner_wallet_address?.toLowerCase()
 
     if(!ownerWalletAddress){
-        throw new Error("organization owner wallet is not set")
+        throw new AppError(400, "organization owner wallet is not set")
     }
 
     if(ownerWalletAddress !== walletAddress){
-        throw new Error("signed wallet does not match organization owner")
+        throw new AppError(403, "signed wallet does not match organization owner")
     }
 
     const existing = await db.get(
@@ -89,12 +90,12 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
     )
 
     if(existing){
-        throw new Error("authorization nonce already used")
+        throw new AppError(409, "authorization nonce already used")
     }
 
     const now = Math.floor(Date.now() / 1000)
     if(Math.abs(now - requestedAt) > MAX_SIGNATURE_AGE_SECONDS){
-        throw new Error("wallet signature expired")
+        throw new AppError(401, "wallet signature expired")
     }
 
     const message = buildSignedActionMessage({
@@ -110,11 +111,11 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
     try{
         recovered = verifyMessage(message, signature).toLowerCase()
     }catch{
-        throw new Error("invalid wallet signature")
+        throw new AppError(401, "invalid wallet signature")
     }
 
     if(recovered !== walletAddress){
-        throw new Error("wallet signature does not match requested wallet")
+        throw new AppError(401, "wallet signature does not match requested wallet")
     }
 
     await db.run(

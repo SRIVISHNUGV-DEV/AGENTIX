@@ -1,6 +1,9 @@
 import express from "express"
 import { initDB } from "../db"
 import { BlockchainService } from "../services/blockchain"
+import type { AuthRequest } from "../types/http"
+import { respondWithError } from "../utils/errors"
+import { ensureBodyObject, optionalInteger, requireAddress } from "../utils/validation"
 
 const router = express.Router()
 const blockchain = new BlockchainService()
@@ -8,16 +11,13 @@ const blockchain = new BlockchainService()
 router.post("/", async (req,res)=>{
     try{
         const db = await initDB()
-        const { ownerAddress, agentId } = req.body
+        ensureBodyObject(req.body)
 
-        if(!ownerAddress){
-            return res.status(400).json({
-                error:"ownerAddress is required"
-            })
-        }
+        const ownerAddress = requireAddress(req.body.ownerAddress, "ownerAddress")
+        const agentId = optionalInteger(req.body.agentId, "agentId", 1)
 
         let orgId:number | null = null
-        if(agentId !== undefined && agentId !== null){
+        if(agentId !== undefined){
             const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
             if(!agent){
                 return res.status(404).json({ error:"agent not found" })
@@ -55,35 +55,36 @@ router.post("/", async (req,res)=>{
             success:true,
             ...wallet
         })
-
-    }catch(err:any){
-        res.status(500).json({
-            error:err.message
-        })
+    }catch(error){
+        respondWithError(res, error, "wallets.create")
     }
 })
 
-router.get("/", async (req:any,res)=>{
-    const db = await initDB()
-    const wallets = req.auth
-        ? await db.all(
-            `
-            SELECT *
-            FROM wallets
-            WHERE org_id = ?
-            ORDER BY id DESC
-            `,
-            req.auth.orgId
-        )
-        : await db.all(
-            `
-            SELECT *
-            FROM wallets
-            ORDER BY id DESC
-            `
-        )
+router.get("/", async (req:AuthRequest,res)=>{
+    try{
+        const db = await initDB()
+        const wallets = req.auth
+            ? await db.all(
+                `
+                SELECT *
+                FROM wallets
+                WHERE org_id = ?
+                ORDER BY id DESC
+                `,
+                req.auth.orgId
+            )
+            : await db.all(
+                `
+                SELECT id, agent_id, org_id, owner_address, wallet_address, session_manager_address, implementation_address, created_at
+                FROM wallets
+                ORDER BY id DESC
+                `
+            )
 
-    res.json(wallets)
+        res.json(wallets)
+    }catch(error){
+        respondWithError(res, error, "wallets.list")
+    }
 })
 
 export default router
