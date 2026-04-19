@@ -1,6 +1,6 @@
-# COVENANT-V0
+# AGENTIX
 
-Covenant-V0 is a protocol and operator platform for issuing private credentials to AI agents, proving authorization with zero knowledge, and creating on-chain sessions and wallets under explicit policy control.
+Agentix is a protocol and operator platform for issuing private credentials to AI agents, proving authorization with zero knowledge, and creating on-chain sessions and wallets under explicit policy control.
 
 It is built for teams that want:
 
@@ -9,9 +9,9 @@ It is built for teams that want:
 - per-organization contract isolation
 - a hosted operator workflow and a self-hosted SDK path
 
-## What Covenant-V0 Does
+## What Agentix Does
 
-With Covenant-V0, an organization can:
+With Agentix , an organization can:
 
 - connect an owner wallet
 - create an organization workspace
