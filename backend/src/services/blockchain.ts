@@ -1,6 +1,7 @@
 import { ethers } from "ethers"
 import fs from "fs"
 import path from "path"
+import { BundlerService, UserOperationRequest } from "./bundler"
 
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545"
 const PRIVATE_KEY = process.env.PRIVATE_KEY || ""
@@ -12,6 +13,10 @@ const DEFAULT_CREDENTIAL_REGISTRY_ADDRESS = process.env.CREDENTIAL_REGISTRY_ADDR
 const DEFAULT_AGENT_WALLET_FACTORY_ADDRESS = process.env.AGENT_WALLET_FACTORY_ADDRESS || ""
 const DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS = process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS || ""
 const DEFAULT_VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS || ""
+const DEFAULT_ENTRY_POINT_ADDRESS =
+    process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+const DEFAULT_MAX_FEE_PER_GAS_GWEI = process.env.BUNDLER_MAX_FEE_PER_GAS_GWEI || ""
+const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_GWEI = process.env.BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI || ""
 
 const SESSION_MANAGER_ARTIFACT = "src_SessionManager_sol_SessionManager"
 const FACTORY_ARTIFACT = "src_AgentWalletFactory_sol_AgentWalletFactory"
@@ -28,7 +33,15 @@ export type OrganizationContracts = {
     sessionManagerAddress:string
     agentWalletFactoryAddress:string
     agentWalletImplementationAddress:string
+    entryPointAddress:string
     deploymentTxHashes:any
+}
+
+export type PreparedUserOperation = {
+    walletAddress:string
+    entryPointAddress:string
+    userOp:UserOperationRequest
+    userOpHash:string
 }
 
 function sleep(ms:number){
@@ -47,12 +60,22 @@ function isRateLimitError(error:any){
 
 function loadArtifact(name:string){
     const baseDir = path.join(__dirname, "../../../contracts")
+    const hardhatArtifactPath = resolveHardhatArtifactPath(baseDir, name)
     const nestedAbi = path.join(baseDir, `contracts_${name}.abi`)
     const nestedBin = path.join(baseDir, `contracts_${name}.bin`)
     const directAbi = path.join(baseDir, `${name}.abi`)
     const directBin = path.join(baseDir, `${name}.bin`)
-    const abiPath = fs.existsSync(nestedAbi) ? nestedAbi : directAbi
-    const binPath = fs.existsSync(nestedBin) ? nestedBin : directBin
+
+    if(hardhatArtifactPath && fs.existsSync(hardhatArtifactPath)){
+        const artifact = JSON.parse(fs.readFileSync(hardhatArtifactPath, "utf8"))
+        return {
+            abi: artifact.abi,
+            bytecode: artifact.bytecode
+        }
+    }
+
+    const abiPath = fs.existsSync(directAbi) ? directAbi : nestedAbi
+    const binPath = fs.existsSync(directBin) ? directBin : nestedBin
 
     return {
         abi: JSON.parse(fs.readFileSync(abiPath, "utf8")),
@@ -60,10 +83,22 @@ function loadArtifact(name:string){
     }
 }
 
+function resolveHardhatArtifactPath(baseDir:string, name:string){
+    const match = /^(.+)_([^_]+)_sol_(.+)$/.exec(name)
+    if(!match){
+        return null
+    }
+
+    const [, sourceGroup, sourceName, contractName] = match
+    const sourcePath = path.join(baseDir, "artifacts", sourceGroup, `${sourceName}.sol`, `${contractName}.json`)
+    return sourcePath
+}
+
 export class BlockchainService {
 
     provider: ethers.JsonRpcProvider
     wallet: ethers.Wallet
+    bundler: BundlerService
 
     constructor(){
         this.provider = new ethers.JsonRpcProvider(
@@ -76,6 +111,7 @@ export class BlockchainService {
             PRIVATE_KEY,
             this.provider
         )
+        this.bundler = new BundlerService(this.provider, DEFAULT_ENTRY_POINT_ADDRESS)
     }
 
     private getRegistryAbi(){
@@ -178,6 +214,7 @@ export class BlockchainService {
                 sessionManagerAddress: row.session_manager_address,
                 agentWalletFactoryAddress: row.agent_wallet_factory_address,
                 agentWalletImplementationAddress: row.agent_wallet_implementation_address,
+                entryPointAddress: row.entry_point_address,
                 deploymentTxHashes: row.deployment_tx_hashes ? JSON.parse(row.deployment_tx_hashes) : null
             }
         }
@@ -191,11 +228,12 @@ export class BlockchainService {
             sessionManagerAddress: DEFAULT_SESSION_MANAGER_ADDRESS,
             agentWalletFactoryAddress: DEFAULT_AGENT_WALLET_FACTORY_ADDRESS,
             agentWalletImplementationAddress: DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS,
+            entryPointAddress: DEFAULT_ENTRY_POINT_ADDRESS,
             deploymentTxHashes: null
         }
     }
 
-    async ensureOrganizationContracts(db:any, orgId:number){
+    async ensureOrganizationContracts(db:any, orgId:number, options:{ force?:boolean } = {}){
         const existing = await db.get(
             `
             SELECT org_id
@@ -205,8 +243,8 @@ export class BlockchainService {
             orgId
         )
 
-        if(!existing){
-            return this.deployOrganizationContracts(db, orgId)
+        if(!existing || options.force){
+            return this.deployOrganizationContracts(db, orgId, options)
         }
 
         return this.getOrganizationContracts(db, orgId)
@@ -225,6 +263,7 @@ export class BlockchainService {
             return {
                 verifierAddress: existing.verifier_address,
                 walletImplementationAddress: existing.agent_wallet_implementation_address,
+                entryPointAddress: existing.entry_point_address || DEFAULT_ENTRY_POINT_ADDRESS,
             }
         }
 
@@ -238,6 +277,7 @@ export class BlockchainService {
         const verifierAddress = DEFAULT_VERIFIER_ADDRESS || await verifier!.getAddress()
         const walletImplementationAddress =
             DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS || await walletImplementation!.getAddress()
+        const entryPointAddress = existing?.entry_point_address || DEFAULT_ENTRY_POINT_ADDRESS
 
         await db.run(
             `
@@ -245,43 +285,59 @@ export class BlockchainService {
                 id,
                 verifier_address,
                 agent_wallet_implementation_address,
+                entry_point_address,
                 deployment_tx_hashes,
                 updated_at
             )
-            VALUES (1, ?, ?, ?, strftime('%s','now'))
+            VALUES (1, ?, ?, ?, ?, strftime('%s','now'))
             ON CONFLICT(id) DO UPDATE SET
                 verifier_address = excluded.verifier_address,
                 agent_wallet_implementation_address = excluded.agent_wallet_implementation_address,
+                entry_point_address = excluded.entry_point_address,
                 deployment_tx_hashes = excluded.deployment_tx_hashes,
                 updated_at = strftime('%s','now')
             `,
             verifierAddress,
             walletImplementationAddress,
+            entryPointAddress,
             JSON.stringify({
                 verifier: verifier?.deploymentTransaction()?.hash ?? null,
-                walletImplementation: walletImplementation?.deploymentTransaction()?.hash ?? null
+                walletImplementation: walletImplementation?.deploymentTransaction()?.hash ?? null,
+                entryPoint: entryPointAddress
             })
         )
 
         return {
             verifierAddress,
-            walletImplementationAddress
+            walletImplementationAddress,
+            entryPointAddress
         }
     }
 
-    async deployOrganizationContracts(db:any, orgId:number){
+    async deployOrganizationContracts(db:any, orgId:number, options:{ force?:boolean } = {}){
         const existing = await db.get(
             `SELECT org_id FROM organization_contracts WHERE org_id = ?`,
             orgId
         )
 
-        if(existing){
+        if(existing && !options.force){
             return this.getOrganizationContracts(db, orgId)
+        }
+
+        if(existing && options.force){
+            await db.run(
+                `
+                DELETE FROM organization_contracts
+                WHERE org_id = ?
+                `,
+                orgId
+            )
         }
 
         const shared = await this.ensureSharedContracts(db)
         const verifierAddress = shared.verifierAddress
         const walletImplementationAddress = shared.walletImplementationAddress
+        const entryPointAddress = shared.entryPointAddress
 
         const registry = await this.deployArtifact(REGISTRY_ARTIFACT)
         const sessionManager = await this.deployArtifact(SESSION_MANAGER_ARTIFACT, [
@@ -290,7 +346,8 @@ export class BlockchainService {
         ])
         const walletFactory = await this.deployArtifact(FACTORY_ARTIFACT, [
             walletImplementationAddress,
-            await sessionManager.getAddress()
+            await sessionManager.getAddress(),
+            entryPointAddress
         ])
 
         const registryContract = this.getContract(await registry.getAddress(), this.getRegistryAbi())
@@ -310,7 +367,8 @@ export class BlockchainService {
             walletFactory: walletFactory.deploymentTransaction()?.hash ?? null,
             setSessionManager: setSessionManagerTx.hash,
             verifier: verifierAddress,
-            walletImplementation: walletImplementationAddress
+            walletImplementation: walletImplementationAddress,
+            entryPoint: entryPointAddress
         }
 
         await db.run(
@@ -325,10 +383,11 @@ export class BlockchainService {
                 session_manager_address,
                 agent_wallet_factory_address,
                 agent_wallet_implementation_address,
+                entry_point_address,
                 deployment_tx_hashes,
                 updated_at
             )
-            VALUES (?,?,?,?,?,?,?,?,?,strftime('%s','now'))
+            VALUES (?,?,?,?,?,?,?,?,?,?,strftime('%s','now'))
             ON CONFLICT(org_id) DO UPDATE SET
                 chain_id = excluded.chain_id,
                 network_name = excluded.network_name,
@@ -337,6 +396,7 @@ export class BlockchainService {
                 session_manager_address = excluded.session_manager_address,
                 agent_wallet_factory_address = excluded.agent_wallet_factory_address,
                 agent_wallet_implementation_address = excluded.agent_wallet_implementation_address,
+                entry_point_address = excluded.entry_point_address,
                 deployment_tx_hashes = excluded.deployment_tx_hashes,
                 updated_at = strftime('%s','now')
             `,
@@ -348,6 +408,7 @@ export class BlockchainService {
             await sessionManager.getAddress(),
             await walletFactory.getAddress(),
             walletImplementationAddress,
+            entryPointAddress,
             JSON.stringify(deploymentTxHashes)
         )
 
@@ -465,10 +526,16 @@ export class BlockchainService {
             contracts.agentWalletFactoryAddress,
             this.getFactoryAbi()
         )
+        const salt = ethers.keccak256(
+            ethers.solidityPacked(
+                ["uint256", "address", "uint256", "uint256"],
+                [BigInt(orgId), owner, BigInt(CHAIN_ID), BigInt(Date.now())]
+            )
+        )
 
         const tx = await this.withRpcRetry(
             "createWallet",
-            () => walletFactory.createWallet(owner)
+            () => walletFactory["createWallet(address,bytes32)"](owner, salt)
         )
         const receipt:any = await this.withRpcRetry(
             "wait createWallet",
@@ -491,6 +558,9 @@ export class BlockchainService {
             ownerAddress: owner,
             sessionManagerAddress: contracts.sessionManagerAddress,
             implementationAddress: contracts.agentWalletImplementationAddress,
+            entryPointAddress: contracts.entryPointAddress,
+            factorySalt: salt,
+            walletKind: "erc4337",
             factoryAddress: contracts.agentWalletFactoryAddress
         }
     }
@@ -513,6 +583,88 @@ export class BlockchainService {
             to,
             amountEth
         }
+    }
+
+    async prepareUserOperationForWallet(
+        db:any,
+        walletAddress:string,
+        callData:string,
+        initCode = "0x"
+    ):Promise<PreparedUserOperation>{
+        const walletRecord = await db.get(
+            `
+            SELECT *
+            FROM wallets
+            WHERE wallet_address = ?
+            `,
+            walletAddress
+        )
+
+        if(!walletRecord){
+            throw new Error("wallet not found")
+        }
+
+        const entryPointAddress = walletRecord.entry_point_address || DEFAULT_ENTRY_POINT_ADDRESS
+        const bundler = new BundlerService(this.provider, entryPointAddress)
+        const nonce = await bundler.getNonce(walletAddress)
+
+        let maxPriorityFeePerGas:bigint
+        let maxFeePerGas:bigint
+
+        if(DEFAULT_MAX_FEE_PER_GAS_GWEI && DEFAULT_MAX_PRIORITY_FEE_PER_GAS_GWEI){
+            maxPriorityFeePerGas = ethers.parseUnits(DEFAULT_MAX_PRIORITY_FEE_PER_GAS_GWEI, "gwei")
+            maxFeePerGas = ethers.parseUnits(DEFAULT_MAX_FEE_PER_GAS_GWEI, "gwei")
+        }else{
+            const feeData = await this.provider.getFeeData()
+            maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? ethers.parseUnits("1", "gwei")
+            maxFeePerGas = feeData.maxFeePerGas ?? maxPriorityFeePerGas * 2n
+        }
+
+        let userOp:UserOperationRequest = {
+            sender: walletAddress,
+            nonce: ethers.toBeHex(nonce),
+            initCode,
+            callData,
+            accountGasLimits: bundler.buildPackedGasLimits(500000n, 500000n),
+            preVerificationGas: ethers.toBeHex(100000n),
+            gasFees: bundler.buildPackedGasFees(maxPriorityFeePerGas, maxFeePerGas),
+            paymasterAndData: "0x",
+            signature: "0x"
+        }
+
+        if(bundler.isConfigured()){
+            const estimate = await bundler.estimateUserOperationGas(userOp, entryPointAddress)
+            userOp = {
+                ...userOp,
+                preVerificationGas: estimate.preVerificationGas ?? userOp.preVerificationGas,
+                accountGasLimits: bundler.buildPackedGasLimits(
+                    BigInt(estimate.verificationGasLimit ?? "500000"),
+                    BigInt(estimate.callGasLimit ?? "500000")
+                )
+            }
+        }
+
+        const userOpHash = await bundler.getUserOpHash(userOp)
+        return {
+            walletAddress,
+            entryPointAddress,
+            userOp,
+            userOpHash
+        }
+    }
+
+    async submitUserOperation(userOp:UserOperationRequest, entryPointAddress:string){
+        const bundler = new BundlerService(this.provider, entryPointAddress)
+        const userOpHash = await bundler.sendUserOperation(userOp, entryPointAddress)
+        return {
+            userOpHash,
+            entryPointAddress
+        }
+    }
+
+    async getUserOperationReceipt(userOpHash:string, entryPointAddress?:string){
+        const bundler = new BundlerService(this.provider, entryPointAddress || DEFAULT_ENTRY_POINT_ADDRESS)
+        return bundler.getUserOperationReceipt(userOpHash)
     }
 
     async getEventContracts(db:any){

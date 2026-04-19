@@ -39,7 +39,7 @@ export function AgentsTable({ agents }: AgentsTableProps) {
                 <div className="flex flex-col gap-1">
                   <span className="font-medium text-foreground">{agent.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {agent.credentials.length} credentials · {agent.wallets.length} wallets
+                    {agent.credentials.length} credentials | {agent.wallets.length} wallets
                   </span>
                 </div>
               </TableCell>

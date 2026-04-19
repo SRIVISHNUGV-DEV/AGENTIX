@@ -142,6 +142,7 @@ export default async function DashboardPage() {
                       ['CredentialRegistry', contracts.credentialRegistryAddress],
                       ['SessionManager', contracts.sessionManagerAddress],
                       ['AgentWalletFactory', contracts.agentWalletFactoryAddress],
+                      ['EntryPoint', contracts.entryPointAddress],
                     ].map(([label, address]) => (
                       <div key={label} className="metric-tile">
                         <div className="micro-label">{label}</div>

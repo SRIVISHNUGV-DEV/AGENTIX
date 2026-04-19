@@ -12,6 +12,7 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { GridBackdrop } from '@/components/effects/grid-backdrop'
 import { AgentActions } from '@/components/platform/agent-actions'
+import { WalletUserOpPanel } from '@/components/platform/wallet-userop-panel'
 import { StackMetrics } from '@/components/common/stack-metrics'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -95,6 +96,12 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
           <div className="mt-8">
             <SessionsList sessions={sessions} />
           </div>
+
+          {agent.wallets[0] ? (
+            <div className="mt-8">
+              <WalletUserOpPanel walletAddress={agent.wallets[0].address} orgId={agent.orgId} />
+            </div>
+          ) : null}
 
           <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-card p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
             <div className="mb-4">

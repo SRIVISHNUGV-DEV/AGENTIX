@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS wallets (
     wallet_address TEXT NOT NULL UNIQUE,
     session_manager_address TEXT NOT NULL,
     implementation_address TEXT,
+    entry_point_address TEXT,
+    factory_salt TEXT,
+    wallet_kind TEXT NOT NULL DEFAULT 'erc4337',
     created_at INTEGER DEFAULT (strftime('%s','now'))
 );
 
@@ -133,6 +136,7 @@ CREATE TABLE IF NOT EXISTS organization_contracts (
     session_manager_address TEXT NOT NULL,
     agent_wallet_factory_address TEXT NOT NULL,
     agent_wallet_implementation_address TEXT NOT NULL,
+    entry_point_address TEXT NOT NULL,
     deployment_tx_hashes TEXT,
     created_at INTEGER DEFAULT (strftime('%s','now')),
     updated_at INTEGER DEFAULT (strftime('%s','now')),
@@ -143,6 +147,7 @@ CREATE TABLE IF NOT EXISTS shared_contracts (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     verifier_address TEXT,
     agent_wallet_implementation_address TEXT,
+    entry_point_address TEXT,
     deployment_tx_hashes TEXT,
     created_at INTEGER DEFAULT (strftime('%s','now')),
     updated_at INTEGER DEFAULT (strftime('%s','now'))

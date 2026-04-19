@@ -184,7 +184,7 @@ export class EventSyncService {
         if(contractName === "AgentWalletFactory" && parsed.name === "WalletCreated"){
             const deployment = await db.get(
                 `
-                SELECT org_id, session_manager_address, agent_wallet_implementation_address
+                SELECT org_id, session_manager_address, agent_wallet_implementation_address, entry_point_address
                 FROM organization_contracts
                 WHERE agent_wallet_factory_address = ?
                 `,
@@ -194,19 +194,23 @@ export class EventSyncService {
             await db.run(
                 `
                 INSERT INTO wallets
-                (org_id, owner_address, wallet_address, session_manager_address, implementation_address)
-                VALUES (?,?,?,?,?)
+                (org_id, owner_address, wallet_address, session_manager_address, implementation_address, entry_point_address, wallet_kind)
+                VALUES (?,?,?,?,?,?,?)
                 ON CONFLICT(wallet_address) DO UPDATE SET
                     org_id = COALESCE(wallets.org_id, excluded.org_id),
                     owner_address = excluded.owner_address,
                     session_manager_address = excluded.session_manager_address,
-                    implementation_address = COALESCE(excluded.implementation_address, wallets.implementation_address)
+                    implementation_address = COALESCE(excluded.implementation_address, wallets.implementation_address),
+                    entry_point_address = COALESCE(excluded.entry_point_address, wallets.entry_point_address),
+                    wallet_kind = COALESCE(excluded.wallet_kind, wallets.wallet_kind)
                 `,
                 deployment?.org_id ?? null,
                 this.extractValue(payload, ["owner"]),
                 this.extractValue(payload, ["wallet"]),
                 deployment?.session_manager_address ?? "",
-                deployment?.agent_wallet_implementation_address ?? process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS ?? ""
+                deployment?.agent_wallet_implementation_address ?? process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS ?? "",
+                deployment?.entry_point_address ?? process.env.ENTRY_POINT_ADDRESS ?? null,
+                "erc4337"
             )
         }
     }

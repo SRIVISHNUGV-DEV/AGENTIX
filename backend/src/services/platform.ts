@@ -172,21 +172,37 @@ export class PlatformService {
         await db.run(
             `
             INSERT INTO wallets
-            (agent_id, org_id, owner_address, wallet_address, session_manager_address, implementation_address)
-            VALUES (?,?,?,?,?,?)
+            (
+                agent_id,
+                org_id,
+                owner_address,
+                wallet_address,
+                session_manager_address,
+                implementation_address,
+                entry_point_address,
+                factory_salt,
+                wallet_kind
+            )
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT(wallet_address) DO UPDATE SET
                 agent_id = COALESCE(wallets.agent_id, excluded.agent_id),
                 org_id = COALESCE(wallets.org_id, excluded.org_id),
                 owner_address = excluded.owner_address,
                 session_manager_address = excluded.session_manager_address,
-                implementation_address = COALESCE(excluded.implementation_address, wallets.implementation_address)
+                implementation_address = COALESCE(excluded.implementation_address, wallets.implementation_address),
+                entry_point_address = COALESCE(excluded.entry_point_address, wallets.entry_point_address),
+                factory_salt = COALESCE(excluded.factory_salt, wallets.factory_salt),
+                wallet_kind = COALESCE(excluded.wallet_kind, wallets.wallet_kind)
             `,
             agentId,
             agent.org_id,
             owner,
             wallet.walletAddress,
             wallet.sessionManagerAddress,
-            wallet.implementationAddress ?? null
+            wallet.implementationAddress ?? null,
+            wallet.entryPointAddress ?? null,
+            wallet.factorySalt ?? null,
+            wallet.walletKind ?? "erc4337"
         )
 
         return {

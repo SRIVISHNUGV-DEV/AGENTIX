@@ -45,6 +45,7 @@ async function createDB() {
     await ensureSharedContractsTable(db)
     await ensureManagedSecretColumn(db)
     await ensureOrganizationOwnerWalletColumn(db)
+    await ensureWallet4337Columns(db)
 
     return db
 }
@@ -237,11 +238,14 @@ async function ensureOrganizationContractsTable(db:any){
             session_manager_address TEXT NOT NULL,
             agent_wallet_factory_address TEXT NOT NULL,
             agent_wallet_implementation_address TEXT NOT NULL,
+            entry_point_address TEXT NOT NULL,
             deployment_tx_hashes TEXT,
             created_at INTEGER DEFAULT (strftime('%s','now')),
             updated_at INTEGER DEFAULT (strftime('%s','now'))
         )
     `)
+
+    await ensureColumn(db, "organization_contracts", "entry_point_address", "TEXT")
 }
 
 async function ensureSharedContractsTable(db:any){
@@ -250,11 +254,14 @@ async function ensureSharedContractsTable(db:any){
             id INTEGER PRIMARY KEY CHECK (id = 1),
             verifier_address TEXT,
             agent_wallet_implementation_address TEXT,
+            entry_point_address TEXT,
             deployment_tx_hashes TEXT,
             created_at INTEGER DEFAULT (strftime('%s','now')),
             updated_at INTEGER DEFAULT (strftime('%s','now'))
         )
     `)
+
+    await ensureColumn(db, "shared_contracts", "entry_point_address", "TEXT")
 }
 
 async function ensureColumn(db:any, table:string, column:string, definition:string){
@@ -279,6 +286,12 @@ async function ensureManagedSecretColumn(db:any){
 
 async function ensureOrganizationOwnerWalletColumn(db:any){
     await ensureColumn(db, "organizations", "owner_wallet_address", "TEXT")
+}
+
+async function ensureWallet4337Columns(db:any){
+    await ensureColumn(db, "wallets", "entry_point_address", "TEXT")
+    await ensureColumn(db, "wallets", "factory_salt", "TEXT")
+    await ensureColumn(db, "wallets", "wallet_kind", "TEXT NOT NULL DEFAULT 'erc4337'")
 }
 
 function assertSafeIdentifier(value:string, field:string){

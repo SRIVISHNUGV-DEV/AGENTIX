@@ -121,3 +121,26 @@ export function requireObject(value:unknown, field:string){
 
     return value as Record<string, unknown>
 }
+
+export function requireHex(value:unknown, field:string, options:{ minBytes?:number; maxBytes?:number } = {}){
+    const hex = requireString(value, field, { minLength: 2, maxLength: 131072 })
+
+    if(!/^0x[0-9a-fA-F]*$/.test(hex)){
+        throw new AppError(400, `${field} must be a hex string`)
+    }
+
+    if((hex.length - 2) % 2 !== 0){
+        throw new AppError(400, `${field} must have an even-length hex payload`)
+    }
+
+    const byteLength = (hex.length - 2) / 2
+    if(options.minBytes !== undefined && byteLength < options.minBytes){
+        throw new AppError(400, `${field} must be at least ${options.minBytes} bytes`)
+    }
+
+    if(options.maxBytes !== undefined && byteLength > options.maxBytes){
+        throw new AppError(400, `${field} must be at most ${options.maxBytes} bytes`)
+    }
+
+    return hex
+}

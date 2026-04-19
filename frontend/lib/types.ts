@@ -13,6 +13,7 @@ export interface OrganizationContracts {
   sessionManagerAddress: string
   agentWalletFactoryAddress: string
   agentWalletImplementationAddress: string
+  entryPointAddress: string
   deploymentTxHashes: Record<string, string | null> | null
 }
 
@@ -39,6 +40,12 @@ export interface Wallet {
   id: string
   agentId: string
   address: string
+  ownerAddress?: string
+  sessionManagerAddress?: string
+  implementationAddress?: string | null
+  entryPointAddress?: string | null
+  factorySalt?: string | null
+  walletKind?: string
   chain: "ethereum"
   balance: string
   createdAt: string

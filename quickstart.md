@@ -96,6 +96,10 @@ SESSION_MANAGER_ADDRESS=
 CREDENTIAL_REGISTRY_ADDRESS=
 AGENT_WALLET_FACTORY_ADDRESS=
 AGENT_WALLET_IMPLEMENTATION_ADDRESS=
+ENTRY_POINT_ADDRESS=0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108
+BUNDLER_URL=
+BUNDLER_MAX_FEE_PER_GAS_GWEI=
+BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI=
 ```
 
 Frontend env:
@@ -103,6 +107,7 @@ Frontend env:
 File: `frontend/.env.local`
 
 ```env
+AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3000
 NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3000
 ```
 
@@ -164,6 +169,7 @@ Minimal operator flow:
 7. deploy org contracts
 8. open the agent page
 9. create credential, wallet, fund wallet, create session, or revoke credential
+10. optionally open the agent page and submit an ERC-4337 wallet operation
 
 The UI now adds Sepolia Etherscan links anywhere a transaction hash is shown, so operators can check what happened on-chain immediately.
 
@@ -223,14 +229,7 @@ npm install
 npm run compile
 ```
 
-If you are using the existing direct artifact path, make sure the current contract ABIs/BINs in `contracts/` are regenerated before deployment.
-
-The deploy script currently resolves either:
-
-- `contracts_<name>.abi/.bin`
-- or `src_<name>.abi/.bin`
-
-and prefers the `contracts_*.abi/.bin` form when present.
+The deploy/runtime loader now prefers Hardhat artifact JSON from `contracts/artifacts/...` first, then falls back to flat `.abi/.bin` files only if needed.
 
 ### 9.3 Deploy To Sepolia
 
@@ -277,6 +276,32 @@ AGENT_WALLET_IMPLEMENTATION_ADDRESS=0x...
 ```
 
 Then restart the backend.
+
+## 10.1 Deploy The Frontend On Vercel
+
+Agentix is set up so the frontend can be deployed on Vercel while the backend runs separately.
+
+Recommended setup:
+
+1. import the repository into Vercel
+2. set the root directory to `frontend`
+3. set these environment variables in Vercel:
+
+```env
+AGENT_CREDENTIALS_API_URL=https://your-backend-host
+NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=https://your-backend-host
+```
+
+The repo already includes:
+
+- `frontend/vercel.json`
+- `frontend/.env.example`
+
+Important:
+
+- the backend must be deployed separately
+- the frontend API routes proxy all platform actions to `AGENT_CREDENTIALS_API_URL`
+- without a reachable backend, wallet actions, org actions, session creation, and event views will fail
 
 ## 11. Verify End-To-End After Redeploy
 
@@ -383,6 +408,7 @@ Check:
 - `PRIVATE_KEY`
 - deployer wallet funded on Sepolia
 - contract addresses in `backend/.env`
+- `BUNDLER_URL` if you are using wallet `UserOperation` submission
 
 ## 14. Recommended Redeploy Sequence
 

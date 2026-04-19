@@ -76,12 +76,14 @@ router.post("/:orgId/deploy-contracts", async (req:AuthRequest,res)=>{
             payload: req.body ?? {}
         })
 
-        const contracts = await blockchain.deployOrganizationContracts(db, orgId)
+        const force = Boolean(req.body?.force)
+        const contracts = await blockchain.deployOrganizationContracts(db, orgId, { force })
 
         res.json({
             success:true,
             organization: org,
-            contracts
+            contracts,
+            redeployed: force
         })
     }catch(error){
         respondWithError(res, error, "orgs.deployContracts")

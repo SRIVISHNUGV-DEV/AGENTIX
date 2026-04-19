@@ -64,4 +64,7 @@ export interface WalletResponse {
   ownerAddress: string
   sessionManagerAddress: string
   implementationAddress?: string
+  entryPointAddress?: string
+  factorySalt?: string
+  walletKind?: string
 }

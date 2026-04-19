@@ -3,6 +3,8 @@ const path = require("path");
 const { ContractFactory, JsonRpcProvider, Wallet } = require("ethers");
 const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111");
 const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia";
+const ENTRY_POINT_ADDRESS =
+  process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
 function loadEnv() {
   const envPath = path.resolve(__dirname, "../../backend/.env");
@@ -21,17 +23,37 @@ function loadEnv() {
 }
 
 function artifact(name) {
+  const hardhatArtifactPath = resolveHardhatArtifactPath(name);
   const directAbiPath = path.resolve(__dirname, `../${name}.abi`);
   const directBinPath = path.resolve(__dirname, `../${name}.bin`);
   const nestedAbiPath = path.resolve(__dirname, `../contracts_${name}.abi`);
   const nestedBinPath = path.resolve(__dirname, `../contracts_${name}.bin`);
-  const abiPath = fs.existsSync(nestedAbiPath) ? nestedAbiPath : directAbiPath;
-  const binPath = fs.existsSync(nestedBinPath) ? nestedBinPath : directBinPath;
+
+  if (hardhatArtifactPath && fs.existsSync(hardhatArtifactPath)) {
+    const compiled = JSON.parse(fs.readFileSync(hardhatArtifactPath, "utf8"));
+    return {
+      abi: compiled.abi,
+      bytecode: compiled.bytecode
+    };
+  }
+
+  const abiPath = fs.existsSync(directAbiPath) ? directAbiPath : nestedAbiPath;
+  const binPath = fs.existsSync(directBinPath) ? directBinPath : nestedBinPath;
 
   return {
     abi: JSON.parse(fs.readFileSync(abiPath, "utf8")),
     bytecode: `0x${fs.readFileSync(binPath, "utf8").trim()}`
   };
+}
+
+function resolveHardhatArtifactPath(name) {
+  const match = /^(.+)_([^_]+)_sol_(.+)$/.exec(name);
+  if (!match) {
+    return null;
+  }
+
+  const [, sourceGroup, sourceName, contractName] = match;
+  return path.resolve(__dirname, `../artifacts/${sourceGroup}/${sourceName}.sol/${contractName}.json`);
 }
 
 async function deploy(contractName, signer, args = []) {
@@ -62,7 +84,7 @@ async function main() {
   const walletFactory = await deploy(
     "src_AgentWalletFactory_sol_AgentWalletFactory",
     signer,
-    [await walletImplementation.getAddress(), await sessionManager.getAddress()]
+    [await walletImplementation.getAddress(), await sessionManager.getAddress(), ENTRY_POINT_ADDRESS]
   );
 
   const registryWithSigner = new (require("ethers").Contract)(
@@ -82,7 +104,8 @@ async function main() {
     credentialRegistry: await registry.getAddress(),
     sessionManager: await sessionManager.getAddress(),
     agentWalletImplementation: await walletImplementation.getAddress(),
-    agentWalletFactory: await walletFactory.getAddress()
+    agentWalletFactory: await walletFactory.getAddress(),
+    entryPoint: ENTRY_POINT_ADDRESS
   }, null, 2));
 }
 

@@ -19,6 +19,7 @@ With Agentix , an organization can:
 - deploy an organization-specific contract stack
 - issue credentials to agents
 - create and fund agent wallets
+- submit ERC-4337 wallet operations through a bundler
 - open policy-bound sessions
 - revoke credential-based access
 - inspect indexed on-chain events with direct Etherscan links
@@ -84,13 +85,58 @@ The dev launcher starts both services and prints the live URLs:
 - frontend: `http://127.0.0.1:3001`
 - backend: `http://127.0.0.1:3000`
 
+## Deploy On Vercel
+
+Vercel should host the `frontend/` Next.js app only.
+The `backend/` Express service should be deployed separately on a Node host such as Railway, Render, Fly.io, or a VPS.
+
+Recommended Vercel setup:
+
+1. import the repo into Vercel
+2. set the project root directory to `frontend`
+3. keep the framework as `Next.js`
+4. add these environment variables in Vercel:
+   - `AGENT_CREDENTIALS_API_URL=https://your-backend-host`
+   - `NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=https://your-backend-host`
+
+Files already added for this flow:
+
+- [frontend/vercel.json](./frontend/vercel.json)
+- [frontend/.env.example](./frontend/.env.example)
+
+Important:
+
+- the frontend API routes proxy to the backend using `AGENT_CREDENTIALS_API_URL`
+- the backend is not packaged as a Vercel serverless app in this repo
+- if you want the operator UI to work in production, the backend must be publicly reachable from Vercel
+
 ## Core Product Properties
 
 - Credentials are stored as commitments, not raw secrets.
 - Session creation is gated by a zero-knowledge proof.
 - Every platform-triggered on-chain action requires a wallet signature.
+- ERC-4337 wallet execution is supported through owner-signed `UserOperation`s.
 - Each organization gets its own `CredentialRegistry`, `SessionManager`, and `AgentWalletFactory`.
 - `Verifier` and wallet implementation are shared infrastructure, while organization state remains isolated.
+
+## ERC-4337 Notes
+
+Agentix now exposes a frontend and backend flow for:
+
+- preparing a wallet `UserOperation`
+- signing the `userOpHash` with the connected owner wallet
+- submitting the `UserOperation` to a bundler
+- fetching the resulting `UserOperation` receipt
+
+Required backend env for live 4337 submission:
+
+- `ENTRY_POINT_ADDRESS`
+- `BUNDLER_URL`
+
+Optional backend env to reduce extra fee-estimation RPC calls:
+
+- `BUNDLER_MAX_FEE_PER_GAS_GWEI`
+- `BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI`
 
 ## Documentation
 

@@ -8,7 +8,8 @@
     "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.6"
+    "@openzeppelin/contracts": "^4.9.6",
+    "run": "^1.5.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

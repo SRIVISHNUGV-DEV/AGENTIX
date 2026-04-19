@@ -32,6 +32,7 @@ type WalletContextValue = {
   connect: () => Promise<void>
   disconnect: () => void
   switchToSepolia: () => Promise<void>
+  signMessage: (message: string) => Promise<string>
   signPlatformAction: (input: { action: string; orgId: number; target: string }) => Promise<{
     walletAddress: string
     signature: string
@@ -189,6 +190,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const signMessage = async (message: string) => {
+    if (!window.ethereum || !account) {
+      throw new Error('Connect a wallet first')
+    }
+
+    const signature = (await window.ethereum.request({
+      method: 'personal_sign',
+      params: [message, account],
+    })) as string
+
+    return signature
+  }
+
   const value = useMemo(
     () => ({
       account,
@@ -200,9 +214,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       connect,
       disconnect,
       switchToSepolia,
+      signMessage,
       signPlatformAction,
     }),
-    [account, chainId, error, isConnecting, signPlatformAction]
+    [account, chainId, error, isConnecting, signMessage, signPlatformAction]
   )
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>

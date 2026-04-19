@@ -41,6 +41,9 @@ type BackendWallet = {
   wallet_address: string
   session_manager_address: string
   implementation_address: string | null
+  entry_point_address: string | null
+  factory_salt: string | null
+  wallet_kind: string | null
   created_at: number
 }
 
@@ -89,6 +92,7 @@ type BackendOrganizationContracts = {
   session_manager_address: string
   agent_wallet_factory_address: string
   agent_wallet_implementation_address: string
+  entry_point_address: string
   deployment_tx_hashes: string | null
 }
 
@@ -173,6 +177,12 @@ function mapWallet(wallet: BackendWallet): Wallet {
     id: wallet.id.toString(),
     agentId: (wallet.agent_id ?? "").toString(),
     address: wallet.wallet_address,
+    ownerAddress: wallet.owner_address,
+    sessionManagerAddress: wallet.session_manager_address,
+    implementationAddress: wallet.implementation_address,
+    entryPointAddress: wallet.entry_point_address,
+    factorySalt: wallet.factory_salt,
+    walletKind: wallet.wallet_kind ?? "erc4337",
     chain: "ethereum",
     balance: "Sepolia",
     createdAt: unixToIso(wallet.created_at),
@@ -361,6 +371,7 @@ export async function getOrganizationWorkspace(orgId?: string | null): Promise<A
             sessionManagerAddress: state.contracts.session_manager_address,
             agentWalletFactoryAddress: state.contracts.agent_wallet_factory_address,
             agentWalletImplementationAddress: state.contracts.agent_wallet_implementation_address,
+            entryPointAddress: state.contracts.entry_point_address,
             deploymentTxHashes: state.contracts.deployment_tx_hashes
               ? JSON.parse(state.contracts.deployment_tx_hashes)
               : null,
