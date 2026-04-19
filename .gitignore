@@ -21,6 +21,8 @@ yarn-error.log*
 pnpm-debug.log*
 backend/.backend*.log
 frontend/.frontend*.log
+.vercel/
+**/.vercel/
 
 # OS / editor noise
 .DS_Store
