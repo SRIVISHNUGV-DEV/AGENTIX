@@ -1,9 +1,10 @@
-import { Contract, JsonRpcProvider, Interface, Log } from "ethers"
+import { Contract, Interface, Log, AbstractProvider } from "ethers"
 import { initDB } from "../db"
 import { BlockchainService } from "./blockchain"
 
 const POLL_INTERVAL_MS = 60000
-const MAX_BLOCK_RANGE = 25
+const MAX_BLOCK_RANGE = 10
+const MAX_BLOCKS_PER_PASS = 1000
 const WALLET_SYNC_EVERY_N_PASSES = 4
 const MAX_WALLETS_PER_PASS = 10
 
@@ -20,7 +21,7 @@ function isRateLimitError(error:any){
 export class EventSyncService {
 
     blockchain: BlockchainService
-    provider: JsonRpcProvider
+    provider: AbstractProvider
     timer: NodeJS.Timeout | null
     passCount: number
 
@@ -48,6 +49,7 @@ export class EventSyncService {
     async syncOnce(){
         this.passCount += 1
         const db = await initDB()
+        const latestBlock = await this.provider.getBlockNumber()
         const contracts = await this.blockchain.getEventContracts(db)
 
         for (const contract of contracts) {
@@ -57,7 +59,8 @@ export class EventSyncService {
                     contract.orgId,
                     contract.name,
                     contract.address,
-                    contract.abi
+                    contract.abi,
+                    latestBlock
                 )
             }catch(error:any){
                 if(isRateLimitError(error)){
@@ -89,7 +92,8 @@ export class EventSyncService {
                     wallet.org_id ?? 0,
                     "AgentWallet",
                     wallet.wallet_address,
-                    this.blockchain.getWalletAbi()
+                    this.blockchain.getWalletAbi(),
+                    latestBlock
                 )
             }catch(error:any){
                 if(isRateLimitError(error)){
@@ -101,14 +105,13 @@ export class EventSyncService {
         }
     }
 
-    private async syncContractEvents(db:any, orgId:number, contractName:string, address:string, abi:any){
+    private async syncContractEvents(db:any, orgId:number, contractName:string, address:string, abi:any, latestBlock:number){
         if(!address){
             return
         }
 
         const contract = new Contract(address, abi, this.provider)
         const key = `${orgId}:${contractName}:${address.toLowerCase()}`
-        const latestBlock = await this.provider.getBlockNumber()
         const cursor = await db.get(
             `
             SELECT last_block
@@ -122,10 +125,12 @@ export class EventSyncService {
         if(fromBlock > latestBlock){
             return
         }
+
+        const syncToBlock = Math.min(fromBlock + MAX_BLOCKS_PER_PASS - 1, latestBlock)
         const iface = new Interface(abi)
 
-        for (let start = fromBlock; start <= latestBlock; start += MAX_BLOCK_RANGE) {
-            const end = Math.min(start + MAX_BLOCK_RANGE - 1, latestBlock)
+        for (let start = fromBlock; start <= syncToBlock; start += MAX_BLOCK_RANGE) {
+            const end = Math.min(start + MAX_BLOCK_RANGE - 1, syncToBlock)
             const logs = await contract.queryFilter("*" as any, start, end)
 
             for (const log of logs) {
@@ -142,8 +147,12 @@ export class EventSyncService {
             DO UPDATE SET last_block = excluded.last_block
             `,
             key,
-            latestBlock
+            syncToBlock
         )
+
+        if(syncToBlock < latestBlock){
+            console.log(`${contractName} sync caught up to block ${syncToBlock}, ${latestBlock - syncToBlock} blocks remaining (will continue next pass)`)
+        }
     }
 
     private async storeEvent(db:any, contractName:string, address:string, iface:Interface, log:Log){

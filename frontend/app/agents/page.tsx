@@ -12,6 +12,7 @@ import { StatusBadge } from '@/components/common/status-badge'
 import { getSelectedOrgId } from '@/lib/org-session'
 import { WorkspaceControls } from '@/components/platform/workspace-controls'
 import { StackMetrics } from '@/components/common/stack-metrics'
+import { DepthOrbit } from '@/components/effects/depth-orbit'
 
 const agentHighlights: Array<{ title: string; body: string; icon: LucideIcon }> = [
   {
@@ -53,30 +54,42 @@ export default async function AgentsPage() {
       <GridBackdrop />
       <Header />
       <main className="relative z-10 shell py-16 sm:py-20">
-        <section className="hero-panel p-8 sm:p-10">
-          <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="hero-panel depth-shell p-8 sm:p-10">
+          <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr] xl:items-center">
             <div className="max-w-3xl">
               <span className="section-kicker">Agent inventory</span>
               <h1 className="font-display text-4xl font-semibold tracking-[-0.05em] sm:text-6xl">
-                Connected agents and deployable execution surfaces
+                Connected operators, staged identities, and ready execution surfaces
               </h1>
               <p className="mt-4 text-lg leading-8 text-foreground/62">
                 Review which agents are provisioned, which ones are session-ready, and which ones still need wallet,
                 credential, or treasury setup.
               </p>
             </div>
-            <div className="rounded-[1.75rem] border border-white/10 bg-background/70 p-6 backdrop-blur-xl">
-              <div className="micro-label">Inventory posture</div>
-              <div className="mt-4 space-y-4">
-                <div className="metric-tile">
-                  <div className="micro-label">Agent readiness</div>
-                  <div className="mt-2 text-2xl font-semibold">{readyAgents.length} fully prepared</div>
-                  <div className="mt-2 text-sm text-foreground/58">Credential issued, wallet deployed, and ready for session flow.</div>
+            <div className="lux-panel overflow-hidden p-6">
+              <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+                <div>
+                  <div className="micro-label">Inventory posture</div>
+                  <div className="mt-4 space-y-4">
+                    <div className="metric-tile">
+                      <div className="micro-label">Agent readiness</div>
+                      <div className="mt-2 text-2xl font-semibold">{readyAgents.length} fully prepared</div>
+                      <div className="mt-2 text-sm text-foreground/58">
+                        Credential issued, wallet deployed, and ready for session flow.
+                      </div>
+                    </div>
+                    <div className="metric-tile">
+                      <div className="micro-label">Wallet coverage</div>
+                      <div className="mt-2 text-2xl font-semibold">{fundedAgents.length} agents with wallets</div>
+                      <div className="mt-2 text-sm text-foreground/58">
+                        Operators can move from provisioning to action without leaving the page.
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="metric-tile">
-                  <div className="micro-label">Wallet coverage</div>
-                  <div className="mt-2 text-2xl font-semibold">{fundedAgents.length} agents with wallets</div>
-                  <div className="mt-2 text-sm text-foreground/58">Operators can move from provisioning to action without leaving the page.</div>
+                <div className="relative">
+                  <div className="satin-grid absolute inset-0" />
+                  <DepthOrbit compact />
                 </div>
               </div>
             </div>
@@ -140,7 +153,7 @@ export default async function AgentsPage() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-white/10 bg-background p-4 text-xs text-foreground/58">
+              <div className="mt-5 rounded-2xl border border-white/10 bg-background/80 p-4 text-xs text-foreground/58 backdrop-blur-xl">
                 <div className="flex items-start gap-3">
                   <Waves className="mt-0.5 h-4 w-4 shrink-0 text-foreground/45" />
                   <div className="space-y-2">

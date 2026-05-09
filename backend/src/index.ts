@@ -10,12 +10,17 @@ import walletRoutes from "./routes/wallets"
 import eventRoutes from "./routes/events"
 import simpleRoutes from "./routes/simple"
 import authRoutes from "./routes/auth"
+import externalAgentRoutes from "./routes/externalAgents"
+import v1Routes from "./routes/v1"
 
 import { initCrypto } from "./utils/crypto"
 import { EventSyncService } from "./services/eventSync"
 import { attachAuth } from "./middleware/auth"
 import { corsMiddleware, createRateLimitMiddleware, securityHeaders } from "./middleware/security"
 import { AppError } from "./utils/errors"
+
+const PORT = Number(process.env.PORT || "3000")
+const ENABLE_EVENT_SYNC = process.env.ENABLE_EVENT_SYNC !== "false"
 
 const app = express()
 const eventSync = new EventSyncService()
@@ -35,7 +40,9 @@ app.use("/sessions", sessionRoutes)
 app.use("/proofs", proofRoutes)
 app.use("/wallets", walletRoutes)
 app.use("/events", eventRoutes)
-app.use("/v1", simpleRoutes)
+app.use("/ai", simpleRoutes)
+app.use("/external", externalAgentRoutes)
+app.use("/v1", v1Routes)
 
 app.use((error:any,_req:any,res:any,_next:any)=>{
     if(error instanceof AppError){
@@ -53,13 +60,17 @@ app.use((error:any,_req:any,res:any,_next:any)=>{
 async function start(){
     await initCrypto()
 
-    app.listen(3000, ()=>{
-        console.log("Backend running on port 3000")
+    app.listen(PORT, ()=>{
+        console.log(`Backend running on port ${PORT}`)
     })
 
-    eventSync.start().catch((error) => {
-        console.error("Event sync bootstrap failed:", error.message)
-    })
+    if(ENABLE_EVENT_SYNC){
+        eventSync.start().catch((error) => {
+            console.error("Event sync bootstrap failed:", error.message)
+        })
+    }else{
+        console.log("Event sync disabled by configuration")
+    }
 }
 
 start()

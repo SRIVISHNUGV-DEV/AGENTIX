@@ -7,6 +7,7 @@ import { SessionsTable } from '@/components/dashboard/sessions-table'
 import { EventsFeed } from '@/components/dashboard/events-feed'
 import { OrgActions } from '@/components/platform/org-actions'
 import { WorkspaceControls } from '@/components/platform/workspace-controls'
+import { DepthOrbit } from '@/components/effects/depth-orbit'
 import {
   getAgents,
   getDashboardStats,
@@ -88,8 +89,8 @@ export default async function DashboardPage() {
       <GridBackdrop />
       <Header />
       <main className="shell relative z-10 py-10 sm:py-14">
-        <section className="hero-panel p-7 sm:p-10">
-          <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="hero-panel depth-shell p-7 sm:p-10">
+          <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr] xl:items-start">
             <div>
               <div className="section-kicker">Organization workspace</div>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -98,7 +99,8 @@ export default async function DashboardPage() {
                     {workspace.organization.name}
                   </h1>
                   <p className="mt-4 max-w-2xl text-lg leading-8 text-foreground/62">
-                    One severe control surface for credentials, wallets, sessions, funding, and indexed on-chain state.
+                    One elegant control surface for credentials, wallets, sessions, treasury motion, and indexed
+                    on-chain state.
                   </p>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-background px-4 py-2 text-sm text-foreground/65">
@@ -109,7 +111,7 @@ export default async function DashboardPage() {
 
               <div className="mt-8 grid gap-4 lg:grid-cols-3">
                 {highlights.map(({ title, body, icon: Icon }) => (
-                  <div key={title} className="metric-tile">
+                  <div key={title} className="metric-tile bg-white/[0.03]">
                     <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white text-background">
                       <Icon className="h-5 w-5" />
                     </div>
@@ -124,70 +126,89 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="rounded-[1.75rem] border border-white/10 bg-background/75 p-6 backdrop-blur-xl">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="micro-label">Live on-chain stack</div>
-                  <h2 className="mt-3 text-2xl font-semibold">Contract surface</h2>
-                </div>
-                <div className="rounded-full border border-white/10 bg-card px-3 py-1 text-xs uppercase tracking-[0.16em] text-foreground/55">
-                  Sepolia
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-4 text-sm">
-                {contracts ? (
-                  <>
-                    {[
-                      ['CredentialRegistry', contracts.credentialRegistryAddress],
-                      ['SessionManager', contracts.sessionManagerAddress],
-                      ['AgentWalletFactory', contracts.agentWalletFactoryAddress],
-                      ['EntryPoint', contracts.entryPointAddress],
-                    ].map(([label, address]) => (
-                      <div key={label} className="metric-tile">
-                        <div className="micro-label">{label}</div>
-                        <a
-                          href={getAddressExplorerUrl(address as string)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-3 flex items-start justify-between gap-3 break-all font-mono text-xs text-foreground/78 underline decoration-white/20 underline-offset-4 hover:text-foreground"
-                        >
-                          <span>{address}</span>
-                          <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0" />
-                        </a>
-                      </div>
-                    ))}
-                    {contracts.deploymentTxHashes ? (
-                      <div className="metric-tile">
-                        <div className="micro-label">Deployment transactions</div>
-                        <div className="mt-3 space-y-2 text-xs">
-                          {Object.entries(contracts.deploymentTxHashes)
-                            .filter(([, txHash]) => Boolean(txHash))
-                            .map(([label, txHash]) => (
-                              <a
-                                key={label}
-                                href={getTxExplorerUrl(txHash!)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-start justify-between gap-3 font-mono text-foreground/75 underline decoration-white/20 underline-offset-4 hover:text-foreground"
-                              >
-                                <span className="break-all">{label}: {txHash}</span>
-                                <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0" />
-                              </a>
-                            ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-background p-5 text-foreground/55">
-                    No contracts deployed yet for this organization.
+            <div className="space-y-4">
+              <div className="lux-panel overflow-hidden p-6">
+                <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+                  <div>
+                    <div className="micro-label">Live on-chain stack</div>
+                    <h2 className="mt-3 text-2xl font-semibold">Contract surface</h2>
+                    <p className="mt-3 text-sm leading-7 text-foreground/58">
+                      Dedicated contracts per organization, rendered as one composed surface instead of a stack of flat
+                      status cards.
+                    </p>
                   </div>
-                )}
+                  <div className="relative">
+                    <div className="satin-grid absolute inset-0" />
+                    <DepthOrbit compact />
+                  </div>
+                </div>
               </div>
 
-              <div className="mt-8">
-                <OrgActions orgId={currentOrgId} />
+              <div className="lux-panel p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="micro-label">Deployment registry</div>
+                    <h2 className="mt-3 text-2xl font-semibold">Addresses and transactions</h2>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-card px-3 py-1 text-xs uppercase tracking-[0.16em] text-foreground/55">
+                    Sepolia
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-4 text-sm">
+                  {contracts ? (
+                    <>
+                      {[
+                        ['CredentialRegistry', contracts.credentialRegistryAddress],
+                        ['SessionManager', contracts.sessionManagerAddress],
+                        ['AgentWalletFactory', contracts.agentWalletFactoryAddress],
+                        ['EntryPoint', contracts.entryPointAddress],
+                      ].map(([label, address]) => (
+                        <div key={label} className="metric-tile">
+                          <div className="micro-label">{label}</div>
+                          <a
+                            href={getAddressExplorerUrl(address as string)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 flex items-start justify-between gap-3 break-all font-mono text-xs text-foreground/78 underline decoration-white/20 underline-offset-4 hover:text-foreground"
+                          >
+                            <span>{address}</span>
+                            <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0" />
+                          </a>
+                        </div>
+                      ))}
+                      {contracts.deploymentTxHashes ? (
+                        <div className="metric-tile">
+                          <div className="micro-label">Deployment transactions</div>
+                          <div className="mt-3 space-y-2 text-xs">
+                            {Object.entries(contracts.deploymentTxHashes)
+                              .filter(([, txHash]) => Boolean(txHash))
+                              .map(([label, txHash]) => (
+                                <a
+                                  key={label}
+                                  href={getTxExplorerUrl(txHash!)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-start justify-between gap-3 font-mono text-foreground/75 underline decoration-white/20 underline-offset-4 hover:text-foreground"
+                                >
+                                  <span className="break-all">{label}: {txHash}</span>
+                                  <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0" />
+                                </a>
+                              ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-background p-5 text-foreground/55">
+                      No contracts deployed yet for this organization.
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-8">
+                  <OrgActions orgId={currentOrgId} />
+                </div>
               </div>
             </div>
           </div>
@@ -202,7 +223,7 @@ export default async function DashboardPage() {
         </section>
 
         <section className="mt-8 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[1.75rem] border border-white/10 bg-card p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
+          <div className="lux-panel p-6">
             <div className="mb-4 flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">Agents in this workspace</h2>
@@ -217,7 +238,7 @@ export default async function DashboardPage() {
             <AgentsTable agents={agentsRes.data} />
           </div>
 
-          <div className="rounded-[1.75rem] border border-white/10 bg-card p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
+          <div className="lux-panel p-6">
             <div className="mb-4 flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">Recent events</h2>
@@ -233,7 +254,7 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-card p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
+        <section className="lux-panel mt-8 p-6">
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold">Sessions</h2>

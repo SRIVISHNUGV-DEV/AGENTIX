@@ -112,12 +112,13 @@ export function WorkspaceControls({
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <div className="rounded-2xl border border-white/10 bg-card p-4">
-        <label className="text-xs uppercase tracking-[0.18em] text-foreground/45">Workspace</label>
+      <div className="lux-panel p-4">
+        <label htmlFor="workspace-select" className="text-xs uppercase tracking-[0.18em] text-foreground/45">Workspace</label>
         <select
+          id="workspace-select"
           value={selectedOrgId}
           onChange={(event) => setSelectedOrgId(event.target.value)}
-          className="mt-3 w-full rounded-xl border border-white/10 bg-background px-3 py-2 text-sm text-foreground"
+          className="mt-3 w-full rounded-xl border border-white/10 bg-background/80 px-3 py-2 text-sm text-foreground backdrop-blur-xl"
         >
           <option value="" disabled>
             Select organization
@@ -138,13 +139,14 @@ export function WorkspaceControls({
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-card p-4">
-        <label className="text-xs uppercase tracking-[0.18em] text-foreground/45">New organization</label>
+      <div className="lux-panel p-4">
+        <label htmlFor="new-organization-name" className="text-xs uppercase tracking-[0.18em] text-foreground/45">New organization</label>
         <Input
+          id="new-organization-name"
           value={orgName}
           onChange={(event) => setOrgName(event.target.value)}
           placeholder="Acme Treasury Ops"
-          className="mt-3 border-white/10 bg-background text-foreground"
+          className="mt-3 border-white/10 bg-background/80 text-foreground backdrop-blur-xl"
         />
         <Button
           disabled={disabled || !orgName.trim()}
@@ -155,13 +157,14 @@ export function WorkspaceControls({
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-card p-4">
-        <label className="text-xs uppercase tracking-[0.18em] text-foreground/45">Create agent</label>
+      <div className="lux-panel p-4">
+        <label htmlFor="new-agent-name" className="text-xs uppercase tracking-[0.18em] text-foreground/45">Create agent</label>
         <Input
+          id="new-agent-name"
           value={agentName}
           onChange={(event) => setAgentName(event.target.value)}
           placeholder="Treasury Agent"
-          className="mt-3 border-white/10 bg-background text-foreground"
+          className="mt-3 border-white/10 bg-background/80 text-foreground backdrop-blur-xl"
         />
         <Button
           disabled={disabled || !selectedOrgId || !agentName.trim()}
@@ -173,13 +176,13 @@ export function WorkspaceControls({
       </div>
 
       {!isConnected || !isSepolia ? (
-        <div className="lg:col-span-3 rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground/60">
+        <div className="lg:col-span-3 rounded-2xl border border-white/10 bg-card/80 px-4 py-3 text-sm text-foreground/60 backdrop-blur-xl">
           Connect a wallet on Sepolia to create organizations and submit signed platform actions.
         </div>
       ) : null}
 
       {message ? (
-        <div className="lg:col-span-3 rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground">
+        <div className="lg:col-span-3 rounded-2xl border border-white/10 bg-card/80 px-4 py-3 text-sm text-foreground backdrop-blur-xl">
           {message}
         </div>
       ) : null}

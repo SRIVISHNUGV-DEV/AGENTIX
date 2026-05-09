@@ -43,6 +43,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className="font-sans antialiased" suppressHydrationWarning>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.querySelectorAll('[fdprocessedid]').forEach(e=>e.removeAttribute('fdprocessedid'))`,
+          }}
+        />
         <WalletProvider>{children}</WalletProvider>
         <Analytics />
       </body>

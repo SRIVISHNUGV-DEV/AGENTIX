@@ -6,7 +6,7 @@
     "node": "20.x || 22.x"
   },
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev --webpack --port 3001",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint ."
@@ -60,6 +60,7 @@
     "run": "^1.5.0",
     "sonner": "^1.7.1",
     "tailwind-merge": "^3.3.1",
+    "use-debounce": "^10.1.1",
     "vaul": "^1.1.2",
     "zod": "^3.24.1"
   },

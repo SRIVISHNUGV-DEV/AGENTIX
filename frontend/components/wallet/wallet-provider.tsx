@@ -5,18 +5,35 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import { buildSignedActionMessage } from '@/lib/signed-actions'
 
+interface Provider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+  on?: (event: string, listener: (...args: unknown[]) => void) => void
+  removeListener?: (event: string, listener: (...args: unknown[]) => void) => void
+}
+
+interface EIP6963ProviderInfo {
+  uuid: string
+  name: string
+  icon: string
+  rdns: string
+}
+
+interface EIP6963ProviderDetail {
+  info: EIP6963ProviderInfo
+  provider: Provider
+}
+
+type EIP6963AnnounceProviderEvent = CustomEvent<EIP6963ProviderDetail>
+
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
-      on?: (event: string, listener: (...args: unknown[]) => void) => void
-      removeListener?: (event: string, listener: (...args: unknown[]) => void) => void
-    }
+    ethereum?: Provider
   }
 }
 
@@ -55,24 +72,51 @@ function parseChainId(value: unknown) {
   return null
 }
 
+function isMetaMaskNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const msg = String((err as any).message ?? (err as any).code ?? '')
+  return msg.includes('MetaMask extension not found') || msg.includes('extension not found')
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<string | null>(null)
   const [chainId, setChainId] = useState<number | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const providerRef = useRef<Provider | null>(null)
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.ethereum) {
-      return
+    if (typeof window === 'undefined') return
+
+    const found: Provider[] = []
+
+    const handleAnnouncement = (event: EIP6963AnnounceProviderEvent) => {
+      found.push(event.detail.provider)
+      if (!providerRef.current) {
+        providerRef.current = event.detail.provider
+      }
     }
+
+    window.addEventListener('eip6963:announceProvider', handleAnnouncement as EventListener)
+    window.dispatchEvent(new Event('eip6963:requestProvider'))
+
+    setTimeout(() => {
+      if (!providerRef.current && window.ethereum) {
+        providerRef.current = window.ethereum
+      }
+
+      if (providerRef.current) {
+        syncWallet(providerRef.current)
+      }
+    }, 300)
 
     let mounted = true
 
-    const syncWallet = async () => {
+    const syncWallet = async (provider: Provider) => {
       try {
         const [accounts, activeChainId] = await Promise.all([
-          window.ethereum!.request({ method: 'eth_accounts' }) as Promise<string[]>,
-          window.ethereum!.request({ method: 'eth_chainId' }),
+          provider.request({ method: 'eth_accounts' }) as Promise<string[]>,
+          provider.request({ method: 'eth_chainId' }),
         ])
 
         if (!mounted) return
@@ -81,7 +125,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setChainId(parseChainId(activeChainId))
       } catch (walletError: any) {
         if (!mounted) return
-        setError(walletError?.message ?? 'Failed to read wallet state')
+        if (!isMetaMaskNotFoundError(walletError)) {
+          setError(walletError?.message ?? 'Failed to read wallet state')
+        }
       }
     }
 
@@ -94,34 +140,45 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setChainId(parseChainId(nextChainId))
     }
 
-    syncWallet()
-    window.ethereum.on?.('accountsChanged', handleAccountsChanged)
-    window.ethereum.on?.('chainChanged', handleChainChanged)
+    if (providerRef.current) {
+      providerRef.current.on?.('accountsChanged', handleAccountsChanged)
+      providerRef.current.on?.('chainChanged', handleChainChanged)
+    }
 
     return () => {
       mounted = false
-      window.ethereum?.removeListener?.('accountsChanged', handleAccountsChanged)
-      window.ethereum?.removeListener?.('chainChanged', handleChainChanged)
+      window.removeEventListener('eip6963:announceProvider', handleAnnouncement as EventListener)
+      providerRef.current?.removeListener?.('accountsChanged', handleAccountsChanged)
+      providerRef.current?.removeListener?.('chainChanged', handleChainChanged)
     }
   }, [])
 
-  const connect = async () => {
-    if (!window.ethereum) {
-      setError('No injected wallet found. Install MetaMask or another EVM wallet.')
-      return
+  const getProvider = (): Provider => {
+    if (providerRef.current) return providerRef.current
+    if (typeof window !== 'undefined' && window.ethereum) {
+      providerRef.current = window.ethereum
+      return window.ethereum
     }
+    throw new Error('No injected wallet found. Install MetaMask or another EVM wallet.')
+  }
 
+  const connect = async () => {
     try {
       setIsConnecting(true)
       setError(null)
-      const accounts = (await window.ethereum.request({
+      const provider = getProvider()
+      const accounts = (await provider.request({
         method: 'eth_requestAccounts',
       })) as string[]
-      const activeChainId = await window.ethereum.request({ method: 'eth_chainId' })
+      const activeChainId = await provider.request({ method: 'eth_chainId' })
       setAccount(accounts[0] ?? null)
       setChainId(parseChainId(activeChainId))
     } catch (walletError: any) {
-      setError(walletError?.message ?? 'Wallet connection failed')
+      if (isMetaMaskNotFoundError(walletError)) {
+        setError('MetaMask is installed but not responding. Please unlock MetaMask or refresh the page.')
+      } else {
+        setError(walletError?.message ?? 'Wallet connection failed')
+      }
     } finally {
       setIsConnecting(false)
     }
@@ -133,14 +190,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
 
   const switchToSepolia = async () => {
-    if (!window.ethereum) {
-      setError('No injected wallet found.')
-      return
-    }
-
     try {
       setError(null)
-      await window.ethereum.request({
+      const provider = getProvider()
+      await provider.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: '0xaa36a7' }],
       })
@@ -159,7 +212,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     orgId: number
     target: string
   }) => {
-    if (!window.ethereum || !account) {
+    const provider = getProvider()
+    if (!account) {
       throw new Error('Connect a wallet first')
     }
 
@@ -177,7 +231,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       requestedAt,
     })
 
-    const signature = (await window.ethereum.request({
+    const signature = (await provider.request({
       method: 'personal_sign',
       params: [message, account],
     })) as string
@@ -191,11 +245,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
 
   const signMessage = async (message: string) => {
-    if (!window.ethereum || !account) {
+    const provider = getProvider()
+    if (!account) {
       throw new Error('Connect a wallet first')
     }
 
-    const signature = (await window.ethereum.request({
+    const signature = (await provider.request({
       method: 'personal_sign',
       params: [message, account],
     })) as string

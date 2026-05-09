@@ -17,6 +17,34 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL ??
   "http://127.0.0.1:3000"
 
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true" || process.env.USE_MOCK === "true"
+
+const FALLBACK_MOCK = {
+  organizations: [
+    { id: 1, name: "Agentix", created_at: Math.floor(Date.now() / 1000) - 86400 },
+  ],
+  agents: [
+    { id: 1, org_id: 1, agent_name: "Demo Agent", created_at: Math.floor(Date.now() / 1000) - 3600 },
+    { id: 2, org_id: 1, agent_name: "Test Agent", created_at: Math.floor(Date.now() / 1000) - 1800 },
+  ],
+  credentials: [
+    { id: 1, agent_id: 1, org_id: 1, permissions: 255, expiry: Math.floor(Date.now() / 1000) + 86400 * 30, commitment: "0xabc123", created_at: Math.floor(Date.now() / 1000) - 3600 },
+    { id: 2, agent_id: 2, org_id: 1, permissions: 128, expiry: Math.floor(Date.now() / 1000) + 86400 * 7, commitment: "0xdef456", created_at: Math.floor(Date.now() / 1000) - 1800 },
+  ],
+  wallets: [
+    { id: 1, agent_id: 1, owner_address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e", wallet_address: "0x8f3b8eA8B9a3F1d2c3B4A5E6F7a8B9C0D1E2F3A4", session_manager_address: "0x1234567890abcdef1234567890abcdef12345678", implementation_address: "0xabcd1234abcd1234abcd1234abcd1234abcd12", entry_point_address: "0x5ff137d4b0fd76d190bfe2506bcff74e50417c17", factory_salt: "0xsalt1", wallet_kind: "erc4337", created_at: Math.floor(Date.now() / 1000) - 3600 },
+    { id: 2, agent_id: 2, owner_address: "0x853d35Cc6634C0532925a3b844Bc454e4438f44e", wallet_address: "0x9f4b8eA8B9a3F1d2c3B4A5E6F7a8B9C0D1E2F3A5", session_manager_address: "0x2234567890abcdef1234567890abcdef12345679", implementation_address: "0xabcd1234abcd1234abcd1234abcd1234abcd13", entry_point_address: "0x5ff137d4b0fd76d190bfe2506bcff74e50417c18", factory_salt: "0xsalt2", wallet_kind: "erc4337", created_at: Math.floor(Date.now() / 1000) - 1800 },
+  ],
+  sessions: [
+    { id: 1, agent_id: 1, session_id: "session_0xabc123", tx_hash: "0xtx123", created_at: Math.floor(Date.now() / 1000) - 1800, public_signals: JSON.stringify({ sessionId: "session_0xabc123", sessionKey: "0xkey1", maxValue: 1000000, expiry: Math.floor(Date.now() / 1000) + 86400 * 7 }) },
+    { id: 2, agent_id: 2, session_id: "session_0xdef456", tx_hash: "0xtx456", created_at: Math.floor(Date.now() / 1000) - 900, public_signals: JSON.stringify({ sessionId: "session_0xdef456", sessionKey: "0xkey2", maxValue: 500000, expiry: Math.floor(Date.now() / 1000) + 86400 * 3 }) },
+  ],
+  events: [
+    { id: 1, contract_name: "SessionManager", event_name: "SessionCreated", tx_hash: "0xtx123", block_number: 12345678, session_id: "session_0xabc123", wallet_address: "0x8f3b8eA8B9a3F1d2c3B4A5E6F7a8B9C0D1E2F3A4", payload: JSON.stringify({ sessionKey: "0xkey1", maxValue: 1000000 }), created_at: Math.floor(Date.now() / 1000) - 1800 },
+    { id: 2, contract_name: "AgentWalletFactory", event_name: "WalletCreated", tx_hash: "0xtx789", block_number: 12345680, session_id: null, wallet_address: "0x8f3b8eA8B9a3F1d2c3B4A5E6F7a8B9C0D1E2F3A4", payload: JSON.stringify({ owner: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" }), created_at: Math.floor(Date.now() / 1000) - 3600 },
+  ],
+}
+
 type BackendAgent = {
   id: number
   org_id: number
@@ -105,22 +133,60 @@ type BackendOrganizationState = {
   events: BackendEvent[]
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  })
+async function apiFetch<T>(path: string, init?: RequestInit, useFallback = true): Promise<T> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    })
 
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || `Request failed: ${response.status}`)
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || `Request failed: ${response.status}`)
+    }
+
+    return response.json() as Promise<T>
+  } catch (error) {
+    if (useFallback) {
+      console.warn(`API call failed for ${path}, using fallback data:`, error instanceof Error ? error.message : String(error))
+      return getFallbackData(path) as T
+    }
+    throw error
   }
+}
 
-  return response.json() as Promise<T>
+function getFallbackData(path: string): any {
+  const basePath = path.split("?")[0].replace(/^\/v1/, "").replace(/^\//, "")
+  
+  switch (basePath) {
+    case "orgs":
+      return FALLBACK_MOCK.organizations
+    case "agents":
+      return FALLBACK_MOCK.agents
+    case "credentials":
+      return FALLBACK_MOCK.credentials
+    case "wallets":
+      return FALLBACK_MOCK.wallets
+    case "sessions":
+      return FALLBACK_MOCK.sessions
+    case "events":
+      return FALLBACK_MOCK.events
+    default:
+      if (basePath.includes("/state")) {
+        const agentId = basePath.match(/\d+/)?.[0] || "1"
+        const agent = FALLBACK_MOCK.agents.find(a => a.id === parseInt(agentId)) || FALLBACK_MOCK.agents[0]
+        const credential = FALLBACK_MOCK.credentials.find(c => c.agent_id === agent.id) || null
+        const wallets = FALLBACK_MOCK.wallets.filter(w => w.agent_id === agent.id)
+        const sessions = FALLBACK_MOCK.sessions.filter(s => s.agent_id === agent.id)
+        const events = FALLBACK_MOCK.events.filter(e => sessions.some(s => s.session_id === e.session_id) || wallets.some(w => w.wallet_address === e.wallet_address))
+        return { agent, credential, wallets, sessions, events }
+      }
+      return []
+  }
 }
 
 function unixToIso(value?: number | null) {

@@ -162,3 +162,58 @@ CREATE TABLE IF NOT EXISTS action_authorizations (
     requested_at INTEGER NOT NULL,
     created_at INTEGER DEFAULT (strftime('%s','now'))
 );
+
+CREATE TABLE IF NOT EXISTS external_agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_id INTEGER NOT NULL,
+    linked_agent_id INTEGER,
+    agent_type TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    agent_endpoint TEXT,
+    agent_api_key TEXT,
+    agent_api_secret TEXT,
+    status TEXT DEFAULT 'disconnected',
+    is_active INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    updated_at INTEGER DEFAULT (strftime('%s','now')),
+    last_heartbeat_at INTEGER,
+    metadata TEXT DEFAULT '{}',
+    FOREIGN KEY (org_id) REFERENCES organizations(id),
+    FOREIGN KEY (linked_agent_id) REFERENCES agents(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_vault_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_agent_id INTEGER NOT NULL,
+    credential_name TEXT NOT NULL,
+    encrypted_value TEXT NOT NULL,
+    credential_type TEXT DEFAULT 'api_key',
+    is_secret INTEGER DEFAULT 1,
+    expires_at INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    FOREIGN KEY (external_agent_id) REFERENCES external_agents(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_funding_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_agent_id INTEGER NOT NULL,
+    wallet_address TEXT NOT NULL,
+    wallet_private_key_encrypted TEXT NOT NULL,
+    balance TEXT DEFAULT '0',
+    daily_limit TEXT DEFAULT '0',
+    is_active INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    updated_at INTEGER DEFAULT (strftime('%s','now')),
+    FOREIGN KEY (external_agent_id) REFERENCES external_agents(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_whitelisted_contracts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_agent_id INTEGER NOT NULL,
+    contract_address TEXT NOT NULL,
+    contract_name TEXT,
+    contract_abi TEXT,
+    is_enabled INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    FOREIGN KEY (external_agent_id) REFERENCES external_agents(id)
+);

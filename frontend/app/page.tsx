@@ -5,6 +5,7 @@ import Footer from '@/components/footer'
 import { Button } from '@/components/ui/button'
 import { GridBackdrop } from '@/components/effects/grid-backdrop'
 import { SpotlightCard } from '@/components/effects/spotlight-card'
+import { DepthOrbit } from '@/components/effects/depth-orbit'
 import { getDashboardStats } from '@/lib/mock-api'
 import { SignalStrip } from '@/components/common/signal-strip'
 import { StackMetrics } from '@/components/common/stack-metrics'
@@ -54,16 +55,16 @@ export default async function Home() {
       <Header />
       <main className="relative z-10">
         <section className="shell py-10 sm:py-14">
-          <div className="hero-panel noise-overlay p-7 sm:p-10 lg:p-14">
-            <div className="grid gap-10 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="hero-panel depth-shell noise-overlay p-7 sm:p-10 lg:p-14">
+            <div className="grid gap-10 xl:grid-cols-[1.05fr_0.95fr] xl:items-center">
               <div className="max-w-4xl">
                 <span className="section-kicker">Protocol and operator platform</span>
                 <h1 className="font-display text-5xl font-semibold leading-[0.95] tracking-[-0.06em] sm:text-7xl xl:text-[5.8rem]">
-                  Agent authorization with the gravity of real infrastructure.
+                  Identity, liquidity, and execution staged like private infrastructure.
                 </h1>
                 <p className="mt-6 max-w-2xl text-lg leading-8 text-foreground/64">
-                  Agentix gives organizations one severe, clear control plane for issuing credentials, deploying
-                  wallets, funding treasury operations, and opening on-chain sessions without exposing agent secrets.
+                  Agentix gives autonomous systems a quieter, sharper control plane. Credentials stay private, sessions
+                  stay bounded, and treasury motion stays legible at a glance.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link href="/dashboard">
@@ -80,24 +81,39 @@ export default async function Home() {
                     </Button>
                   </Link>
                 </div>
+
+                <div className="mt-10 grid gap-3 sm:grid-cols-3">
+                  {[
+                    ['Private proof rail', 'Credential state without secret leakage'],
+                    ['Dedicated org stack', 'Registry, session manager, and wallet factory per org'],
+                    ['4337-ready wallets', 'Session-bound execution with owner confirmation'],
+                  ].map(([title, body]) => (
+                    <div key={title} className="rounded-[1.4rem] border border-white/10 bg-background/55 p-4 backdrop-blur-xl">
+                      <div className="micro-label">{title}</div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/62">{body}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-[1.75rem] border border-white/10 bg-background/70 p-5 backdrop-blur-xl">
-                  <div className="micro-label">Operator signal</div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <div className="metric-tile">
-                      <div className="micro-label">Control model</div>
-                      <div className="mt-2 text-2xl font-semibold">One wallet. One organization. One stack.</div>
+                <div className="lux-panel p-6">
+                  <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+                    <div>
+                      <div className="micro-label">Rendered control surface</div>
+                      <h2 className="mt-3 text-2xl font-semibold tracking-tight">A calmer operating posture.</h2>
+                      <p className="mt-3 text-sm leading-7 text-foreground/62">
+                        Less dashboard noise. More spatial hierarchy, live contract visibility, and direct action flow.
+                      </p>
                     </div>
-                    <div className="metric-tile">
-                      <div className="micro-label">Proof surface</div>
-                      <div className="mt-2 text-2xl font-semibold">Private credential membership + revocation state</div>
+                    <div className="relative">
+                      <div className="satin-grid absolute inset-0" />
+                      <DepthOrbit />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-[1.75rem] border border-white/10 bg-background/70 p-5 backdrop-blur-xl">
+                <div className="lux-panel p-5">
                   <div className="micro-label">Operational sequence</div>
                   <div className="mt-4 space-y-3">
                     {[
@@ -186,10 +202,7 @@ export default async function Home() {
                   </p>
                 </div>
               </div>
-              <Link
-                href="/sdk"
-                className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-foreground"
-              >
+              <Link href="/sdk" className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-foreground">
                 Open the SDK page
                 <ArrowRight className="h-4 w-4" />
               </Link>

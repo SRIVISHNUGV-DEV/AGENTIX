@@ -3,7 +3,7 @@ import fs from "fs"
 import path from "path"
 import { BundlerService, UserOperationRequest } from "./bundler"
 
-const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545"
+const RPC_URLS = parseUrlList(process.env.RPC_URLS || process.env.RPC_URL || "http://127.0.0.1:8545")
 const PRIVATE_KEY = process.env.PRIVATE_KEY || ""
 const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
 const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia"
@@ -96,16 +96,12 @@ function resolveHardhatArtifactPath(baseDir:string, name:string){
 
 export class BlockchainService {
 
-    provider: ethers.JsonRpcProvider
+    provider: ethers.AbstractProvider
     wallet: ethers.Wallet
     bundler: BundlerService
 
     constructor(){
-        this.provider = new ethers.JsonRpcProvider(
-            RPC_URL,
-            { chainId: CHAIN_ID, name: NETWORK_NAME },
-            { staticNetwork: true }
-        )
+        this.provider = createProvider()
 
         this.wallet = new ethers.Wallet(
             PRIVATE_KEY,
@@ -720,4 +716,38 @@ export class BlockchainService {
             }
         ])
     }
+}
+
+function parseUrlList(value:string){
+    return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+}
+
+function createProvider(){
+    const providers = RPC_URLS.map((rpcUrl) =>
+        new ethers.JsonRpcProvider(
+            rpcUrl,
+            { chainId: CHAIN_ID, name: NETWORK_NAME },
+            { staticNetwork: true }
+        )
+    )
+
+    if(providers.length === 0){
+        throw new Error("no RPC URL configured")
+    }
+
+    if(providers.length === 1){
+        return providers[0]
+    }
+
+    return new ethers.FallbackProvider(
+        providers.map((provider, index) => ({
+            provider,
+            priority: index + 1,
+            weight: 1,
+            stallTimeout: 1500
+        }))
+    )
 }

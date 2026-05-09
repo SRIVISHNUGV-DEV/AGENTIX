@@ -1,7 +1,7 @@
 import { ethers } from "ethers"
 import { AppError } from "../utils/errors"
 
-const BUNDLER_URL = process.env.BUNDLER_URL || ""
+const BUNDLER_URLS = parseUrlList(process.env.BUNDLER_URLS || process.env.BUNDLER_URL || "")
 const DEFAULT_ENTRY_POINT_ADDRESS =
     process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
 
@@ -23,16 +23,16 @@ export type UserOperationRequest = {
 }
 
 export class BundlerService {
-    provider: ethers.JsonRpcProvider
+    provider: ethers.Provider
     entryPoint: ethers.Contract
 
-    constructor(provider:ethers.JsonRpcProvider, entryPointAddress = DEFAULT_ENTRY_POINT_ADDRESS){
+    constructor(provider:ethers.Provider, entryPointAddress = DEFAULT_ENTRY_POINT_ADDRESS){
         this.provider = provider
         this.entryPoint = new ethers.Contract(entryPointAddress, ENTRY_POINT_ABI, provider)
     }
 
     isConfigured(){
-        return Boolean(BUNDLER_URL)
+        return BUNDLER_URLS.length > 0
     }
 
     async getNonce(sender:string){
@@ -64,32 +64,55 @@ export class BundlerService {
     }
 
     private async rpc(method:string, params:any[]){
-        if(!BUNDLER_URL){
+        if(BUNDLER_URLS.length === 0){
             throw new AppError(400, "bundler is not configured")
         }
 
-        const response = await fetch(BUNDLER_URL, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: Date.now(),
-                method,
-                params
-            })
-        })
+        let lastError:unknown = null
 
-        if(!response.ok){
-            throw new AppError(502, `bundler request failed with status ${response.status}`)
+        for(const bundlerUrl of BUNDLER_URLS){
+            try{
+                const response = await fetch(bundlerUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: "2.0",
+                        id: Date.now(),
+                        method,
+                        params
+                    })
+                })
+
+                if(!response.ok){
+                    lastError = new AppError(502, `bundler request failed with status ${response.status}`)
+                    continue
+                }
+
+                const payload = await response.json()
+                if(payload.error){
+                    lastError = new AppError(502, payload.error.message || "bundler request failed")
+                    continue
+                }
+
+                return payload.result
+            }catch(error){
+                lastError = error
+            }
         }
 
-        const payload = await response.json()
-        if(payload.error){
-            throw new AppError(502, payload.error.message || "bundler request failed")
+        if(lastError instanceof AppError){
+            throw lastError
         }
 
-        return payload.result
+        throw new AppError(502, "all bundler endpoints failed")
     }
+}
+
+function parseUrlList(value:string){
+    return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
 }

@@ -87,7 +87,11 @@ The deploy script reads from `backend/.env`.
 Minimum backend env values:
 
 ```env
+PORT=3000
+DB_PATH=./backend/db/database.sqlite
+ENABLE_EVENT_SYNC=true
 RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_ALCHEMY_KEY
+RPC_URLS=
 PRIVATE_KEY=YOUR_DEPLOYER_PRIVATE_KEY
 CHAIN_ID=11155111
 NETWORK_NAME=sepolia
@@ -98,8 +102,15 @@ AGENT_WALLET_FACTORY_ADDRESS=
 AGENT_WALLET_IMPLEMENTATION_ADDRESS=
 ENTRY_POINT_ADDRESS=0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108
 BUNDLER_URL=
+BUNDLER_URLS=
 BUNDLER_MAX_FEE_PER_GAS_GWEI=
 BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI=
+```
+
+For Railway, a practical database path is:
+
+```env
+DB_PATH=/data/database.sqlite
 ```
 
 Frontend env:
@@ -302,6 +313,55 @@ Important:
 - the backend must be deployed separately
 - the frontend API routes proxy all platform actions to `AGENT_CREDENTIALS_API_URL`
 - without a reachable backend, wallet actions, org actions, session creation, and event views will fail
+
+## 10.2 Deploy The Backend On Railway
+
+Recommended Railway service setup:
+
+1. create a new Railway project
+2. deploy from this GitHub repository
+3. set the service root directory to `backend`
+4. attach a persistent volume
+5. mount it at `/data`
+6. keep only one instance with `ENABLE_EVENT_SYNC=true`
+
+Railway docs:
+
+- Volumes: https://docs.railway.com/guides/volumes
+- Monorepo root directory: https://docs.railway.com/guides/monorepo
+
+Recommended Railway environment variables:
+
+```env
+DB_PATH=/data/database.sqlite
+ENABLE_EVENT_SYNC=true
+
+RPC_URL=https://your-primary-rpc
+RPC_URLS=https://your-primary-rpc,https://your-secondary-rpc
+PRIVATE_KEY=your-relayer-private-key
+
+CHAIN_ID=11155111
+NETWORK_NAME=sepolia
+
+VERIFIER_ADDRESS=0x...
+SESSION_MANAGER_ADDRESS=0x...
+CREDENTIAL_REGISTRY_ADDRESS=0x...
+AGENT_WALLET_FACTORY_ADDRESS=0x...
+AGENT_WALLET_IMPLEMENTATION_ADDRESS=0x...
+ENTRY_POINT_ADDRESS=0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108
+
+BUNDLER_URL=https://your-primary-bundler
+BUNDLER_URLS=https://your-primary-bundler,https://your-secondary-bundler
+BUNDLER_MAX_FEE_PER_GAS_GWEI=3
+BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI=1
+```
+
+After Railway gives you the public backend URL, set these in Vercel:
+
+```env
+AGENT_CREDENTIALS_API_URL=https://your-backend.up.railway.app
+NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=https://your-backend.up.railway.app
+```
 
 ## 11. Verify End-To-End After Redeploy
 

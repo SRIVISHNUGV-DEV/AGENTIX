@@ -11,9 +11,9 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { GridBackdrop } from '@/components/effects/grid-backdrop'
-import { AgentActions } from '@/components/platform/agent-actions'
 import { WalletUserOpPanel } from '@/components/platform/wallet-userop-panel'
 import { StackMetrics } from '@/components/common/stack-metrics'
+import { AgentDetailActions } from '@/components/agent/agent-detail-actions'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -74,7 +74,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
           </div>
 
           <div className="mb-8">
-            <AgentActions
+            <AgentDetailActions
               agentId={agent.id}
               orgId={agent.orgId}
               hasCredential={agent.credentials.length > 0}
