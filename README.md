@@ -5,7 +5,7 @@
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
 ![Sepolia](https://img.shields.io/badge/Network-Sepolia-white)
 ![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-darkblue)
-![Groth16](https://img.shields.io/badge/ZK-Groth16-darkgrey)
+![Groth16](https://img.shields.io/badge/ZK-Groth16-yellow)
 ![License](https://img.shields.io/badge/License-BUSL--1.1-red)
 
 ## Live Deployment
