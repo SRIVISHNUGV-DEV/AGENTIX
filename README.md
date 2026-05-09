@@ -4,9 +4,9 @@
 
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
 ![Sepolia](https://img.shields.io/badge/Network-Sepolia-white)
-![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-lightgrey)
+![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-darkblue)
 ![Groth16](https://img.shields.io/badge/ZK-Groth16-darkgrey)
-![License](https://img.shields.io/badge/License-Apache--2.0-white)
+![License](https://img.shields.io/badge/License-BUSL--1.1-red)
 
 ## Live Deployment
 
@@ -545,7 +545,22 @@ The frontend is serverless-friendly. The backend is not Vercel-native as-is beca
 
 ## License
 
-Apache 2.0
+AGENTIX is source-available under the Business Source License 1.1 (BUSL-1.1).
+
+You may:
+- view the source
+- fork the repository
+- experiment locally
+- use for research and non-commercial purposes
+
+You may NOT:
+- commercially deploy the protocol
+- create competing hosted services
+- use the protocol in production commercially without permission
+
+The license automatically converts to Apache 2.0 on January 1, 2030.
+
+See the LICENSE file for full terms.
 
 ---
 
