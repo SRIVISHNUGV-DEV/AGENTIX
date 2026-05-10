@@ -12,6 +12,7 @@
   "dependencies": {
     "@types/cors": "^2.8.19",
     "@types/pg": "^8.20.0",
+    "bull": "^4.16.5",
     "circomlib": "^2.0.5",
     "circomlibjs": "^0.1.7",
     "cors": "^2.8.6",
@@ -21,11 +22,14 @@
     "express-rate-limit": "^8.5.1",
     "ffjavascript": "^0.3.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "run": "^1.5.0",
-    "snarkjs": "^0.7.5"
+    "snarkjs": "^0.7.5",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/bull": "^3.15.9",
     "@types/express": "^5.0.1",
     "@types/node": "^22.13.10",
     "tsx": "^4.19.3",

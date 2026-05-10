@@ -391,6 +391,29 @@ async function createPostgresDB(): Promise<DB> {
         `)
 
         await client.query(`
+            CREATE TABLE IF NOT EXISTS proof_cache (
+                id SERIAL PRIMARY KEY,
+                key TEXT NOT NULL UNIQUE,
+                proof TEXT NOT NULL,
+                public_signals TEXT NOT NULL,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                expires_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW() + INTERVAL '24 hours')::INTEGER
+            )
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_proof_cache_key ON proof_cache(key)
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_proof_cache_expires ON proof_cache(expires_at)
+        `)
+
+        await client.query(`
+            DELETE FROM proof_cache WHERE expires_at < EXTRACT(EPOCH FROM NOW())::INTEGER
+        `)
+
+        await client.query(`
             CREATE TABLE IF NOT EXISTS action_authorizations (
                 id SERIAL PRIMARY KEY,
                 org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -437,6 +460,43 @@ async function createPostgresDB(): Promise<DB> {
                 last_block INTEGER NOT NULL,
                 updated_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
             )
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_event_cursors_key ON event_cursors(contract_key)
+        `)
+
+        // Proof queue job tracking table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS proof_jobs (
+                id SERIAL PRIMARY KEY,
+                job_id TEXT NOT NULL UNIQUE,
+                agent_id INTEGER NOT NULL,
+                org_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                result TEXT,
+                error TEXT,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                completed_at INTEGER,
+                expires_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW() + INTERVAL '24 hours')::INTEGER
+            )
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_proof_jobs_job_id ON proof_jobs(job_id)
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_proof_jobs_agent_id ON proof_jobs(agent_id)
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_proof_jobs_expires_at ON proof_jobs(expires_at)
+        `)
+
+        // Clean up old completed jobs
+        await client.query(`
+            DELETE FROM proof_jobs WHERE expires_at < EXTRACT(EPOCH FROM NOW())::INTEGER
         `)
 
         await client.query(`

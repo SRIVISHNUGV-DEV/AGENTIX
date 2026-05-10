@@ -28,7 +28,7 @@ export async function generateProof(db:any,input:any){
         `
         SELECT *
         FROM proof_cache
-        WHERE key=?
+        WHERE key = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::INTEGER
         `,
         cacheKey
     )
@@ -51,13 +51,12 @@ export async function generateProof(db:any,input:any){
     await db.run(
         `
         INSERT INTO proof_cache
-        (key,proof,public_signals,created_at)
-        VALUES (?,?,?,?)
+        (key, proof, public_signals, created_at, expires_at)
+        VALUES ($1, $2, $3, EXTRACT(EPOCH FROM NOW())::INTEGER, EXTRACT(EPOCH FROM NOW() + INTERVAL '24 hours')::INTEGER)
         `,
         cacheKey,
         JSON.stringify(proof),
-        JSON.stringify(publicSignals),
-        Date.now()
+        JSON.stringify(publicSignals)
     )
 
     return { proof, publicSignals }
