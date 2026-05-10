@@ -1,33 +1,30 @@
-'use client'
-
-import { Button } from '@/components/ui/button'
-import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
+"use client";
+import { AnimatedSection } from "@/components/ui/animated-section";
+import { MagneticButton } from "@/components/ui/magnetic-button";
 
 export function CTASection() {
   return (
-    <section className="py-20 sm:py-28 bg-background border-t border-border/30">
-      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
-        <h2 className="text-5xl sm:text-6xl font-bold text-foreground text-balance mb-6">
-          Ready to get started?
-        </h2>
-        <p className="text-lg text-foreground/60 mb-10 max-w-2xl mx-auto">
-          Deploy agent credentials in minutes. Secure, auditable, and built for production.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/dashboard">
-            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 px-8 h-11 font-medium">
-              Enter Dashboard
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
-          <Link href="/integration">
-            <Button size="lg" variant="outline" className="px-8 h-11 font-medium border-foreground/20 hover:border-foreground/40">
-              Learn More
-            </Button>
-          </Link>
-        </div>
+    <section className="relative py-32 px-6 overflow-hidden">
+      <div className="absolute inset-0 bg-black">
+        <div className="absolute inset-0 opacity-30" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 50%, rgba(255,255,255,0.05) 0%, transparent 60%)" }} />
+      </div>
+      <div className="relative max-w-3xl mx-auto text-center">
+        <AnimatedSection animation="fadeUp">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-6">Start building with Agentix</h2>
+        </AnimatedSection>
+        <AnimatedSection animation="fadeUp" delay={0.1}>
+          <p className="text-zinc-400 text-lg mb-10 max-w-xl mx-auto">Join developers building the future of autonomous agent infrastructure. Free for development, scale with confidence.</p>
+        </AnimatedSection>
+        <AnimatedSection animation="fadeUp" delay={0.2}>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
+            <MagneticButton variant="primary" href="/dashboard">Get Started Free</MagneticButton>
+            <MagneticButton variant="secondary" href="/docs">View Documentation</MagneticButton>
+          </div>
+        </AnimatedSection>
+        <AnimatedSection animation="fadeIn" delay={0.3}>
+          <p className="text-zinc-600 text-sm">Self-hosted. Open source. Production-ready.</p>
+        </AnimatedSection>
       </div>
     </section>
-  )
+  );
 }

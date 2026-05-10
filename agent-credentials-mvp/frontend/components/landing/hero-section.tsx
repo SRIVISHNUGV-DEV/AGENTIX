@@ -1,57 +1,36 @@
-'use client'
-
-import { Button } from '@/components/ui/button'
-import Link from 'next/link'
+"use client";
+import { motion } from "framer-motion";
+import { NeuralCore } from "./neural-core";
+import { MagneticButton } from "@/components/ui/magnetic-button";
+import { BlurText } from "@/components/ui/blur-text";
+import { ChevronDown } from "lucide-react";
 
 export function HeroSection() {
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-background">
-      <div className="absolute inset-0" style={{
-        background: 'radial-gradient(circle at 20% 50%, rgba(0,0,0,0.02) 0%, transparent 50%)',
-      }} />
-
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center py-20">
-        <div className="mb-8 flex justify-center">
-          <span className="text-xs font-medium tracking-widest text-foreground/60 uppercase">Secure Agent Authorization</span>
-        </div>
-
-        <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight text-foreground mb-6 text-balance leading-tight">
-          Agentix Protocol
-        </h1>
-
-        <p className="text-lg sm:text-xl text-foreground/70 mb-12 max-w-3xl mx-auto text-balance leading-relaxed">
-          Authorize AI agents to sign transactions without exposing credentials. Built on zero-knowledge proofs for enterprise security.
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-3 justify-center mb-20">
-          <Link href="/dashboard">
-            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 px-8 h-11 font-medium">
-              Dashboard
-            </Button>
-          </Link>
-          <Link href="/integration">
-            <Button size="lg" variant="outline" className="px-8 h-11 font-medium border-foreground/20 hover:border-foreground/40">
-              Documentation
-            </Button>
-          </Link>
-        </div>
-
-        <div className="mt-16 pt-12 border-t border-border">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
-            {[
-              { number: '256-bit', label: 'Encryption' },
-              { number: 'Multi', label: 'Chain' },
-              { number: 'Session', label: 'Control' },
-              { number: '100%', label: 'Audit' },
-            ].map(item => (
-              <div key={item.label} className="text-center">
-                <div className="text-2xl sm:text-3xl font-bold text-foreground mb-1">{item.number}</div>
-                <div className="text-xs text-foreground/60 uppercase tracking-widest">{item.label}</div>
-              </div>
-            ))}
-          </div>
+    <section className="relative h-screen w-full overflow-hidden bg-black">
+      <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0" style={{ backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0)`, backgroundSize: "50px 50px" }} />
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-[600px] h-[600px] md:w-[800px] md:h-[800px]"><NeuralCore /></div>
+      </div>
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/50" />
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
+        <div className="text-center max-w-4xl mx-auto">
+          <BlurText as="h1" className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-white mb-6" delay={0.2}>Zero-Knowledge Credentials</BlurText>
+          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }} className="text-lg sm:text-xl md:text-2xl text-zinc-400 mb-10 max-w-2xl mx-auto">Private agent identity infrastructure for the autonomous economy</motion.p>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.7 }} className="flex flex-col sm:flex-row gap-4 justify-center">
+            <MagneticButton variant="primary" href="/dashboard">Get Started</MagneticButton>
+            <MagneticButton variant="secondary" href="/docs">View Documentation</MagneticButton>
+          </motion.div>
         </div>
       </div>
-    </div>
-  )
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.2 }} className="absolute bottom-8 left-1/2 -translate-x-1/2">
+        <motion.div animate={{ y: [0, 8, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }} className="flex flex-col items-center gap-2">
+          <span className="text-xs text-zinc-600 uppercase tracking-wider">Scroll</span>
+          <ChevronDown className="w-5 h-5 text-zinc-600" />
+        </motion.div>
+      </motion.div>
+    </section>
+  );
 }
