@@ -1,0 +1,98 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentix-postgres
+    environment:
+      POSTGRES_DB: agentix
+      POSTGRES_USER: agentix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentix_secret_2024}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentix -d agentix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentix-network
+
+  # Redis Cache (optional - for rate limiting, sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: agentix-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentix-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agentix-backend
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_TYPE=postgres
+      - DATABASE_URL=postgresql://agentix:${POSTGRES_PASSWORD:-agentix_secret_2024}@postgres:5432/agentix
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-change_this_in_production}
+      - ENABLE_EVENT_SYNC=${ENABLE_EVENT_SYNC:-true}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - backend_logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - agentix-network
+
+  # Frontend (optional - can be deployed separately to Vercel)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:3000
+    container_name: agentix-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3000
+    depends_on:
+      - backend
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    networks:
+      - agentix-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_logs:
+
+networks:
+  agentix-network:
+    driver: bridge

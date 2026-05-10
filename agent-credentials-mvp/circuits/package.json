@@ -1,0 +1,19 @@
+{
+  "name": "@agentix/circuits",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Circom ZK circuits for credential verification",
+  "scripts": {
+    "compile": "circom credential.circom --r1cs --wasm --sym --output build",
+    "test": "node test/circuit_test.js",
+    "setup": "bash setup.sh 2>/dev/null || echo 'Run manual setup: install circom and snarkjs'"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10"
+  }
+}
