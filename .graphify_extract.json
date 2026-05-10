@@ -1,0 +1,671 @@
+{
+  "nodes": [
+    {
+      "id": "agents_project_overview",
+      "label": "Project Overview: Agentix",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_nextjs",
+      "label": "Next.js Frontend Stack",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_express",
+      "label": "Express Backend Stack",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_solidity",
+      "label": "Solidity Contracts Stack",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_circom",
+      "label": "Circom ZK Circuits Stack",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_workspace_frontend",
+      "label": "Frontend Workspace",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_workspace_backend",
+      "label": "Backend Workspace",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_workspace_contracts",
+      "label": "Contracts Workspace",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_workspace_circuits",
+      "label": "Circuits Workspace",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_workspace_sdk",
+      "label": "SDK Workspace",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_npm_workspaces",
+      "label": "npm Workspaces Architecture",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_zk_proof_orchestration",
+      "label": "ZK Proof Orchestration",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_readme_protocols_style",
+      "label": "Protocol-Style README Architecture",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_sqlite_database",
+      "label": "SQLite Database",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_alchemy_free_tier_limits",
+      "label": "Alchemy Free Tier Rate Limits",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_1_repo_structure",
+      "label": "Session 1: Repo Structure",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_public_readme",
+      "label": "Session 2: Public README Rewrite",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_agent_unification",
+      "label": "Session 2: Agent Flow Unification",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_linked_agent_field",
+      "label": "Session 2: Linked Agent ID Field",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_ui_providers",
+      "label": "Session 2: Provider Fleet Onboarding",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_route_redirect",
+      "label": "Session 2: Route Redirect",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_env_fixes",
+      "label": "Session 2: Environment Configuration",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_event_sync_limits",
+      "label": "Session 2: Event Sync Limits",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_session_2_health_check",
+      "label": "Session 2: Health Check",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_data_flow",
+      "label": "Data Flow: Frontend to Database",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_zk_flow",
+      "label": "ZK Proof Flow: Circuits to Contracts",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agents_agent_identity_flow",
+      "label": "Agent Identity Flow: Contracts to Backend",
+      "file_type": "document",
+      "source_file": "AGENTS.md"
+    }
+  ],
+  "edges": [
+    {
+      "source": "agents_project_overview",
+      "target": "agents_nextjs",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_project_overview",
+      "target": "agents_express",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_project_overview",
+      "target": "agents_solidity",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_project_overview",
+      "target": "agents_circom",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_project_overview",
+      "target": "agents_npm_workspaces",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_frontend",
+      "target": "agents_nextjs",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_frontend",
+      "target": "agents_workspace_sdk",
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_frontend",
+      "target": "agents_workspace_backend",
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_backend",
+      "target": "agents_express",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_backend",
+      "target": "agents_sqlite_database",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_backend",
+      "target": "agents_zk_proof_orchestration",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_backend",
+      "target": "agents_workspace_circuits",
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_backend",
+      "target": "agents_workspace_contracts",
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_contracts",
+      "target": "agents_solidity",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_circuits",
+      "target": "agents_circom",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_workspace_sdk",
+      "target": "agents_workspace_backend",
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_1_repo_structure",
+      "target": "agents_npm_workspaces",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_public_readme",
+      "target": "agents_readme_protocols_style",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_agent_unification",
+      "target": "agents_session_2_ui_providers",
+      "relation": "enables",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_linked_agent_field",
+      "target": "agents_workspace_contracts",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_linked_agent_field",
+      "target": "agents_workspace_backend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_ui_providers",
+      "target": "agents_workspace_frontend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_ui_providers",
+      "target": "agents_session_2_route_redirect",
+      "relation": "enables",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_route_redirect",
+      "target": "agents_workspace_frontend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_env_fixes",
+      "target": "agents_workspace_frontend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_env_fixes",
+      "target": "agents_workspace_backend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_event_sync_limits",
+      "target": "agents_alchemy_free_tier_limits",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_health_check",
+      "target": "agents_workspace_backend",
+      "relation": "validates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_health_check",
+      "target": "agents_workspace_frontend",
+      "relation": "validates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_data_flow",
+      "target": "agents_workspace_frontend",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_data_flow",
+      "target": "agents_workspace_sdk",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_data_flow",
+      "target": "agents_workspace_backend",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_data_flow",
+      "target": "agents_sqlite_database",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_zk_flow",
+      "target": "agents_workspace_circuits",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_zk_flow",
+      "target": "agents_zk_proof_orchestration",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_zk_flow",
+      "target": "agents_workspace_contracts",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_agent_identity_flow",
+      "target": "agents_workspace_contracts",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_agent_identity_flow",
+      "target": "agents_workspace_backend",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_agent_identity_flow",
+      "target": "agents_sqlite_database",
+      "relation": "includes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_agent_identity_flow",
+      "target": "agents_session_2_event_sync_limits",
+      "relation": "enables",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_zk_proof_orchestration",
+      "target": "agents_workspace_circuits",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_sqlite_database",
+      "target": "agents_session_2_event_sync_limits",
+      "relation": "caches",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_public_readme",
+      "target": "agents_session_1_repo_structure",
+      "relation": "builds_on",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_public_readme",
+      "target": "agents_project_overview",
+      "relation": "documents",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_alchemy_free_tier_limits",
+      "target": "agents_workspace_backend",
+      "relation": "constrains",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_alchemy_free_tier_limits",
+      "target": "agents_session_2_event_sync_limits",
+      "relation": "requires",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_1_repo_structure",
+      "target": "agents_project_overview",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_1_repo_structure",
+      "target": "agents_workspace_backend",
+      "relation": "creates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.9,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_agent_unification",
+      "target": "agents_workspace_frontend",
+      "relation": "modifies",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_session_2_agent_unification",
+      "target": "agents_project_overview",
+      "relation": "enables",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    },
+    {
+      "source": "agents_readme_protocols_style",
+      "target": "agents_project_overview",
+      "relation": "describes",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "data_flow_pipeline",
+      "label": "Data Flow Pipeline",
+      "nodes": [
+        "agents_workspace_frontend",
+        "agents_workspace_sdk",
+        "agents_workspace_backend",
+        "agents_sqlite_database"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "zk_pipeline",
+      "label": "ZK Proof Pipeline",
+      "nodes": [
+        "agents_workspace_circuits",
+        "agents_zk_proof_orchestration",
+        "agents_workspace_contracts"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md"
+    },
+    {
+      "id": "agent_identity_pipeline",
+      "label": "Agent Identity Pipeline",
+      "nodes": [
+        "agents_workspace_contracts",
+        "agents_workspace_backend",
+        "agents_sqlite_database"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md"
+    }
+  ],
+  "input_tokens": 1500,
+  "output_tokens": 2800
+}

@@ -1,0 +1,21 @@
+
+> @agentix/frontend@0.1.0 dev
+> next dev --webpack --port 3001
+
+▲ Next.js 16.2.4 (webpack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.29.184:3001
+- Environments: .env.local
+✓ Ready in 890ms
+
+○ Compiling / ...
+ GET / 200 in 4.2s (next.js: 3.8s, application-code: 445ms)
+ GET /dashboard 200 in 2.1s (next.js: 1850ms, application-code: 238ms)
+[?25h
+npm error Lifecycle script `dev` failed with error:
+npm error code 1
+npm error path D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\frontend
+npm error workspace @agentix/frontend@0.1.0
+npm error location D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\frontend
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c next dev --webpack --port 3001
