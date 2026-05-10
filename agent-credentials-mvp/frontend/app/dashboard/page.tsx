@@ -1,186 +1,156 @@
-'use client'
-
 import Link from 'next/link'
-import { Plus, Users, KeyRound, Clock, Wallet, ArrowRight, ArrowUpRight } from 'lucide-react'
+import { Shield, Users, Key, Wallet, Activity, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useEffect, useState } from 'react'
-
-interface Stats {
-  totalAgents: number
-  totalSessions: number
-  totalWallets: number
-  totalCredentials: number
-}
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<Stats>({
-    totalAgents: 0,
-    totalSessions: 0,
-    totalWallets: 0,
-    totalCredentials: 0,
-  })
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    // Mock data loading - replace with actual API call
-    setTimeout(() => {
-      setStats({
-        totalAgents: 3,
-        totalSessions: 12,
-        totalWallets: 5,
-        totalCredentials: 8,
-      })
-      setLoading(false)
-    }, 500)
-  }, [])
-
-  const statCards = [
-    { label: 'Agents', value: stats.totalAgents, icon: Users, href: '/agents' },
-    { label: 'Sessions', value: stats.totalSessions, icon: Clock, href: '/sessions' },
-    { label: 'Wallets', value: stats.totalWallets, icon: Wallet, href: '/wallets' },
-    { label: 'Credentials', value: stats.totalCredentials, icon: KeyRound, href: '/credentials' },
+  const stats = [
+    { label: 'Total Agents', value: '0', icon: Users },
+    { label: 'Active Sessions', value: '0', icon: Activity },
+    { label: 'Credentials Issued', value: '0', icon: Key },
+    { label: 'Wallets Deployed', value: '0', icon: Wallet },
   ]
 
-  const contracts = [
-    { name: 'CredentialRegistry', address: '0x...' },
-    { name: 'SessionManager', address: '0x...' },
-    { name: 'AgentWalletFactory', address: '0x...' },
+  const recentActivity = [
+    { type: 'agent', message: 'No agents registered yet', time: '-' },
+    { type: 'credential', message: 'Issue your first credential to get started', time: '-' },
+    { type: 'session', message: 'Agent sessions will appear here', time: '-' },
   ]
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-black text-white">
       {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400">Dashboard</span>
-          </div>
+      <header className="border-b border-zinc-800">
+        <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <div className="w-5 h-5 bg-white rounded-sm flex items-center justify-center">
+              <span className="text-black text-xs font-bold">A</span>
+            </div>
+            <span>Agentix</span>
+          </Link>
           <nav className="flex items-center gap-6 text-sm">
-            <Link href="/agents" className="text-zinc-400 hover:text-zinc-200">Agents</Link>
-            <Link href="/credentials" className="text-zinc-400 hover:text-zinc-200">Credentials</Link>
-            <Link href="/sessions" className="text-zinc-400 hover:text-zinc-200">Sessions</Link>
+            <Link href="/dashboard" className="text-white">
+              Dashboard
+            </Link>
+            <Link href="/agents" className="text-zinc-400 hover:text-white transition-colors">
+              Agents
+            </Link>
+            <Link href="/docs" className="text-zinc-400 hover:text-white transition-colors">
+              Docs
+            </Link>
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      {/* Main Content */}
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        {/* Page Header */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-zinc-400 mt-1">Overview of your agent credentials protocol</p>
+        </div>
+
         {/* Stats Grid */}
-        <div className="grid gap-4 sm:grid-cols-4">
-          {statCards.map(({ label, value, icon: Icon, href }) => (
-            <Link key={label} href={href}>
-              <div className="group rounded-lg border border-zinc-800 bg-zinc-900/50 p-5 hover:border-zinc-700 transition-colors">
-                <div className="flex items-center justify-between">
-                  <Icon className="h-4 w-4 text-zinc-500" />
-                  <ArrowRight className="h-3 w-3 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-                </div>
-                <div className="mt-4">
-                  <div className="text-2xl font-semibold">
-                    {loading ? '-' : value}
-                  </div>
-                  <div className="text-sm text-zinc-500">{label}</div>
-                </div>
+        <div className="grid gap-4 sm:grid-cols-4 mb-8">
+          {stats.map(({ label, value, icon: Icon }) => (
+            <div
+              key={label}
+              className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                  {label}
+                </span>
+                <Icon className="w-4 h-4 text-zinc-600" />
               </div>
-            </Link>
+              <div className="text-2xl font-semibold">{value}</div>
+            </div>
           ))}
         </div>
 
-        {/* Two Column Layout */}
-        <div className="mt-8 grid gap-6 lg:grid-cols-3">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Actions */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
-              <h2 className="font-medium">Quick Actions</h2>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Link href="/agents">
-                  <Button size="sm" className="bg-zinc-100 text-zinc-900 hover:bg-zinc-200">
-                    <Plus className="mr-1 h-4 w-4" />
-                    New Agent
-                  </Button>
-                </Link>
-                <Link href="/credentials">
-                  <Button variant="outline" size="sm" className="border-zinc-700 bg-transparent hover:bg-zinc-800">
-                    Issue Credential
-                  </Button>
-                </Link>
-                <Link href="/sessions">
-                  <Button variant="outline" size="sm" className="border-zinc-700 bg-transparent hover:bg-zinc-800">
-                    Open Session
-                  </Button>
-                </Link>
+        {/* Quick Actions */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Link
+              href="/agents/new"
+              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
+            >
+              <div>
+                <div className="font-medium">Register Agent</div>
+                <div className="text-sm text-zinc-400">Add a new agent identity</div>
               </div>
-            </div>
-
-            {/* Agents List */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="font-medium">Agents</h2>
-                <Link href="/agents" className="text-sm text-zinc-400 hover:text-zinc-200">View all</Link>
+              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+            </Link>
+            <Link
+              href="/credentials/issue"
+              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
+            >
+              <div>
+                <div className="font-medium">Issue Credential</div>
+                <div className="text-sm text-zinc-400">Create ZK credential</div>
               </div>
-              <div className="mt-4 space-y-2">
-                {['agent-001', 'agent-002', 'agent-003'].map((agent) => (
-                  <div key={agent} className="flex items-center justify-between py-2 border-b border-zinc-800/50 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-mono">
-                        A
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">{agent}</div>
-                        <div className="text-xs text-zinc-500">Active</div>
-                      </div>
-                    </div>
-                    <Link href={`/agents/${agent}`}>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  </div>
-                ))}
+              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+            </Link>
+            <Link
+              href="/sessions"
+              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
+            >
+              <div>
+                <div className="font-medium">Create Session</div>
+                <div className="text-sm text-zinc-400">Start agent session</div>
               </div>
-            </div>
+              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+            </Link>
           </div>
+        </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Contracts */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
-              <h2 className="font-medium">Contracts</h2>
-              <div className="mt-4 space-y-3">
-                {contracts.map(({ name, address }) => (
-                  <div key={name}>
-                    <div className="text-xs text-zinc-500 uppercase tracking-wider">{name}</div>
-                    <div className="mt-1 font-mono text-xs text-zinc-400 truncate">
-                      {address}
-                    </div>
-                  </div>
-                ))}
+        {/* Recent Activity */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+          <div className="p-4 border-b border-zinc-800">
+            <h2 className="text-lg font-semibold">Recent Activity</h2>
+          </div>
+          <div className="divide-y divide-zinc-800">
+            {recentActivity.map((item, i) => (
+              <div key={i} className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-zinc-600" />
+                  <div className="text-sm">{item.message}</div>
+                </div>
+                <div className="text-xs text-zinc-500">{item.time}</div>
               </div>
-              <Link href="https://sepolia.etherscan.io" target="_blank">
-                <Button variant="outline" size="sm" className="mt-4 w-full border-zinc-700 bg-transparent hover:bg-zinc-800">
-                  View on Explorer
-                  <ArrowUpRight className="ml-1 h-3 w-3" />
-                </Button>
-              </Link>
-            </div>
+            ))}
+          </div>
+        </div>
 
-            {/* Network */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
-              <h2 className="font-medium">Network</h2>
-              <div className="mt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Chain</span>
-                  <span>Sepolia</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Chain ID</span>
-                  <span>11155111</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-500">Protocol</span>
-                  <span>ERC-4337</span>
-                </div>
+        {/* Network Status */}
+        <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+          <h2 className="text-lg font-semibold mb-4">Network Status</h2>
+          <div className="grid gap-6 sm:grid-cols-4">
+            <div>
+              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                Network
+              </div>
+              <div className="font-medium">Sepolia</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                Latest Block
+              </div>
+              <div className="font-medium font-mono">-</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                Gas Price
+              </div>
+              <div className="font-medium font-mono">-</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                Status
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-zinc-600" />
+                <span className="text-zinc-400">Not connected</span>
               </div>
             </div>
           </div>

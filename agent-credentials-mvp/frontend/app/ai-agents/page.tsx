@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { Bot, CheckCircle2, Cpu, Link2, Loader2, ShieldCheck, Wallet, Plus, ArrowRight } from 'lucide-react'
+import { Bot, CheckCircle2, Cpu, Link2, Loader2, ShieldCheck, Wallet, Plus, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -52,6 +52,17 @@ const providerVisuals: Record<string, ProviderVisual> = {
   },
 }
 
+function isValidUrl(url: string): boolean {
+  try {
+    new URL(url)
+    return true
+  } catch {
+    // Support endpoint URLs that might not have protocol (e.g., localhost:3001)
+    return /^[a-zA-Z0-9\-\.]+(:[0-9]{1,5})?$/.test(url) ||
+           /^https?:\/\/.+$/.test(url)
+  }
+}
+
 function getSelectedOrgIdFromCookie() {
   if (typeof document === 'undefined') return null
   const raw = document.cookie
@@ -90,6 +101,8 @@ export default function AIAgentsPage() {
   const [agentName, setAgentName] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<Record<number, 'pending' | 'connected' | 'error'>>({})
+  const [creationStatus, setCreationStatus] = useState<string | null>(null)
 
   useEffect(() => {
     setOrgId(getSelectedOrgIdFromCookie())
@@ -133,27 +146,62 @@ export default function AIAgentsPage() {
   async function handleCreateAgent() {
     if (!orgId || !selectedType || !agentName.trim()) return
 
+    // Validate endpoint if provided
+    if (endpoint.trim() && !isValidUrl(endpoint.trim())) {
+      setError('Please enter a valid endpoint URL (include http:// or https://)')
+      return
+    }
+
     setSubmitting(true)
     setError(null)
+    setCreationStatus('Creating agent identity...')
+
     try {
+      // Add auto-provision parameter to automatically create protocol agent
       const created = await createExternalAgent({
         orgId,
         agentType: selectedType.id,
         name: agentName.trim(),
         endpoint: endpoint.trim() || undefined,
-        metadata: { connectionMode: 'provider-first' },
+        metadata: {
+          connectionMode: 'provider-first',
+          autoProvision: true
+        },
       })
+
+      setCreationStatus('Setting up credentials...')
+
+      // Automatically test the connection if endpoint was provided
+      if (endpoint.trim()) {
+        setConnectionStatus(prev => ({...prev, [created.id]: 'pending'}))
+        try {
+          await new Promise(resolve => setTimeout(resolve, 500)) // Small delay
+          const testResult = await testAgentConnection(created.id, orgId)
+          if (testResult.success) {
+            setConnectionStatus(prev => ({...prev, [created.id]: 'connected'}))
+          } else {
+            setConnectionStatus(prev => ({...prev, [created.id]: 'error'}))
+            setError(`Connection test failed: ${testResult.error || 'Unknown error'}`)
+          }
+        } catch (testError) {
+          setConnectionStatus(prev => ({...prev, [created.id]: 'error'}))
+          setError(`Connection test failed: ${testError instanceof Error ? testError.message : 'Unknown error'}`)
+        }
+      }
 
       setSelectedType(null)
       setAgentName('')
       setEndpoint('')
       await loadFleet(orgId)
 
+      setCreationStatus(null)
+
       if (created.linkedAgentId) {
         window.location.href = `/agents/${created.linkedAgentId}`
       }
     } catch (e: any) {
       setError(e.message ?? 'Failed to connect provider and create agent')
+      setCreationStatus(null)
     } finally {
       setSubmitting(false)
     }
@@ -162,15 +210,18 @@ export default function AIAgentsPage() {
   async function handleTestConnection(agent: ExternalAgent) {
     if (!orgId) return
     setTestingAgentId(agent.id)
+    setConnectionStatus(prev => ({...prev, [agent.id]: 'pending'}))
     setError(null)
     try {
       const result = await testAgentConnection(agent.id, orgId)
       if (!result.success) {
         throw new Error(result.error || 'Connection test failed')
       }
+      setConnectionStatus(prev => ({...prev, [agent.id]: 'connected'}))
       await loadFleet(orgId)
     } catch (e: any) {
-      setError(e.message ?? 'Connection test failed')
+      setConnectionStatus(prev => ({...prev, [agent.id]: 'error'}))
+      setError(`Connection test failed for ${agent.name}: ${e.message ?? 'Unknown error'}`)
     } finally {
       setTestingAgentId(null)
     }
@@ -329,7 +380,18 @@ export default function AIAgentsPage() {
                           <p className="text-xs text-zinc-500">{agent.agentType}</p>
                         </div>
                       </div>
-                      <StatusPill connected={Boolean(agent.linkedAgentId)} />
+                      <div className="flex items-center gap-2">
+                        <StatusPill connected={Boolean(agent.linkedAgentId)} />
+                        {connectionStatus[agent.id] === 'pending' && (
+                          <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+                        )}
+                        {connectionStatus[agent.id] === 'error' && (
+                          <AlertCircle className="h-3 w-3 text-red-400" />
+                        )}
+                        {connectionStatus[agent.id] === 'connected' && (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        )}
+                      </div>
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">
@@ -445,6 +507,20 @@ export default function AIAgentsPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Creation Status Display */}
+                {creationStatus && (
+                  <div className="mb-4 p-3 rounded-lg border border-zinc-700 bg-zinc-800/30 text-sm text-zinc-300">
+                    <div className="flex items-center gap-2">
+                      {submitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                      )}
+                      {creationStatus}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-3">
                   <Button variant="outline" onClick={() => setSelectedType(null)} className="border-zinc-700 bg-transparent">

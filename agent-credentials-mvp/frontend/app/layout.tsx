@@ -5,9 +5,9 @@ import { WalletProvider } from '@/components/wallet/wallet-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Agentix - Private Credentials and Session Control for AI Agents',
-  description:
-    'Agentix is a protocol and operator platform for issuing private agent credentials, verifying them with zero knowledge, and controlling on-chain sessions.',
+  title: "Agentix - Zero-Knowledge Credentials for Autonomous Agents",
+  description: "Private agent identity infrastructure for the autonomous economy. Issue verifiable credentials without revealing sensitive data.",
+  keywords: ["zero-knowledge", "credentials", "autonomous agents", "blockchain", "ZK proofs"],
   icons: {
     icon: [
       {
@@ -32,7 +32,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
-  themeColor: '#050505',
+  themeColor: '#000000',
 }
 
 export default function RootLayout({

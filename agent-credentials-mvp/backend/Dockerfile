@@ -1,15 +1,21 @@
-# Multi-stage build for production
+# Production Dockerfile for Agentix Backend
+# Multi-stage build for minimal attack surface
+
+# Build stage - compile TypeScript
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Install build dependencies
 COPY package*.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Copy source and build
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
 
-# Production stage
+# Production stage - minimal image
 FROM node:22-alpine AS production
 
 # Security: Run as non-root user
@@ -18,27 +24,26 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-# Install dependencies for SQLite and native modules
-RUN apk add --no-cache python3 make g++ sqlite
+# Copy only production dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
 
-# Copy from builder
-COPY --from=builder /app/node_modules ./node_modules
+# Copy built artifacts from builder
+COPY --from=builder /app/dist ./dist
 
-# Copy application code
-COPY --chown=nodejs:nodejs . .
+# Set ownership
+RUN chown -R nodejs:nodejs /app
 
-# Create necessary directories
-RUN mkdir -p /app/db /app/logs && chown -R nodejs:nodejs /app
-
-# Switch to non-root user
 USER nodejs
 
-# Expose port
-EXPOSE 3000
+EXPOSE 3001
+
+# Production environment
+ENV NODE_ENV=production
+ENV PORT=3001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "const http = require('http'); http.get('http://localhost:3000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
-# Start command
 CMD ["node", "dist/index.js"]

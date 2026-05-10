@@ -10,11 +10,16 @@ export const metadata = {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-black text-white">
       {/* Header */}
       <header className="border-b border-zinc-800">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
+        <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <div className="w-5 h-5 bg-white rounded-sm flex items-center justify-center">
+              <span className="text-black text-xs font-bold">A</span>
+            </div>
+            <span>Agentix</span>
+          </Link>
         </div>
       </header>
 
@@ -32,13 +37,13 @@ export default function LoginPage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Link href="/dashboard">
-                <Button className="bg-zinc-100 text-zinc-900 hover:bg-zinc-200 px-6">
+                <Button className="bg-white text-black hover:bg-zinc-200 rounded-lg px-6">
                   Open Dashboard
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
               <Link href="/docs">
-                <Button variant="outline" className="border-zinc-700 bg-transparent hover:bg-zinc-800 px-6">
+                <Button variant="outline" className="border-zinc-800 bg-transparent hover:bg-zinc-900 hover:border-zinc-700 rounded-lg px-6">
                   Documentation
                 </Button>
               </Link>
@@ -72,7 +77,7 @@ export default function LoginPage() {
             </div>
 
             <Link href="/dashboard" className="mt-6 block">
-              <Button className="w-full bg-zinc-100 text-zinc-900 hover:bg-zinc-200">
+              <Button className="w-full bg-white text-black hover:bg-zinc-200 rounded-lg">
                 Enter Workspace
               </Button>
             </Link>
@@ -83,7 +88,7 @@ export default function LoginPage() {
       {/* Footer */}
       <footer className="border-t border-zinc-800 mt-20">
         <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-zinc-500 text-center">
-          Agentix Protocol • Sepolia Testnet
+          Agentix Protocol • Sepolia Testnet • Zero-Knowledge Credentials
         </div>
       </footer>
     </div>

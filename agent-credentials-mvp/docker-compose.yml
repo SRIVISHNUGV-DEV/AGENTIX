@@ -45,25 +45,25 @@ services:
     container_name: agentix-backend
     environment:
       - NODE_ENV=production
-      - PORT=3000
-      - DB_TYPE=postgres
+      - PORT=3001
       - DATABASE_URL=postgresql://agentix:${POSTGRES_PASSWORD:-agentix_secret_2024}@postgres:5432/agentix
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change_this_in_production}
       - ENABLE_EVENT_SYNC=${ENABLE_EVENT_SYNC:-true}
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3001}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - ENABLE_PROOF_QUEUE=${ENABLE_PROOF_QUEUE:-true}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "3001:3001"
     volumes:
       - backend_logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -76,14 +76,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:3000
+        - NEXT_PUBLIC_API_URL=http://localhost:3001
     container_name: agentix-frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
     depends_on:
       - backend
     ports:
-      - "3001:3000"
+      - "3000:3000"
     restart: unless-stopped
     networks:
       - agentix-network

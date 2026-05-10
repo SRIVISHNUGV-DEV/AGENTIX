@@ -52,9 +52,9 @@ async function createPostgresDB(): Promise<DB> {
     }
 
     // Configure SSL based on DB_SSL_MODE
+    // AWS RDS uses self-signed certificates - we need to accept them
     if (DB_SSL_MODE === "require" || DB_SSL_MODE === "prefer") {
-        const sslMode = DB_SSL_MODE === "require" ? true : { rejectUnauthorized: false }
-        poolConfig.ssl = sslMode
+        poolConfig.ssl = { rejectUnauthorized: false }
     } else if (DB_SSL_MODE === "disable") {
         poolConfig.ssl = false
     }
