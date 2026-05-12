@@ -1,159 +1,212 @@
 import Link from 'next/link'
-import { Shield, Users, Key, Wallet, Activity, ArrowRight } from 'lucide-react'
+import { Activity, ArrowRight, Building2, KeyRound, Network, Shield, Wallet } from 'lucide-react'
+import { WorkspaceControls } from '@/components/platform/workspace-controls'
+import { OrgActions } from '@/components/platform/org-actions'
+import { CreateOrgForm } from '@/components/platform/create-org-form'
 import { Button } from '@/components/ui/button'
+import { getDashboardStats, getEvents, getOrganizationWorkspace, listOrganizations } from '@/lib/mock-api'
+import { getSelectedOrgId } from '@/lib/org-session'
+import { formatDate, truncateAddress } from '@/lib/utils'
+import Header from '@/components/header'
 
-export default function Dashboard() {
-  const stats = [
-    { label: 'Total Agents', value: '0', icon: Users },
-    { label: 'Active Sessions', value: '0', icon: Activity },
-    { label: 'Credentials Issued', value: '0', icon: Key },
-    { label: 'Wallets Deployed', value: '0', icon: Wallet },
+export const metadata = {
+  title: 'Dashboard - Agentix',
+  description: 'Workspace overview for organizations, credentials, sessions, and wallets.',
+}
+
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardPage() {
+  const [organizationsRes, selectedOrgId] = await Promise.all([
+    listOrganizations(),
+    getSelectedOrgId(),
+  ])
+
+  const currentOrgId =
+    selectedOrgId?.toString() ??
+    organizationsRes.data[organizationsRes.data.length - 1]?.id ??
+    null
+
+  const [statsRes, eventsRes, workspaceRes] = await Promise.all([
+    getDashboardStats(currentOrgId),
+    getEvents(currentOrgId),
+    currentOrgId ? getOrganizationWorkspace(currentOrgId) : Promise.resolve(null),
+  ])
+
+  const stats = statsRes.data
+  const events = eventsRes.data.slice(0, 6)
+  const workspace = workspaceRes?.data ?? null
+
+  const cards = [
+    { label: 'Agents', value: stats.totalAgents, icon: Shield },
+    { label: 'Active Agents', value: stats.activeAgents, icon: Activity },
+    { label: 'Sessions', value: stats.totalSessions, icon: KeyRound },
+    { label: 'Wallets', value: stats.totalWallets, icon: Wallet },
   ]
 
-  const recentActivity = [
-    { type: 'agent', message: 'No agents registered yet', time: '-' },
-    { type: 'credential', message: 'Issue your first credential to get started', time: '-' },
-    { type: 'session', message: 'Agent sessions will appear here', time: '-' },
+  const quickLinks = [
+    { href: '/agents/new', label: 'Register agent', description: 'Create a new protocol identity.' },
+    { href: '/ai-agents', label: 'Connect runtime', description: 'Attach an external runtime to an agent.' },
+    { href: '/events', label: 'Inspect events', description: 'Review indexed on-chain activity.' },
   ]
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header className="border-b border-zinc-800">
-        <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <div className="w-5 h-5 bg-white rounded-sm flex items-center justify-center">
-              <span className="text-black text-xs font-bold">A</span>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <Header />
+
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-8">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">Workspace</span>
+              <h1 className="mt-2 text-3xl font-semibold">
+                {workspace?.organization.name ?? 'Create or select an organization'}
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm text-zinc-400">
+                The dashboard reflects the currently selected organization. Create agents here, sign platform actions
+                from the owner wallet, and inspect the PostgreSQL-backed state of the protocol.
+              </p>
             </div>
-            <span>Agentix</span>
-          </Link>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="text-white">
-              Dashboard
-            </Link>
-            <Link href="/agents" className="text-zinc-400 hover:text-white transition-colors">
-              Agents
-            </Link>
-            <Link href="/docs" className="text-zinc-400 hover:text-white transition-colors">
-              Docs
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-zinc-400 mt-1">Overview of your agent credentials protocol</p>
+            {currentOrgId ? (
+              <Link href="/agents">
+                <Button className="bg-zinc-100 text-zinc-900 hover:bg-zinc-200">Open agents</Button>
+              </Link>
+            ) : (
+              <CreateOrgForm />
+            )}
+          </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid gap-4 sm:grid-cols-4 mb-8">
-          {stats.map(({ label, value, icon: Icon }) => (
-            <div
-              key={label}
-              className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
-                  {label}
-                </span>
-                <Icon className="w-4 h-4 text-zinc-600" />
+        <div className="mt-8">
+          <WorkspaceControls
+            organizations={organizationsRes.data.map((org) => ({ id: org.id, name: org.name }))}
+            currentOrgId={currentOrgId}
+          />
+        </div>
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {cards.map(({ label, value, icon: Icon }) => (
+            <div key={label} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+                <Icon className="h-4 w-4 text-zinc-500" />
               </div>
-              <div className="text-2xl font-semibold">{value}</div>
+              <div className="mt-4 text-3xl font-semibold">{value}</div>
             </div>
           ))}
         </div>
 
-        {/* Quick Actions */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Link
-              href="/agents/new"
-              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
-            >
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+            <div className="flex items-center justify-between">
               <div>
-                <div className="font-medium">Register Agent</div>
-                <div className="text-sm text-zinc-400">Add a new agent identity</div>
+                <h2 className="font-medium">Quick actions</h2>
+                <p className="mt-1 text-sm text-zinc-500">Working entry points for the main flows.</p>
               </div>
-              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
-            </Link>
-            <Link
-              href="/credentials/issue"
-              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
-            >
-              <div>
-                <div className="font-medium">Issue Credential</div>
-                <div className="text-sm text-zinc-400">Create ZK credential</div>
-              </div>
-              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
-            </Link>
-            <Link
-              href="/sessions"
-              className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
-            >
-              <div>
-                <div className="font-medium">Create Session</div>
-                <div className="text-sm text-zinc-400">Start agent session</div>
-              </div>
-              <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
-            </Link>
-          </div>
-        </div>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              {quickLinks.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="group rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 transition-colors hover:border-zinc-700 hover:bg-zinc-900"
+                >
+                  <div className="font-medium">{item.label}</div>
+                  <div className="mt-2 text-sm text-zinc-500">{item.description}</div>
+                  <div className="mt-4 flex items-center gap-2 text-sm text-zinc-300">
+                    Open
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
 
-        {/* Recent Activity */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-          <div className="p-4 border-b border-zinc-800">
-            <h2 className="text-lg font-semibold">Recent Activity</h2>
-          </div>
-          <div className="divide-y divide-zinc-800">
-            {recentActivity.map((item, i) => (
-              <div key={i} className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-zinc-600" />
-                  <div className="text-sm">{item.message}</div>
+          <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+            <div className="flex items-center gap-2">
+              <Network className="h-4 w-4 text-zinc-500" />
+              <h2 className="font-medium">Contracts</h2>
+            </div>
+            {!workspace?.contracts ? (
+              <p className="mt-4 text-sm text-zinc-500">
+                No organization contracts are available yet. Connect the owner wallet and deploy from the controls below.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">Network</span>
+                  <span>{workspace.contracts.networkName}</span>
                 </div>
-                <div className="text-xs text-zinc-500">{item.time}</div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">Verifier</span>
+                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.verifierAddress, 14)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">Registry</span>
+                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.credentialRegistryAddress, 14)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">Session manager</span>
+                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.sessionManagerAddress, 14)}</span>
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+          </section>
         </div>
 
-        {/* Network Status */}
-        <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
-          <h2 className="text-lg font-semibold mb-4">Network Status</h2>
-          <div className="grid gap-6 sm:grid-cols-4">
-            <div>
-              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                Network
-              </div>
-              <div className="font-medium">Sepolia</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                Latest Block
-              </div>
-              <div className="font-medium font-mono">-</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                Gas Price
-              </div>
-              <div className="font-medium font-mono">-</div>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                Status
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-zinc-600" />
-                <span className="text-zinc-400">Not connected</span>
-              </div>
-            </div>
+        {currentOrgId ? (
+          <div className="mt-8">
+            <OrgActions orgId={currentOrgId} />
           </div>
+        ) : null}
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+            <h2 className="font-medium">Recent activity</h2>
+            {events.length === 0 ? (
+              <p className="mt-4 text-sm text-zinc-500">No indexed events yet for the selected workspace.</p>
+            ) : (
+              <div className="mt-4 divide-y divide-zinc-800">
+                {events.map((event) => (
+                  <div key={event.id} className="flex items-center justify-between gap-4 py-3">
+                    <div>
+                      <div className="text-sm text-zinc-200">{event.description}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{event.contractName}</div>
+                    </div>
+                    <div className="text-right text-xs text-zinc-500">
+                      <div>#{event.blockNumber}</div>
+                      <div>{formatDate(event.timestamp)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-zinc-500" />
+              <h2 className="font-medium">Workspace status</h2>
+            </div>
+            <div className="mt-4 space-y-4 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-zinc-500">Organizations</span>
+                <span>{organizationsRes.data.length}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-zinc-500">Selected org</span>
+                <span>{currentOrgId ?? 'None'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-zinc-500">Contracts deployed</span>
+                <span>{workspace?.contracts ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-zinc-500">Last event count</span>
+                <span>{stats.recentEvents}</span>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
     </div>

@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useWallet } from '@/components/wallet/wallet-provider'
+import Header from '@/components/header'
 import {
   createExternalAgent,
   listAgentTypes,
@@ -173,18 +174,18 @@ export default function AIAgentsPage() {
 
       // Automatically test the connection if endpoint was provided
       if (endpoint.trim()) {
-        setConnectionStatus(prev => ({...prev, [created.id]: 'pending'}))
+        setConnectionStatus(prev => ({...prev, [created.agentId]: 'pending'}))
         try {
           await new Promise(resolve => setTimeout(resolve, 500)) // Small delay
-          const testResult = await testAgentConnection(created.id, orgId)
+          const testResult = await testAgentConnection(created.agentId, orgId)
           if (testResult.success) {
-            setConnectionStatus(prev => ({...prev, [created.id]: 'connected'}))
+            setConnectionStatus(prev => ({...prev, [created.agentId]: 'connected'}))
           } else {
-            setConnectionStatus(prev => ({...prev, [created.id]: 'error'}))
+            setConnectionStatus(prev => ({...prev, [created.agentId]: 'error'}))
             setError(`Connection test failed: ${testResult.error || 'Unknown error'}`)
           }
         } catch (testError) {
-          setConnectionStatus(prev => ({...prev, [created.id]: 'error'}))
+          setConnectionStatus(prev => ({...prev, [created.agentId]: 'error'}))
           setError(`Connection test failed: ${testError instanceof Error ? testError.message : 'Unknown error'}`)
         }
       }
@@ -230,11 +231,7 @@ export default function AIAgentsPage() {
   if (!isConnected || !isSepolia) {
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-100">
-        <header className="border-b border-zinc-800">
-          <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
-          </div>
-        </header>
+        <Header />
         <main className="mx-auto max-w-6xl px-6 py-20 text-center">
           <h1 className="text-2xl font-semibold">Connect your wallet</h1>
           <p className="mt-4 text-zinc-500 max-w-md mx-auto">
@@ -248,21 +245,7 @@ export default function AIAgentsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400">Register Agent</span>
-          </div>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-200">Dashboard</Link>
-            <Link href="/agents" className="text-zinc-400 hover:text-zinc-200">Agents</Link>
-            <Link href="/credentials" className="text-zinc-400 hover:text-zinc-200">Credentials</Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Hero */}

@@ -119,6 +119,7 @@ export function WorkspaceControls({
           value={selectedOrgId}
           onChange={(event) => setSelectedOrgId(event.target.value)}
           className="mt-3 w-full rounded-xl border border-white/10 bg-background/80 px-3 py-2 text-sm text-foreground backdrop-blur-xl"
+          suppressHydrationWarning
         >
           <option value="" disabled>
             Select organization

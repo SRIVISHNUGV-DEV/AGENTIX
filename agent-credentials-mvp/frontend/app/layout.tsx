@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { Viewport } from 'next'
+import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { WalletProvider } from '@/components/wallet/wallet-provider'
 import './globals.css'
@@ -43,7 +44,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <script
+        <Script
+          id="fdprocessedid-cleanup"
           dangerouslySetInnerHTML={{
             __html: `document.querySelectorAll('[fdprocessedid]').forEach(e=>e.removeAttribute('fdprocessedid'))`,
           }}

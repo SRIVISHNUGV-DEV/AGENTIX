@@ -9,7 +9,7 @@ export const metadata = {
 
 const quickstart = `import { AgentClient } from "@agentix/sdk"
 
-const client = new AgentClient("http://127.0.0.1:3000")
+const client = new AgentClient("https://api.agentix.example.com")
 await client.init()
 
 const registration = await client.registerAgent({

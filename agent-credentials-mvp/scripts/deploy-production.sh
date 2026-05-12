@@ -22,11 +22,14 @@ command -v docker >/dev/null 2>&1 || { echo "Docker required"; exit 1; }
 # Set up environment-specific variables
 if [ "$ENVIRONMENT" = "production" ]; then
     ECR_REGISTRY="public.ecr.aws/agentix"
-    DATABASE_URL="$AWS_RDS_URL"
-    REDIS_URL="$AWS_ELASTICACHE_URL"
+    DATABASE_URL="${AWS_RDS_URL:-$DATABASE_URL}"
+    REDIS_URL="${AWS_ELASTICACHE_URL:-$REDIS_URL}"
 else
     ECR_REGISTRY="public.ecr.aws/agentix-dev"
 fi
+
+BACKEND_URL="${BACKEND_URL:-https://api.agentix.example.com}"
+FRONTEND_URL="${FRONTEND_URL:-https://app.agentix.example.com}"
 
 # Build and push Docker images
 build_and_push() {
@@ -72,14 +75,17 @@ fi
 echo "Running database migrations..."
 # Add migration commands here
 
+[ -n "$DATABASE_URL" ] || { echo "DATABASE_URL or AWS_RDS_URL is required"; exit 1; }
+[ -n "$REDIS_URL" ] || { echo "REDIS_URL or AWS_ELASTICACHE_URL is required"; exit 1; }
+
 # Health check
 echo "Waiting for services to be healthy..."
 sleep 30
 
 # Verify deployment
 echo "Verifying deployment..."
-curl -f https://api.corvenlabs.org/health || { echo "Backend health check failed"; exit 1; }
-curl -f https://corvenlabs.org/ || { echo "Frontend health check failed"; exit 1; }
+curl -f "$BACKEND_URL/health" || { echo "Backend health check failed"; exit 1; }
+curl -f "$FRONTEND_URL/" || { echo "Frontend health check failed"; exit 1; }
 
 echo "=================================================="
 echo "Deployment complete!"

@@ -12,10 +12,12 @@ import {
   Wallet,
 } from "./types"
 
+const isProduction = process.env.NODE_ENV === "production"
+
 const API_BASE_URL =
   process.env.AGENT_CREDENTIALS_API_URL ??
   process.env.NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL ??
-  "http://127.0.0.1:3001"
+  (isProduction ? "http://backend:3001" : "http://127.0.0.1:3001")
 
 const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true" || process.env.USE_MOCK === "true"
 
@@ -151,7 +153,7 @@ async function apiFetch<T>(path: string, init?: RequestInit, useFallback = true)
 
     return response.json() as Promise<T>
   } catch (error) {
-    if (useFallback) {
+    if (useFallback && (USE_MOCK || !isProduction)) {
       console.warn(`API call failed for ${path}, using fallback data:`, error instanceof Error ? error.message : String(error))
       return getFallbackData(path) as T
     }
@@ -448,9 +450,13 @@ export async function getOrganizationWorkspace(orgId?: string | null): Promise<A
 }
 
 export async function getAgents(orgId?: string | null): Promise<ApiResponse<Agent[]>> {
-  const agents = orgId
-    ? (await getOrganizationState(orgId)).agents
-    : await apiFetch<BackendAgent[]>("/agents")
+  let agents: BackendAgent[]
+  if (orgId) {
+    const state = await getOrganizationState(orgId)
+    agents = state.agents ?? []
+  } else {
+    agents = await apiFetch<BackendAgent[]>("/agents") ?? []
+  }
   const states = await Promise.all(
     agents.map((agent) => apiFetch<AgentState>(`/v1/agents/${agent.id}/state`))
   )
@@ -514,18 +520,23 @@ export async function getWalletsByAgent(agentId: string): Promise<ApiResponse<Wa
 }
 
 export async function getSessions(orgId?: string | null): Promise<ApiResponse<Session[]>> {
-  const sessions = orgId
-    ? (await getOrganizationState(orgId)).sessions
-    : await apiFetch<BackendSession[]>("/sessions")
-  const credentials = orgId
-    ? (await getOrganizationState(orgId)).agents.length
-      ? (await Promise.all(
-          (await getOrganizationState(orgId)).agents.map((agent) =>
-            apiFetch<AgentState>(`/v1/agents/${agent.id}/state`)
-          )
-        )).flatMap((state) => (state.credential ? [state.credential] : []))
-      : []
-    : await apiFetch<BackendCredential[]>("/credentials")
+  let sessions: BackendSession[]
+  let credentials: BackendCredential[] = []
+
+  if (orgId) {
+    const state = await getOrganizationState(orgId)
+    sessions = state.sessions ?? []
+    const agents = state.agents ?? []
+    if (agents.length > 0) {
+      const agentStates = await Promise.all(
+        agents.map((agent) => apiFetch<AgentState>(`/v1/agents/${agent.id}/state`))
+      )
+      credentials = agentStates.flatMap((state) => (state.credential ? [state.credential] : []))
+    }
+  } else {
+    sessions = await apiFetch<BackendSession[]>("/sessions") ?? []
+    credentials = await apiFetch<BackendCredential[]>("/credentials") ?? []
+  }
   const credentialByAgent = new Map(
     credentials.map((credential) => [credential.agent_id.toString(), mapCredential(credential)[0]])
   )

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatDate, truncateAddress } from '@/lib/utils'
+import Header from '@/components/header'
 import type { Event } from '@/lib/types'
 
 interface EventsPageClientProps {
@@ -97,21 +98,7 @@ export function EventsPageClient({
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400">Events</span>
-          </div>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-200">Dashboard</Link>
-            <Link href="/agents" className="text-zinc-400 hover:text-zinc-200">Agents</Link>
-            <Link href="/credentials" className="text-zinc-400 hover:text-zinc-200">Credentials</Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Title */}

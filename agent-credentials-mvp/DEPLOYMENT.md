@@ -11,27 +11,31 @@ cd agent-credentials-mvp
 
 # Copy and configure environment
 cp .env.example .env
-# Edit .env with your production values
+# Edit .env with your production values and deployed frontend/backend URLs
 ```
 
 ### 2. Required Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_TYPE` | Yes | `postgres` for production |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `JWT_SECRET` | Yes | 64-character hex string |
+| `DB_SSL_MODE` | Yes | `require` for AWS RDS |
+| `ENCRYPTION_KEY` | Yes | 64-character hex string for stored agent secrets |
 | `CORS_ORIGIN` | Yes | Your frontend domain |
+| `AGENT_CREDENTIALS_API_URL` | Yes | Backend public URL used by frontend server routes |
+| `NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL` | Yes | Backend public URL exposed to frontend |
+| `METRICS_API_KEY` | Recommended | Protects `/metrics` in production |
 | `PRIVATE_KEY` | Yes | Backend wallet private key |
 | `RPC_URL` | Yes | Ethereum RPC endpoint |
-| `ALCHEMY_API_KEY` | Yes | For blockchain indexing |
+| `BUNDLER_URL` | Yes | ERC-4337 bundler endpoint |
+| `REDIS_URL` | Recommended | Redis or ElastiCache connection URL |
 
 ### 3. Deploy Options
 
 #### Option A: Docker Compose (Self-hosted)
 
 ```bash
-# Start all services
+# Start all services (expects external DATABASE_URL, e.g. AWS RDS)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # View logs
@@ -93,11 +97,11 @@ curl -H "Authorization: Bearer $METRICS_API_KEY" https://api.yourdomain.com/metr
 
 ### Database connection failed
 ```bash
-# Check PostgreSQL is running
-docker-compose ps
+# Verify the RDS endpoint is reachable from the host/container
+nc -vz <your-rds-endpoint> 5432
 
-# View logs
-docker-compose logs postgres
+# Confirm security groups allow inbound traffic from your app
+# Confirm DATABASE_URL credentials and ssl mode
 ```
 
 ### Event sync not working

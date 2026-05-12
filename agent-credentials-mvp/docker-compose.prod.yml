@@ -2,22 +2,9 @@ version: "3.8"
 
 # Production Docker Compose Override
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# This override assumes PostgreSQL is provided by AWS RDS or another managed service.
 
 services:
-  postgres:
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_USER: agentix
-      POSTGRES_DB: agentix
-    restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          memory: 256M
-
   redis:
     restart: always
     deploy:
@@ -29,11 +16,18 @@ services:
   backend:
     environment:
       NODE_ENV: production
-      DB_TYPE: postgres
-      DATABASE_URL: postgresql://agentix:${POSTGRES_PASSWORD}@postgres:5432/agentix
-      REDIS_URL: redis://redis:6379
-      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL}
+      DB_SSL_MODE: ${DB_SSL_MODE:-require}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:-10000}
+      DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-60000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      PORT: 3001
       LOG_LEVEL: warn
+      ENABLE_EVENT_SYNC: ${ENABLE_EVENT_SYNC:-true}
+      ENABLE_PROOF_QUEUE: ${ENABLE_PROOF_QUEUE:-true}
     restart: always
     deploy:
       replicas: 2
@@ -51,7 +45,8 @@ services:
   frontend:
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.yourdomain.com}
+      AGENT_CREDENTIALS_API_URL: ${AGENT_CREDENTIALS_API_URL:-http://backend:3001}
+      NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL: ${NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL}
     restart: always
     deploy:
       replicas: 2

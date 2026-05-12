@@ -176,7 +176,7 @@ export class EventSyncService {
             `
             INSERT INTO contract_events
             (org_id, contract_name, contract_address, event_name, tx_hash, block_number, log_index, session_id, wallet_address, event_data)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT (tx_hash, log_index) DO NOTHING
             `,
             null,

@@ -2,34 +2,35 @@ import express from "express"
 import { initDB } from "../db"
 import { PlatformService } from "../services/platform"
 import { requireSignedAction } from "../services/actionAuth"
-import { requireAuth } from "../middleware/auth"
-import type { AuthRequest } from "../types/http"
+import type { Request, Response } from "express"
 import { respondWithError } from "../utils/errors"
 import { ensureBodyObject, optionalAddress, optionalInteger, requireInteger, requireString } from "../utils/validation"
 
 const router = express.Router()
 const platform = new PlatformService()
 
-// V-003 FIX: Require authentication for all agent routes
-router.use(requireAuth)
-
-router.post("/", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Create agent requires wallet signature
+router.post("/", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         ensureBodyObject(req.body)
 
-        // V-003: Only use authenticated orgId
-        if (!req.auth?.orgId) {
-            return res.status(401).json({ error: "authentication required" })
-        }
-
         const agentName = requireString(req.body.agentName, "agentName", { minLength: 2, maxLength: 120 })
-        const orgId = req.auth.orgId
+        const orgId = requireInteger(req.body.orgId, "orgId", 1)
 
-        const org = await db.get(`SELECT id FROM organizations WHERE id = ?`, orgId)
+        // Verify org exists
+        const org = await db.get(`SELECT id, owner_wallet_address FROM organizations WHERE id = ?`, orgId)
         if(!org){
             return res.status(404).json({ error:"organization not found" })
         }
+
+        // Require wallet signature for agent creation
+        await requireSignedAction(db, {
+            orgId: orgId,
+            action: "CREATE_AGENT",
+            target: "agent:new",
+            payload: req.body ?? {}
+        })
 
         const result = await db.run(
             `
@@ -48,18 +49,20 @@ router.post("/", async (req:AuthRequest,res)=>{
     }
 })
 
-router.get("/", async (req:AuthRequest,res)=>{
+// List agents for an org - requires orgId in query params and wallet signature
+router.get("/", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
+        const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
 
-        // V-003 FIX: Only return agents for authenticated org
+        // Return agents for the specified org
         const agents = await db.all(
             `
             SELECT *
             FROM agents
             WHERE org_id = ?
             `,
-            req.auth!.orgId
+            orgId
         )
 
         res.json(agents)
@@ -68,13 +71,14 @@ router.get("/", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:agentId/credentials/issue", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Issue credential
+router.post("/:agentId/credentials/issue", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
-        if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
-            return res.status(403).json({ error:"forbidden" })
+        if(!agent){
+            return res.status(404).json({ error:"agent not found" })
         }
 
         ensureBodyObject(req.body)
@@ -95,13 +99,14 @@ router.post("/:agentId/credentials/issue", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:agentId/sessions/create", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Create session
+router.post("/:agentId/sessions/create", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
-        if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
-            return res.status(403).json({ error:"forbidden" })
+        if(!agent){
+            return res.status(404).json({ error:"agent not found" })
         }
 
         ensureBodyObject(req.body)
@@ -122,13 +127,14 @@ router.post("/:agentId/sessions/create", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:agentId/revoke", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Revoke credential
+router.post("/:agentId/revoke", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
-        if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
-            return res.status(403).json({ error:"forbidden" })
+        if(!agent){
+            return res.status(404).json({ error:"agent not found" })
         }
 
         await requireSignedAction(db, {
@@ -145,13 +151,14 @@ router.post("/:agentId/revoke", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:agentId/wallets/create", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Create wallet
+router.post("/:agentId/wallets/create", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
-        if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
-            return res.status(403).json({ error:"forbidden" })
+        if(!agent){
+            return res.status(404).json({ error:"agent not found" })
         }
 
         ensureBodyObject(req.body)
@@ -171,13 +178,14 @@ router.post("/:agentId/wallets/create", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:agentId/fund", async (req:AuthRequest,res)=>{
+// Wallet-only auth: Fund agent
+router.post("/:agentId/fund", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
         const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
-        if(!agent || (req.auth && agent.org_id !== req.auth.orgId)){
-            return res.status(403).json({ error:"forbidden" })
+        if(!agent){
+            return res.status(404).json({ error:"agent not found" })
         }
 
         ensureBodyObject(req.body)

@@ -10,10 +10,6 @@ const nextConfig = {
   allowedDevOrigins: ['127.0.0.1'],
   // Production: Enable standalone output for Docker
   output: 'standalone',
-  // Turbopack: Explicitly set root to fix workspace detection
-  turbo: {
-    root: __dirname,
-  },
 }
 
 export default nextConfig

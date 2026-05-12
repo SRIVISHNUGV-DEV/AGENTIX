@@ -1,3 +1,7 @@
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
 html { scroll-behavior: smooth; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9,17 +13,14 @@ html { scroll-behavior: smooth; }
   }
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-@import 'tailwindcss';
-@import 'tw-animate-css';
-
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-inter: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-space: "Inter", "SF Pro Display", -apple-system, sans-serif;
+  --font-satoshi: "Satoshi", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-space: "Satoshi", "SF Pro Display", -apple-system, sans-serif;
   --font-jetbrains: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
-  --font-display: "Inter", "SF Pro Display", -apple-system, sans-serif;
+  --font-display: "Satoshi", "SF Pro Display", -apple-system, sans-serif;
+  --font-syne: "Satoshi", "SF Pro Display", -apple-system, sans-serif;
 
   /* Pure B&W palette - Vercel-inspired */
   --background: #000000;
@@ -93,8 +94,8 @@ html { scroll-behavior: smooth; }
 }
 
 @theme inline {
-  --font-sans: var(--font-space);
-  --font-display: var(--font-display);
+  --font-sans: var(--font-satoshi);
+  --font-display: var(--font-satoshi);
   --font-mono: var(--font-jetbrains);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -140,7 +141,7 @@ html { scroll-behavior: smooth; }
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: var(--font-inter);
+    font-family: var(--font-satoshi);
     min-height: 100vh;
   }
   code, pre {

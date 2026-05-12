@@ -45,39 +45,62 @@ export function buildSignedActionMessage({
     ].join("\n")
 }
 
+/**
+ * Verify a personal_sign signature.
+ * personal_sign prefixes the message with "\x19Ethereum Signed Message:\n{length}"
+ * ethers verifyMessage handles this automatically.
+ */
+function verifyPersonalSignature(message: string, signature: string): string {
+    try {
+        return verifyMessage(message, signature).toLowerCase()
+    } catch (error) {
+        throw new AppError(401, "invalid wallet signature")
+    }
+}
+
 export async function requireSignedAction(db:any, options:AuthorizationOptions){
     const { orgId, action, target, payload } = options
+
+    console.log("[actionAuth] Received payload:", JSON.stringify(payload, null, 2))
 
     const walletAddress = payload.walletAddress?.toLowerCase()
     const signature = payload.signature
     const nonce = payload.nonce
     const requestedAt = Number(payload.requestedAt)
 
+    console.log("[actionAuth] Extracted:", { walletAddress, hasSignature: !!signature, nonce, requestedAt })
+
     if(!walletAddress || !signature || !nonce || !Number.isFinite(requestedAt)){
+        console.log("[actionAuth] Missing required fields")
         throw new AppError(401, "wallet signature is required")
     }
 
-    const org = await db.get(
-        `
-        SELECT id, owner_wallet_address
-        FROM organizations
-        WHERE id = ?
-        `,
-        orgId
-    )
+    // For new org creation (orgId = 0), skip org ownership check
+    const isNewOrg = orgId === 0
 
-    if(!org){
-        throw new AppError(404, "organization not found")
-    }
+    if(!isNewOrg){
+        const org = await db.get(
+            `
+            SELECT id, owner_wallet_address
+            FROM organizations
+            WHERE id = ?
+            `,
+            orgId
+        )
 
-    const ownerWalletAddress = org.owner_wallet_address?.toLowerCase()
+        if(!org){
+            throw new AppError(404, "organization not found")
+        }
 
-    if(!ownerWalletAddress){
-        throw new AppError(400, "organization owner wallet is not set")
-    }
+        const ownerWalletAddress = org.owner_wallet_address?.toLowerCase()
 
-    if(ownerWalletAddress !== walletAddress){
-        throw new AppError(403, "signed wallet does not match organization owner")
+        if(!ownerWalletAddress){
+            throw new AppError(400, "organization owner wallet is not set")
+        }
+
+        if(ownerWalletAddress !== walletAddress){
+            throw new AppError(403, "signed wallet does not match organization owner")
+        }
     }
 
     const existing = await db.get(
@@ -109,15 +132,16 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
 
     let recovered:string
     try{
-        recovered = verifyMessage(message, signature).toLowerCase()
+        recovered = verifyPersonalSignature(message, signature)
     }catch{
         throw new AppError(401, "invalid wallet signature")
     }
 
     if(recovered !== walletAddress){
-        throw new AppError(401, "wallet signature does not match requested wallet")
+        throw new AppError(401, `wallet signature does not match requested wallet (expected ${walletAddress}, got ${recovered})`)
     }
 
+    // For new orgs, insert with org_id = NULL (will be updated later if needed)
     await db.run(
         `
         INSERT INTO action_authorizations
@@ -125,7 +149,7 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
         VALUES (?,?,?,?,?,?)
         `,
         nonce,
-        orgId,
+        isNewOrg ? null : orgId,
         walletAddress,
         action,
         target,

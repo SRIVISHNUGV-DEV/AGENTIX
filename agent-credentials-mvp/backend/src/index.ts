@@ -10,6 +10,7 @@ import proofRoutes from "./routes/proofs"
 import walletRoutes from "./routes/wallets"
 import eventRoutes from "./routes/events"
 import simpleRoutes from "./routes/simple"
+import aiRoutes from "./routes/ai"
 import authRoutes from "./routes/auth"
 import externalAgentRoutes from "./routes/externalAgents"
 import v1Routes from "./routes/v1"
@@ -59,7 +60,7 @@ app.use("/sessions", sessionRoutes)
 app.use("/proofs", proofRoutes)
 app.use("/wallets", walletRoutes)
 app.use("/events", eventRoutes)
-app.use("/ai", simpleRoutes)
+app.use("/ai", aiRoutes)
 app.use("/external", externalAgentRoutes)
 app.use("/v1", v1Routes)
 

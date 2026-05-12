@@ -1,43 +1,37 @@
-import { BACKEND_API_BASE } from '@/lib/api-base'
+import { buildBackendUrl, proxyBackend } from '@/lib/backend-proxy'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org-session'
 
 export async function GET() {
-  const response = await fetch(`${BACKEND_API_BASE}/orgs`, {
-    cache: 'no-store',
-  })
-
-  const body = await response.text()
-  return new Response(body, {
-    status: response.status,
-    headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' },
-  })
+  return proxyBackend(new Request(buildBackendUrl('/orgs').toString(), { method: 'GET' }), buildBackendUrl('/orgs'))
 }
 
 export async function POST(request: Request) {
-  const payload = await request.text()
-  const response = await fetch(`${BACKEND_API_BASE}/orgs`, {
+  // Parse the body to get signature payload
+  const body = await request.json()
+
+  const response = await fetch(buildBackendUrl('/orgs'), {
     method: 'POST',
-    body: payload,
+    body: JSON.stringify(body),
     headers: {
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
   })
 
-  const body = await response.text()
+  const responseBody = await response.text()
   const headers = new Headers({
     'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
   })
 
   if (response.ok) {
-    const parsed = JSON.parse(body)
+    const parsed = JSON.parse(responseBody)
     headers.append(
       'Set-Cookie',
       `${ACTIVE_ORG_COOKIE}=${parsed.id}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
     )
   }
 
-  return new Response(body, {
+  return new Response(responseBody, {
     status: response.status,
     headers,
   })

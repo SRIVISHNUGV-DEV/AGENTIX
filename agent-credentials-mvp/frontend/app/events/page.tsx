@@ -7,6 +7,8 @@ export const metadata = {
   description: 'Indexed contract events across sessions, wallets, and credentials.',
 }
 
+export const dynamic = 'force-dynamic'
+
 export default async function EventsPage() {
   const [orgListRes, selectedOrgId] = await Promise.all([
     listOrganizations(),

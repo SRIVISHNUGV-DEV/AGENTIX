@@ -3,7 +3,7 @@ import { initDB } from "../db"
 import { BlockchainService } from "../services/blockchain"
 import { PlatformService } from "../services/platform"
 import { requireSignedAction } from "../services/actionAuth"
-import type { AuthRequest } from "../types/http"
+import type { Request, Response } from "express"
 import { respondWithError } from "../utils/errors"
 import { ensureBodyObject, optionalAddress, requireInteger, requireString } from "../utils/validation"
 
@@ -17,7 +17,17 @@ router.post("/", async (req,res)=>{
         ensureBodyObject(req.body)
 
         const name = requireString(req.body.name, "name", { minLength: 2, maxLength: 120 })
-        const ownerWalletAddress = optionalAddress(req.body.ownerWalletAddress, "ownerWalletAddress")
+
+        // Require wallet signature for org creation
+        const signatureResult = await requireSignedAction(db, {
+            orgId: 0, // New org, no ID yet
+            action: "CREATE_ORG",
+            target: "org:new",
+            payload: req.body ?? {}
+        })
+
+        // Use signer's wallet address as owner
+        const ownerWalletAddress = signatureResult.walletAddress
 
         const result = await db.run(
             `
@@ -38,27 +48,24 @@ router.post("/", async (req,res)=>{
     }
 })
 
-router.get("/", async (req:AuthRequest,res)=>{
+router.get("/", async (req,res)=>{
     try{
         const db = await initDB()
 
-        const orgs = req.auth
-            ? await db.all("SELECT * FROM organizations WHERE id = ?", req.auth.orgId)
-            : await db.all("SELECT id, name, owner_wallet_address, created_at FROM organizations")
+        // Public endpoint - no auth required
+        const orgs = await db.all("SELECT id, name, owner_wallet_address, created_at FROM organizations")
 
         res.json(orgs)
     }catch(error){
+        console.error("[orgs.list] Error:", error)
         respondWithError(res, error, "orgs.list")
     }
 })
 
-router.post("/:orgId/deploy-contracts", async (req:AuthRequest,res)=>{
+router.post("/:orgId/deploy-contracts", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const orgId = requireInteger(req.params.orgId, "orgId", 1)
-        if(req.auth && req.auth.orgId !== orgId){
-            return res.status(403).json({ error:"forbidden" })
-        }
 
         const org = await db.get(
             `SELECT * FROM organizations WHERE id = ?`,
@@ -90,13 +97,10 @@ router.post("/:orgId/deploy-contracts", async (req:AuthRequest,res)=>{
     }
 })
 
-router.get("/:orgId/state", async (req:AuthRequest,res)=>{
+router.get("/:orgId/state", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const orgId = requireInteger(req.params.orgId, "orgId", 1)
-        if(req.auth && req.auth.orgId !== orgId){
-            return res.status(403).json({ error:"forbidden" })
-        }
 
         const organization = await db.get(`SELECT * FROM organizations WHERE id = ?`, orgId)
         if(!organization){
@@ -143,13 +147,10 @@ router.get("/:orgId/state", async (req:AuthRequest,res)=>{
     }
 })
 
-router.post("/:orgId/fund", async (req:AuthRequest,res)=>{
+router.post("/:orgId/fund", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
         const orgId = requireInteger(req.params.orgId, "orgId", 1)
-        if(req.auth && req.auth.orgId !== orgId){
-            return res.status(403).json({ error:"forbidden" })
-        }
 
         ensureBodyObject(req.body)
         const amountEth = requireString(req.body.amountEth, "amountEth", { minLength: 1, maxLength: 40 })
@@ -168,7 +169,7 @@ router.post("/:orgId/fund", async (req:AuthRequest,res)=>{
     }
 })
 
-router.delete("/:orgId", async (req:AuthRequest,res)=>{
+router.delete("/:orgId", async (req: Request, res: Response)=>{
     let db:any = null
     try{
         db = await initDB()

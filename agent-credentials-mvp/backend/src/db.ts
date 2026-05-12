@@ -1,5 +1,4 @@
-import { Pool, PoolClient } from "pg"
-import path from "path"
+import { Pool, PoolClient, QueryResult } from "pg"
 
 const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || ""
 if (!DATABASE_URL) {
@@ -8,6 +7,10 @@ if (!DATABASE_URL) {
 
 const DB_POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "10", 10)
 const DB_SSL_MODE = process.env.DB_SSL_MODE || "prefer"
+const DB_CONNECTION_TIMEOUT_MS = parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || "10000", 10)
+const DB_IDLE_TIMEOUT_MS = parseInt(process.env.DB_IDLE_TIMEOUT_MS || "30000", 10)
+const DB_STATEMENT_TIMEOUT_MS = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || "60000", 10)
+const DB_APPLICATION_NAME = process.env.DB_APPLICATION_NAME || "agentix-backend"
 
 const REVOCATION_KEY_SPACE = 1n << 20n
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -49,6 +52,10 @@ async function createPostgresDB(): Promise<DB> {
     const poolConfig: any = {
         connectionString: DATABASE_URL,
         max: DB_POOL_SIZE,
+        connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
+        idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
+        statement_timeout: DB_STATEMENT_TIMEOUT_MS,
+        application_name: DB_APPLICATION_NAME,
     }
 
     // Configure SSL based on DB_SSL_MODE
@@ -164,20 +171,23 @@ async function createPostgresDB(): Promise<DB> {
         await client.query(`
             CREATE TABLE IF NOT EXISTS merkle_tree (
                 id SERIAL PRIMARY KEY,
-                leaf_index INTEGER NOT NULL,
-                commitment TEXT NOT NULL,
-                secret_hash TEXT,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                level INTEGER NOT NULL,
+                node_index INTEGER NOT NULL,
+                hash TEXT NOT NULL,
                 created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
             )
         `)
 
         await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_merkle_leaf_index ON merkle_tree(leaf_index)
+            CREATE INDEX IF NOT EXISTS idx_merkle_org_level_index ON merkle_tree(org_id, level, node_index)
         `)
 
         await client.query(`
             CREATE TABLE IF NOT EXISTS revoked_secrets (
                 id SERIAL PRIMARY KEY,
+                agent_id INTEGER REFERENCES agents(id) ON DELETE CASCADE,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
                 secret_hash TEXT NOT NULL,
                 leaf_index INTEGER NOT NULL DEFAULT 0,
                 smt_key TEXT,
@@ -199,7 +209,10 @@ async function createPostgresDB(): Promise<DB> {
                 id SERIAL PRIMARY KEY,
                 agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
                 org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                owner_address TEXT,
                 wallet_address TEXT NOT NULL,
+                session_manager_address TEXT,
+                implementation_address TEXT,
                 wallet_kind TEXT NOT NULL DEFAULT 'erc4337',
                 entry_point_address TEXT,
                 factory_salt TEXT,
@@ -217,6 +230,9 @@ async function createPostgresDB(): Promise<DB> {
 
         await client.query(`
             CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(wallet_address)
+        `)
+        await client.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_wallets_address_unique ON wallets(wallet_address)
         `)
 
         await client.query(`
@@ -259,6 +275,9 @@ async function createPostgresDB(): Promise<DB> {
 
         await client.query(`
             CREATE INDEX IF NOT EXISTS idx_org_contracts_org_id ON organization_contracts(org_id)
+        `)
+        await client.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_org_contracts_org_id_unique ON organization_contracts(org_id)
         `)
 
         await client.query(`
@@ -416,9 +435,12 @@ async function createPostgresDB(): Promise<DB> {
         await client.query(`
             CREATE TABLE IF NOT EXISTS action_authorizations (
                 id SERIAL PRIMARY KEY,
-                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                nonce TEXT UNIQUE,
+                org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+                wallet_address TEXT,
                 action TEXT NOT NULL,
                 target TEXT NOT NULL,
+                requested_at INTEGER,
                 authorized_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 signature TEXT,
                 created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
@@ -432,6 +454,19 @@ async function createPostgresDB(): Promise<DB> {
 
         await client.query(`
             CREATE INDEX IF NOT EXISTS idx_action_auth_action ON action_authorizations(action, target)
+        `)
+        await client.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_action_auth_nonce_unique ON action_authorizations(nonce)
+        `)
+
+        // Make org_id nullable for new org creation flow
+        await client.query(`
+            DO $$
+            BEGIN
+                ALTER TABLE action_authorizations ALTER COLUMN org_id DROP NOT NULL;
+            EXCEPTION
+                WHEN others THEN NULL;
+            END $$;
         `)
 
         await client.query(`
@@ -503,6 +538,62 @@ async function createPostgresDB(): Promise<DB> {
             CREATE INDEX IF NOT EXISTS idx_event_cursors_key ON event_cursors(contract_key)
         `)
 
+        // AI agents tables
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS ai_agents (
+                id SERIAL PRIMARY KEY,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key_encrypted TEXT,
+                config TEXT DEFAULT '{}',
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                updated_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            )
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_ai_agents_org_id ON ai_agents(org_id)
+        `)
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS ai_agent_runs (
+                id SERIAL PRIMARY KEY,
+                agent_id INTEGER NOT NULL REFERENCES ai_agents(id) ON DELETE CASCADE,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                output TEXT,
+                error TEXT,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                completed_at INTEGER
+            )
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_ai_agent_runs_agent_id ON ai_agent_runs(agent_id)
+        `)
+
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_ai_agent_runs_status ON ai_agent_runs(status)
+        `)
+
+        await ensureColumn(client, "merkle_tree", "org_id", "INTEGER")
+        await ensureColumn(client, "merkle_tree", "level", "INTEGER")
+        await ensureColumn(client, "merkle_tree", "node_index", "INTEGER")
+        await ensureColumn(client, "merkle_tree", "hash", "TEXT")
+
+        await ensureColumn(client, "revoked_secrets", "agent_id", "INTEGER")
+        await ensureColumn(client, "revoked_secrets", "org_id", "INTEGER")
+
+        await ensureColumn(client, "wallets", "owner_address", "TEXT")
+        await ensureColumn(client, "wallets", "session_manager_address", "TEXT")
+        await ensureColumn(client, "wallets", "implementation_address", "TEXT")
+
+        await ensureColumn(client, "action_authorizations", "nonce", "TEXT")
+        await ensureColumn(client, "action_authorizations", "wallet_address", "TEXT")
+        await ensureColumn(client, "action_authorizations", "requested_at", "INTEGER")
+
         console.log("[db] Database tables initialized")
     } finally {
         client.release()
@@ -514,6 +605,7 @@ async function createPostgresDB(): Promise<DB> {
 function createPostgresWrapper(pool: Pool): DB {
     // Cache prepared statements for PostgreSQL to handle SQLite-style queries
     const statementCache: Map<string, string> = new Map()
+    let transactionClient: PoolClient | null = null
 
     function convertSql(sql: string): string {
         if (statementCache.has(sql)) {
@@ -533,33 +625,94 @@ function createPostgresWrapper(pool: Pool): DB {
         return converted
     }
 
+    function maybeAppendReturningId(sql: string): string {
+        const trimmed = sql.trim().replace(/;$/, "")
+        if (!/^insert\s+/i.test(trimmed) || /\breturning\b/i.test(trimmed)) {
+            return trimmed
+        }
+        return `${trimmed} RETURNING id`
+    }
+
+    async function execute(sql: string, params: any[] = [], options?: { returningId?: boolean }): Promise<QueryResult<any>> {
+        const preparedSql = options?.returningId ? maybeAppendReturningId(convertSql(sql)) : convertSql(sql)
+        const runner = transactionClient ?? pool
+        return runner.query(preparedSql, params)
+    }
+
     return {
         query: async (sql: string, ...args: any[]) => {
             const params = normalizeParams(args.length === 1 && Array.isArray(args[0]) ? args[0] : args)
-            const result = await pool.query(convertSql(sql), params)
+            const result = await execute(sql, params)
             return result.rows
         },
         run: async (sql: string, ...args: any[]) => {
             const params = normalizeParams(args.length === 1 && Array.isArray(args[0]) ? args[0] : args)
-            const result = await pool.query(convertSql(sql), params)
+            const result = await execute(sql, params, { returningId: true })
             return { lastID: result.rows[0]?.id, changes: result.rowCount || 0 }
         },
         get: async (sql: string, ...args: any[]) => {
             const params = normalizeParams(args.length === 1 && Array.isArray(args[0]) ? args[0] : args)
-            const result = await pool.query(convertSql(sql), params)
+            const result = await execute(sql, params)
             return result.rows[0]
         },
         all: async (sql: string, ...args: any[]) => {
             const params = normalizeParams(args.length === 1 && Array.isArray(args[0]) ? args[0] : args)
-            const result = await pool.query(convertSql(sql), params)
+            const result = await execute(sql, params)
             return result.rows
         },
         exec: async (sql: string) => {
-            // Execute SQL directly without parameter conversion
-            // exec is for DDL/transaction commands that don't have parameters
-            await pool.query(sql)
+            const normalized = sql.trim().toUpperCase()
+
+            if (normalized === "BEGIN") {
+                if (transactionClient) {
+                    throw new Error("transaction already open")
+                }
+                transactionClient = await pool.connect()
+                await transactionClient.query("BEGIN")
+                return
+            }
+
+            if (normalized === "COMMIT" || normalized === "ROLLBACK") {
+                if (!transactionClient) {
+                    await pool.query(normalized)
+                    return
+                }
+
+                const client = transactionClient
+                transactionClient = null
+                try {
+                    await client.query(normalized)
+                } finally {
+                    client.release()
+                }
+                return
+            }
+
+            const runner = transactionClient ?? pool
+            await runner.query(convertSql(sql))
         }
     } as DB
+}
+
+async function ensureColumn(client: PoolClient, table: string, column: string, definition: string) {
+    assertSafeIdentifier(table, "table")
+    assertSafeIdentifier(column, "column")
+    assertSafeDefinition(definition)
+
+    const result = await client.query(
+        `
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = $2
+        `,
+        [table, column]
+    )
+
+    if (result.rowCount === 0) {
+        await client.query(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`)
+    }
 }
 
 function assertSafeIdentifier(value: string, field: string) {

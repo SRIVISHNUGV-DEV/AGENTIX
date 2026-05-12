@@ -1,19 +1,42 @@
-import { BACKEND_API_BASE } from '@/lib/api-base'
+import { buildBackendUrl } from '@/lib/backend-proxy'
+import { getSelectedOrgId } from '@/lib/org-session'
+
+export async function GET() {
+  const orgId = await getSelectedOrgId()
+
+  const response = await fetch(buildBackendUrl(`/agents?orgId=${orgId}`), {
+    method: 'GET',
+    cache: 'no-store',
+  })
+
+  const responseBody = await response.text()
+
+  return new Response(responseBody, {
+    status: response.status,
+    headers: {
+      'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
+    },
+  })
+}
 
 export async function POST(request: Request) {
-  const payload = await request.text()
-  const response = await fetch(`${BACKEND_API_BASE}/agents`, {
+  const body = await request.json()
+
+  const response = await fetch(buildBackendUrl('/agents'), {
     method: 'POST',
-    body: payload,
+    body: JSON.stringify(body),
     headers: {
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
   })
 
-  const body = await response.text()
-  return new Response(body, {
+  const responseBody = await response.text()
+
+  return new Response(responseBody, {
     status: response.status,
-    headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' },
+    headers: {
+      'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
+    },
   })
 }

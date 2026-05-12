@@ -14,6 +14,25 @@ const PRODUCTION_ORIGINS: string[] = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(",").map(o => o.trim())
     : []
 
+function getAllowedConnectOrigins() {
+    const configuredOrigins = PRODUCTION_ORIGINS.filter(Boolean)
+    if (isProduction) {
+        return ["'self'", ...configuredOrigins, "https:", "wss:"]
+    }
+
+    return [
+        "'self'",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3001",
+        "http://localhost:3001",
+        ...configuredOrigins,
+        "https:",
+        "ws:",
+        "wss:",
+    ]
+}
+
 function getCSPDirectives() {
     const directives: any = {
         defaultSrc: ["'self'"],
@@ -28,7 +47,7 @@ function getCSPDirectives() {
         directives.scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
     }
 
-    directives.connectSrc = ["'self'", "http://127.0.0.1:3000", "http://127.0.0.1:3001", "https:", "ws:", "wss:"]
+    directives.connectSrc = getAllowedConnectOrigins()
     directives.frameAncestors = ["'none'"]
 
     // Only add upgradeInsecureRequests in production

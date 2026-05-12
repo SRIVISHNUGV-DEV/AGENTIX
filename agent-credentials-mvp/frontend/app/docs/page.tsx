@@ -1,124 +1,80 @@
 import Link from 'next/link'
-import { Book, Code, Shield, Wallet, ArrowRight } from 'lucide-react'
+import { ArrowRight, BookOpen, Code2, Cpu, ScrollText } from 'lucide-react'
+
+const sections = [
+  {
+    icon: BookOpen,
+    title: 'Workspace guide',
+    description: 'Start from the dashboard, select an organization, create an agent, then use signed actions on the agent page.',
+    href: '/dashboard',
+  },
+  {
+    icon: Cpu,
+    title: 'Runtime onboarding',
+    description: 'Connect external runtimes and map them to protocol-native agents.',
+    href: '/ai-agents',
+  },
+  {
+    icon: ScrollText,
+    title: 'Event history',
+    description: 'Inspect indexed contract events, wallets, and sessions for the active organization.',
+    href: '/events',
+  },
+  {
+    icon: Code2,
+    title: 'SDK and API surface',
+    description: 'Review the current API endpoints and integration notes that match the running backend.',
+    href: '/sdk',
+  },
+]
+
+export const metadata = {
+  title: 'Docs - Agentix',
+  description: 'Current navigation and integration reference for the local Agentix workspace.',
+}
 
 export default function DocsPage() {
-  const sections = [
-    {
-      icon: Book,
-      title: 'Getting Started',
-      description: 'Quick start guide and installation instructions',
-      href: '/docs/getting-started',
-    },
-    {
-      icon: Shield,
-      title: 'Credentials',
-      description: 'Issue and verify zero-knowledge credentials',
-      href: '/docs/credentials',
-    },
-    {
-      icon: Wallet,
-      title: 'Sessions & Wallets',
-      description: 'Create agent sessions and deploy wallets',
-      href: '/docs/sessions',
-    },
-    {
-      icon: Code,
-      title: 'API Reference',
-      description: 'Complete API documentation',
-      href: '/docs/api',
-    },
-  ]
-
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header className="border-b border-zinc-800">
-        <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <div className="w-5 h-5 bg-white rounded-sm flex items-center justify-center">
-              <span className="text-black text-xs font-bold">A</span>
-            </div>
-            <span>Agentix</span>
-          </Link>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors">
-              Dashboard
-            </Link>
-            <Link href="/agents" className="text-zinc-400 hover:text-white transition-colors">
-              Agents
-            </Link>
-            <Link href="/docs" className="text-white">
-              Docs
-            </Link>
-          </nav>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="border-b border-zinc-800 bg-zinc-900/50">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
+            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-400">Docs</span>
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="mx-auto max-w-6xl px-6 py-12">
-        {/* Hero */}
-        <div className="text-center mb-16">
-          <h1 className="text-4xl font-semibold mb-4">Documentation</h1>
-          <p className="text-zinc-400 max-w-2xl mx-auto">
-            Everything you need to integrate Agentix credentials into your agent infrastructure.
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-8">
+          <h1 className="text-3xl font-semibold">Documentation</h1>
+          <p className="mt-3 max-w-2xl text-sm text-zinc-400">
+            This page now only links to routes that exist in the local app. The stale nested docs pages were removed from the flow.
           </p>
         </div>
 
-        {/* Documentation Grid */}
-        <div className="grid gap-4 sm:grid-cols-2 mb-16">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {sections.map(({ icon: Icon, title, description, href }) => (
             <Link
-              key={title}
+              key={href}
               href={href}
-              className="group flex items-start gap-4 rounded-lg border border-zinc-800 bg-zinc-900/30 p-6 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all"
+              className="group rounded-lg border border-zinc-800 bg-zinc-900/30 p-6 transition-colors hover:border-zinc-700 hover:bg-zinc-900/50"
             >
-              <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
-                <Icon className="w-5 h-5 text-zinc-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-medium mb-1 flex items-center gap-2">
-                  {title}
-                  <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-colors" />
-                </h3>
-                <p className="text-sm text-zinc-400">{description}</p>
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800">
+                  <Icon className="h-5 w-5 text-zinc-300" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="flex items-center gap-2 font-medium">
+                    {title}
+                    <ArrowRight className="h-4 w-4 text-zinc-500 transition-transform group-hover:translate-x-0.5" />
+                  </h2>
+                  <p className="mt-2 text-sm text-zinc-500">{description}</p>
+                </div>
               </div>
             </Link>
           ))}
-        </div>
-
-        {/* Protocol Specs */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-          <div className="p-6 border-b border-zinc-800">
-            <h2 className="text-xl font-semibold">Protocol Specifications</h2>
-          </div>
-          <div className="p-6">
-            <div className="grid gap-6 sm:grid-cols-3">
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Proof System</h4>
-                <div className="font-mono text-sm">Groth16 (BN254)</div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Hash Function</h4>
-                <div className="font-mono text-sm">Poseidon</div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Circuit Language</h4>
-                <div className="font-mono text-sm">Circom</div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Wallet Standard</h4>
-                <div className="font-mono text-sm">ERC-4337</div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Network</h4>
-                <div className="font-mono text-sm">Sepolia Testnet</div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">API Protocol</h4>
-                <div className="font-mono text-sm">REST + WebSocket</div>
-              </div>
-            </div>
-          </div>
         </div>
       </main>
     </div>

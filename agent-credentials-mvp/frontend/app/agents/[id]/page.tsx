@@ -1,9 +1,13 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Shield, Wallet, Clock, Key, ArrowRight } from 'lucide-react'
+import { AgentActions } from '@/components/platform/agent-actions'
 import { Button } from '@/components/ui/button'
 import { getAgent, getEventsByAgent, getSessionsByAgent } from '@/lib/mock-api'
 import { formatDate, truncateAddress } from '@/lib/utils'
+import Header from '@/components/header'
+
+export const dynamic = 'force-dynamic'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -35,23 +39,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/" className="font-semibold tracking-tight hover:text-zinc-300">Agentix</Link>
-            <span className="text-zinc-600">/</span>
-            <Link href="/agents" className="text-zinc-400 hover:text-zinc-200">Agents</Link>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400 truncate max-w-[150px]">{agent.name}</span>
-          </div>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-200">Dashboard</Link>
-            <Link href="/credentials" className="text-zinc-400 hover:text-zinc-200">Credentials</Link>
-            <Link href="/sessions" className="text-zinc-400 hover:text-zinc-200">Sessions</Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {/* Back */}
@@ -98,6 +86,23 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900/30 p-6">
+          <div className="mb-5">
+            <h2 className="font-medium">Signed actions</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Issue credentials, create sessions, deploy wallets, and fund activity from the connected owner wallet.
+            </p>
+          </div>
+          <AgentActions
+            agentId={agent.id}
+            orgId={agent.orgId}
+            hasCredential={agent.credentials.length > 0}
+            hasWallet={agent.wallets.length > 0}
+            defaultExpiry={Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30}
+            defaultPermissions={255}
+          />
         </div>
 
         {/* Two Column Layout */}

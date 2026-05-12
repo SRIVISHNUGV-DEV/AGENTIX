@@ -1,4 +1,4 @@
-import { BACKEND_API_BASE } from '@/lib/api-base'
+import { buildBackendUrl, createBackendAuthHeaders } from '@/lib/backend-proxy'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org-session'
 
 export async function DELETE(
@@ -6,13 +6,10 @@ export async function DELETE(
   { params }: { params: Promise<{ orgId: string }> }
 ) {
   const { orgId } = await params
-  const payload = await request.text()
-  const response = await fetch(`${BACKEND_API_BASE}/orgs/${orgId}`, {
+  const response = await fetch(buildBackendUrl(`/orgs/${orgId}`), {
     method: 'DELETE',
-    body: payload,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    body: await request.text(),
+    headers: await createBackendAuthHeaders(request),
     cache: 'no-store',
   })
 
