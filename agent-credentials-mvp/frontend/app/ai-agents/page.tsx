@@ -34,19 +34,49 @@ type ProviderVisual = {
 
 const providerVisuals: Record<string, ProviderVisual> = {
   openclaude: {
-    logo: '/provider-logos/anthropic.svg',
+    logo: '/provider-logos/anthropic.png',
     eyebrow: 'Terminal-native execution',
     summary: 'Good for code, filesystem, and direct operator loop automation.',
     endpointLabel: 'OpenClaude endpoint',
   },
   langchain: {
-    logo: '/provider-logos/openai.svg',
+    logo: '/provider-logos/langchain.png',
     eyebrow: 'Framework orchestration',
     summary: 'Good for tool chains, memory, retrieval, and multi-step reasoning.',
     endpointLabel: 'LangChain runtime URL',
   },
+  claude_code: {
+    logo: '/provider-logos/claudecode.png',
+    eyebrow: 'Claude-powered coding',
+    summary: 'Claude Code CLI integration for autonomous coding and terminal operations.',
+    endpointLabel: 'Claude Code endpoint',
+  },
+  crewai: {
+    logo: '/provider-logos/crewai.png',
+    eyebrow: 'Multi-agent orchestration',
+    summary: 'Orchestrate multiple AI agents working together as a crew.',
+    endpointLabel: 'CrewAI runtime URL',
+  },
+  llama_index: {
+    logo: '/provider-logos/llamaindex.png',
+    eyebrow: 'Data framework for LLMs',
+    summary: 'Connect your data to LLMs with retrieval-augmented generation.',
+    endpointLabel: 'LlamaIndex runtime URL',
+  },
+  autogen: {
+    logo: '/provider-logos/autogen.png',
+    eyebrow: 'Multi-agent conversation',
+    summary: 'Microsoft framework for building conversational AI agents.',
+    endpointLabel: 'AutoGen runtime URL',
+  },
+  smolagents: {
+    logo: '/provider-logos/smolagents.png',
+    eyebrow: 'Lightweight agents',
+    summary: 'Minimalist agent framework for simple but powerful AI workflows.',
+    endpointLabel: 'SmolAgents endpoint',
+  },
   custom: {
-    logo: '/provider-logos/openai.svg',
+    logo: '/provider-logos/custom.svg',
     eyebrow: 'Custom runtime',
     summary: 'Use your own runtime when the provider does not fit the preset fleet shapes.',
     endpointLabel: 'Custom HTTPS endpoint',
@@ -299,8 +329,8 @@ export default function AIAgentsPage() {
                 return (
                   <div key={type.id} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-5 hover:border-zinc-600 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900">
-                        <Image src={visual.logo} alt={type.name} width={24} height={24} className="h-6 w-6" />
+                      <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 p-1.5">
+                        <Image src={visual.logo} alt={type.name} width={36} height={36} className="h-full w-full object-contain" />
                       </div>
                       <div>
                         <div className="font-medium">{type.name}</div>
@@ -355,8 +385,8 @@ export default function AIAgentsPage() {
                   <div key={agent.id} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900">
-                          <Image src={visual.logo} alt={agent.agentType} width={24} height={24} className="h-6 w-6" />
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 p-1.5">
+                          <Image src={visual.logo} alt={agent.agentType} width={36} height={36} className="h-full w-full object-contain" />
                         </div>
                         <div>
                           <h3 className="font-medium text-zinc-200">{agent.name}</h3>

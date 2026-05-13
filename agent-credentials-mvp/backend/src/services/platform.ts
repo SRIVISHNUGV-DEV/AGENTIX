@@ -6,21 +6,28 @@ import { groth16 } from "snarkjs"
 import { poseidonHash } from "../utils/crypto"
 import { IncrementalMerkleTree } from "./merkle"
 import { SparseRevocationTree, toRevocationKey } from "./revocationTree"
-import { BlockchainService } from "./blockchain"
+import { BlockchainService, getBlockchainService } from "./blockchain"
 
 const CIRCUIT_WASM_PATH = path.resolve(
     __dirname,
     "../../../circuits/build/credential_js/credential.wasm"
 )
 
+// FLAW 4 FIX: Lazy circuit resolution handled in prover.ts
+// This file re-exports for compatibility
 const CIRCUIT_ZKEY_PATH = resolveZkeyPath()
 
 function resolveZkeyPath() {
     const buildDir = path.resolve(__dirname, "../../../circuits/build")
+
+    if (!fs.existsSync(buildDir)) {
+        return null
+    }
+
     const zkey = fs.readdirSync(buildDir).find((file) => file.endsWith(".zkey"))
 
     if (!zkey) {
-        throw new Error(`No .zkey file found in ${buildDir}`)
+        return null
     }
 
     return path.join(buildDir, zkey)
@@ -30,10 +37,11 @@ export class PlatformService {
     blockchain: BlockchainService
 
     constructor() {
-        this.blockchain = new BlockchainService()
+        // FLAW 10 FIX: Use singleton blockchain service
+        this.blockchain = getBlockchainService()
     }
 
-    private normalizeScalars<T>(value:T):T{
+    private normalizeScalars<T>(value: T): T {
         if (typeof value === "bigint") {
             return value.toString() as T
         }
@@ -55,7 +63,14 @@ export class PlatformService {
         return value
     }
 
+    /**
+     * @deprecated FLAW 1 FIX: Secrets should be generated client-side.
+     * The backend should NEVER have access to the raw secret.
+     * Use frontend/lib/credential-client.ts to generate secrets on the client.
+     * This method is kept only for backward compatibility during migration.
+     */
     private createManagedSecret() {
+        console.warn("[DEPRECATED] createManagedSecret: Secrets should be generated client-side")
         return BigInt(`0x${crypto.randomBytes(31).toString("hex")}`)
     }
 

@@ -58,6 +58,7 @@ app.use("/agents", agentRoutes)
 app.use("/credentials", credentialRoutes)
 app.use("/sessions", sessionRoutes)
 app.use("/proofs", proofRoutes)
+app.use("/prover", proofRoutes) // Mount proofs router at /prover for prover/status
 app.use("/wallets", walletRoutes)
 app.use("/events", eventRoutes)
 app.use("/ai", aiRoutes)

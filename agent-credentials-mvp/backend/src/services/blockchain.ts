@@ -3,18 +3,28 @@ import fs from "fs"
 import path from "path"
 import { BundlerService, UserOperationRequest } from "./bundler"
 
+// Helper to normalize address checksums
+const normalizeAddress = (addr: string): string => {
+    if (!addr) return ""
+    try {
+        return ethers.getAddress(addr.toLowerCase())
+    } catch {
+        return addr
+    }
+}
+
 const RPC_URLS = parseUrlList(process.env.RPC_URLS || process.env.RPC_URL || "http://127.0.0.1:8545")
 const PRIVATE_KEY = process.env.PRIVATE_KEY || ""
 const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
 const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia"
 
-const DEFAULT_SESSION_MANAGER_ADDRESS = process.env.SESSION_MANAGER_ADDRESS || ""
-const DEFAULT_CREDENTIAL_REGISTRY_ADDRESS = process.env.CREDENTIAL_REGISTRY_ADDRESS || ""
-const DEFAULT_AGENT_WALLET_FACTORY_ADDRESS = process.env.AGENT_WALLET_FACTORY_ADDRESS || ""
-const DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS = process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS || ""
-const DEFAULT_VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS || ""
+const DEFAULT_SESSION_MANAGER_ADDRESS = normalizeAddress(process.env.SESSION_MANAGER_ADDRESS || "")
+const DEFAULT_CREDENTIAL_REGISTRY_ADDRESS = normalizeAddress(process.env.CREDENTIAL_REGISTRY_ADDRESS || "")
+const DEFAULT_AGENT_WALLET_FACTORY_ADDRESS = normalizeAddress(process.env.AGENT_WALLET_FACTORY_ADDRESS || "")
+const DEFAULT_AGENT_WALLET_IMPLEMENTATION_ADDRESS = normalizeAddress(process.env.AGENT_WALLET_IMPLEMENTATION_ADDRESS || "")
+const DEFAULT_VERIFIER_ADDRESS = normalizeAddress(process.env.VERIFIER_ADDRESS || "")
 const DEFAULT_ENTRY_POINT_ADDRESS =
-    process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+    normalizeAddress(process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")
 const DEFAULT_MAX_FEE_PER_GAS_GWEI = process.env.BUNDLER_MAX_FEE_PER_GAS_GWEI || ""
 const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_GWEI = process.env.BUNDLER_MAX_PRIORITY_FEE_PER_GAS_GWEI || ""
 
@@ -750,4 +760,83 @@ function createProvider(){
             stallTimeout: 1500
         }))
     )
+}
+
+// FLAW 10 FIX: Proper singleton with health checks and reconnection
+let blockchainServiceInstance: BlockchainService | null = null
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null
+let isReconnecting = false
+
+export function getBlockchainService(): BlockchainService {
+    if (!blockchainServiceInstance) {
+        blockchainServiceInstance = new BlockchainService()
+        startHealthCheck()
+    }
+    return blockchainServiceInstance
+}
+
+async function checkProviderHealth(): Promise<boolean> {
+    if (!blockchainServiceInstance) return false
+    try {
+        const blockNumber = await blockchainServiceInstance.provider.getBlockNumber()
+        return blockNumber > 0
+    } catch {
+        return false
+    }
+}
+
+function startHealthCheck() {
+    if (healthCheckInterval) {
+        clearInterval(healthCheckInterval)
+    }
+
+    healthCheckInterval = setInterval(async () => {
+        if (isReconnecting) return
+
+        const healthy = await checkProviderHealth()
+        if (!healthy && blockchainServiceInstance) {
+            console.warn("[BlockchainService] Health check failed, attempting reconnection...")
+            isReconnecting = true
+
+            try {
+                blockchainServiceInstance.provider = createProvider()
+                blockchainServiceInstance.wallet = new ethers.Wallet(
+                    PRIVATE_KEY,
+                    blockchainServiceInstance.provider
+                )
+                blockchainServiceInstance.bundler = new BundlerService(
+                    blockchainServiceInstance.provider,
+                    DEFAULT_ENTRY_POINT_ADDRESS
+                )
+                console.log("[BlockchainService] Reconnected successfully")
+            } catch (error) {
+                console.error("[BlockchainService] Reconnection failed:", error)
+            } finally {
+                isReconnecting = false
+            }
+        }
+    }, 60000) // Check every minute
+}
+
+export async function initializeBlockchainService(): Promise<BlockchainService> {
+    const service = getBlockchainService()
+
+    // Verify connection on startup
+    try {
+        const blockNumber = await service.provider.getBlockNumber()
+        console.log(`[BlockchainService] Connected to ${NETWORK_NAME} at block ${blockNumber}`)
+    } catch (error) {
+        console.error("[BlockchainService] Initial connection failed:", error)
+        // Don't throw - allow service to start and retry later
+    }
+
+    return service
+}
+
+export function shutdownBlockchainService() {
+    if (healthCheckInterval) {
+        clearInterval(healthCheckInterval)
+        healthCheckInterval = null
+    }
+    blockchainServiceInstance = null
 }

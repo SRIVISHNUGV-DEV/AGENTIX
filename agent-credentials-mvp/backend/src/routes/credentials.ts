@@ -1,16 +1,19 @@
 import express from "express"
 import { initDB } from "../db"
 import { IncrementalMerkleTree } from "../services/merkle"
-import { BlockchainService } from "../services/blockchain"
+import { BlockchainService, getBlockchainService } from "../services/blockchain"
 import { SparseRevocationTree, toRevocationKey } from "../services/revocationTree"
+// FLAW 13 FIX: Import audit logging
+import { logAuditEvent, extractClientIP, extractUserAgent } from "../services/audit"
 import type { AuthRequest } from "../types/http"
 import { respondWithError } from "../utils/errors"
 import { ensureBodyObject, requireInteger, requireString } from "../utils/validation"
 
 const router = express.Router()
-const blockchain = new BlockchainService()
+// FLAW 10 FIX: Use singleton blockchain service
+const blockchain = getBlockchainService()
 
-router.post("/", async (req,res)=>{
+router.post("/", async (req, res) => {
     try{
         const db = await initDB()
         ensureBodyObject(req.body)
@@ -65,8 +68,19 @@ router.post("/", async (req,res)=>{
 
         await blockchain.updateActiveRootForOrg(db, orgId, rootHex)
 
+        // FLAW 13 FIX: Audit logging for credential issuance
+        await logAuditEvent({
+            orgId,
+            action: "credential.issue",
+            resourceType: "credential",
+            resourceId: String(agentId),
+            details: { agentId, permissions, expiry, leafIndex },
+            ipAddress: extractClientIP(req.headers),
+            userAgent: extractUserAgent(req.headers)
+        })
+
         res.json({
-            success:true,
+            success: true,
             leafIndex,
             root: root.toString(),
             rootHex
@@ -182,8 +196,19 @@ router.post("/revoke", async (req,res)=>{
 
         await blockchain.updateRevokedRootForOrg(db, orgId, rootHex)
 
+        // FLAW 13 FIX: Audit logging for credential revocation
+        await logAuditEvent({
+            orgId,
+            action: "credential.revoke",
+            resourceType: "credential",
+            resourceId: String(agentId),
+            details: { agentId, leafIndex },
+            ipAddress: extractClientIP(req.headers),
+            userAgent: extractUserAgent(req.headers)
+        })
+
         res.json({
-            success:true,
+            success: true,
             leafIndex,
             root: root.toString(),
             rootHex

@@ -1,16 +1,53 @@
 import express from "express"
+import rateLimit from "express-rate-limit"
 import { initDB } from "../db"
 import { IncrementalMerkleTree } from "../services/merkle"
 import { SparseRevocationTree } from "../services/revocationTree"
 import { addProofJob, getJobStatus, getQueueHealth } from "../services/proofQueue"
+import { getProverStatus } from "../services/prover"
 import type { AuthRequest } from "../types/http"
 import { respondWithError } from "../utils/errors"
 import { requireInteger } from "../utils/validation"
 
 const router = express.Router()
 
+// FLAW 9 FIX: Rate limiting for proof generation
+// Proof generation is CPU-intensive, so limit requests per agent
+const proofGenerationLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 10, // Max 10 proof requests per minute per IP
+    message: {
+        error: "Too many proof generation requests. Please wait before trying again.",
+        retryAfter: 60
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Use default keyGenerator for IPv6 support
+    keyGenerator: (req) => {
+        // Rate limit by agent ID if available, otherwise fall back to default
+        const agentId = req.params.agentId
+        if (agentId) {
+            return `proof:${agentId}`
+        }
+        // Return undefined to use default IP-based key generator (handles IPv6)
+        return undefined as unknown as string
+    }
+})
+
+// Stricter rate limit for synchronous proof endpoint (more expensive)
+const syncProofLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 3, // Max 3 sync proof requests per minute
+    message: {
+        error: "Too many synchronous proof requests. Use the async endpoint for bulk operations.",
+        retryAfter: 60
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+})
+
 // Submit proof generation job (async)
-router.post("/:agentId", async (req: AuthRequest, res) => {
+router.post("/:agentId", proofGenerationLimiter, async (req: AuthRequest, res) => {
     try {
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
@@ -86,7 +123,8 @@ router.get("/queue/status", async (_req, res) => {
 })
 
 // Legacy synchronous endpoint (kept for backward compatibility)
-router.get("/:agentId/sync", async (req: AuthRequest, res) => {
+// FLAW 9 FIX: Apply stricter rate limiting to sync proof endpoint
+router.get("/:agentId/sync", syncProofLimiter, async (req: AuthRequest, res) => {
     try {
         const db = await initDB()
         const agentId = requireInteger(req.params.agentId, "agentId", 1)
@@ -146,6 +184,33 @@ router.get("/:agentId/sync", async (req: AuthRequest, res) => {
         })
     } catch (err) {
         respondWithError(res, err, "proofs.sync")
+    }
+})
+
+// Proof system status
+router.get("/status", async (_req, res) => {
+    try {
+        const queueHealth = await getQueueHealth()
+        res.json({
+            status: "operational",
+            queue: queueHealth,
+            timestamp: new Date().toISOString()
+        })
+    } catch (err) {
+        respondWithError(res, err, "proofs.status")
+    }
+})
+
+// Prover status (circuit availability check)
+router.get("/prover/status", async (_req, res) => {
+    try {
+        const proverStatus = getProverStatus()
+        res.json({
+            ...proverStatus,
+            timestamp: new Date().toISOString()
+        })
+    } catch (err) {
+        respondWithError(res, err, "prover.status")
     }
 })
 

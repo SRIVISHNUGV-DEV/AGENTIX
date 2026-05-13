@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useWallet } from '@/components/wallet/wallet-provider'
+import { useWalletAction } from '@/lib/wallet-action'
 
 type OrgOption = {
   id: string
@@ -26,7 +27,8 @@ export function WorkspaceControls({
   const [orgName, setOrgName] = useState('')
   const [agentName, setAgentName] = useState('')
   const [message, setMessage] = useState<string | null>(null)
-  const { account, isConnected, isSepolia } = useWallet()
+  const { isConnected, isSepolia } = useWallet()
+  const { post } = useWalletAction()
   const disabled = isPending || !isConnected || !isSepolia
 
   const refresh = () => {
@@ -59,23 +61,21 @@ export function WorkspaceControls({
   const createOrg = async () => {
     try {
       setMessage(null)
-      const response = await fetch('/api/platform/orgs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: orgName,
-          ownerWalletAddress: account,
-        }),
-      })
 
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Failed to create organization')
+      // Use wallet signature for org creation
+      const result = await post<{ id: number; name: string }>(
+        '/api/platform/orgs',
+        { action: 'CREATE_ORG', orgId: 0, target: 'org:new' },
+        { name: orgName }
+      )
+
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to create organization')
       }
 
       setOrgName('')
-      setSelectedOrgId(String(payload.id))
-      setMessage(`Organization created: ${payload.name}`)
+      setSelectedOrgId(String(result.data.id))
+      setMessage(`Organization created: ${result.data.name}`)
       refresh()
     } catch (error: any) {
       setMessage(error.message ?? 'Failed to create organization')
@@ -85,24 +85,23 @@ export function WorkspaceControls({
   const createAgent = async () => {
     try {
       setMessage(null)
-      const response = await fetch('/api/platform/agents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orgId: Number(selectedOrgId),
-          agentName,
-        }),
-      })
+      const orgId = Number(selectedOrgId)
 
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Failed to create agent')
+      // Use wallet signature for agent creation
+      const result = await post<{ agentId: number }>(
+        '/api/platform/agents',
+        { action: 'CREATE_AGENT', orgId, target: `org:${orgId}:agent:new` },
+        { orgId, agentName }
+      )
+
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to create agent')
       }
 
       setAgentName('')
-      setMessage(`Agent created: #${payload.agentId}`)
+      setMessage(`Agent created: #${result.data.agentId}`)
       startTransition(() => {
-        router.push(`/agents/${payload.agentId}`)
+        router.push(`/agents/${result.data.agentId}`)
         router.refresh()
       })
     } catch (error: any) {

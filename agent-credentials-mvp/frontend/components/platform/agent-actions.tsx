@@ -5,7 +5,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useWallet } from '@/components/wallet/wallet-provider'
-import { getTxExplorerUrl } from '@/lib/explorer'
+import { getTxExplorerUrl, getAddressExplorerUrl } from '@/lib/explorer'
 
 interface AgentActionsProps {
   agentId: string
@@ -14,6 +14,14 @@ interface AgentActionsProps {
   hasWallet: boolean
   defaultExpiry: number
   defaultPermissions: number
+}
+
+interface ActionResult {
+  text: string
+  txHash?: string
+  walletAddress?: string
+  sessionId?: string
+  credentialId?: string
 }
 
 export function AgentActions({
@@ -29,7 +37,9 @@ export function AgentActions({
   const [permissions, setPermissions] = useState(String(defaultPermissions))
   const [expiry, setExpiry] = useState(String(defaultExpiry))
   const [fundAmount, setFundAmount] = useState('0.01')
-  const [message, setMessage] = useState<{ text: string; txHash?: string } | null>(null)
+  const [message, setMessage] = useState<ActionResult | null>(null)
+  const [showRevokeModal, setShowRevokeModal] = useState(false)
+  const [revokeConfirmText, setRevokeConfirmText] = useState('')
   const { account, signPlatformAction, isConnected, isSepolia } = useWallet()
   const disabled = isPending || !isConnected || !isSepolia
 
@@ -68,13 +78,23 @@ export function AgentActions({
         router.refresh()
       })
 
-      setMessage(
-        payload.txHash
-          ? { text: 'Transaction submitted', txHash: payload.txHash }
-          : payload.sessionId
-            ? { text: `Session created: ${payload.sessionId}` }
-            : { text: 'Success' }
-      )
+      // Build action result with all relevant info for Etherscan links
+      const result: ActionResult = { text: 'Success' }
+      if (payload.txHash) {
+        result.text = 'Transaction submitted'
+        result.txHash = payload.txHash
+      }
+      if (payload.walletAddress) {
+        result.walletAddress = payload.walletAddress
+      }
+      if (payload.sessionId) {
+        result.text = `Session created`
+        result.sessionId = payload.sessionId
+      }
+      if (payload.credentialId) {
+        result.credentialId = payload.credentialId
+      }
+      setMessage(result)
     } catch (error: any) {
       setMessage({ text: error.message ?? 'Request failed' })
     }
@@ -163,7 +183,10 @@ export function AgentActions({
         disabled={disabled || !hasCredential}
         variant="destructive"
         className="rounded-2xl px-5"
-        onClick={() => runAction(`/api/platform/agents/${agentId}/revoke`, 'REVOKE_CREDENTIAL')}
+        onClick={() => {
+          setShowRevokeModal(true)
+          setRevokeConfirmText('')
+        }}
       >
         Revoke credential
       </Button>
@@ -173,18 +196,76 @@ export function AgentActions({
         </div>
       ) : null}
 
+      {/* Revoke Confirmation Modal */}
+      {showRevokeModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-md rounded-xl border border-white/10 bg-zinc-900 p-6">
+            <h3 className="text-lg font-semibold">Revoke Credential</h3>
+            <p className="mt-2 text-sm text-foreground/60">
+              This action cannot be undone. Type <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs">confirm</code> to proceed.
+            </p>
+            <Input
+              value={revokeConfirmText}
+              onChange={(e) => setRevokeConfirmText(e.target.value)}
+              placeholder='Type "confirm"'
+              className="mt-4 border-white/10 bg-background text-foreground"
+              suppressHydrationWarning
+            />
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-lg border-white/15 bg-transparent"
+                onClick={() => setShowRevokeModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 rounded-lg"
+                disabled={revokeConfirmText !== 'confirm' || isPending}
+                onClick={() => {
+                  setShowRevokeModal(false)
+                  runAction(`/api/platform/agents/${agentId}/revoke`, 'REVOKE_CREDENTIAL')
+                }}
+              >
+                {isPending ? 'Revoking...' : 'Revoke'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {message ? (
         <div className="rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground">
-          <div>{message.text}</div>
+          <div className="font-medium">{message.text}</div>
           {message.txHash ? (
-            <a
-              href={getTxExplorerUrl(message.txHash)}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block font-mono text-xs underline decoration-white/20 underline-offset-4 hover:text-foreground/80"
-            >
-              View on Etherscan
-            </a>
+            <div className="mt-2">
+              <span className="text-foreground/60">Tx: </span>
+              <a
+                href={getTxExplorerUrl(message.txHash)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs underline decoration-white/20 underline-offset-4 hover:text-foreground/80"
+              >
+                {message.txHash.slice(0, 10)}...{message.txHash.slice(-8)}
+              </a>
+            </div>
+          ) : null}
+          {message.walletAddress ? (
+            <div className="mt-2">
+              <span className="text-foreground/60">Wallet: </span>
+              <a
+                href={getAddressExplorerUrl(message.walletAddress)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs underline decoration-white/20 underline-offset-4 hover:text-foreground/80"
+              >
+                {message.walletAddress.slice(0, 10)}...{message.walletAddress.slice(-8)}
+              </a>
+            </div>
+          ) : null}
+          {message.sessionId ? (
+            <div className="mt-1 text-foreground/60">Session ID: {message.sessionId}</div>
           ) : null}
         </div>
       ) : null}

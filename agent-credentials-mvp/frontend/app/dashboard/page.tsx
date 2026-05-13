@@ -22,19 +22,23 @@ export default async function DashboardPage() {
     getSelectedOrgId(),
   ])
 
-  const currentOrgId =
-    selectedOrgId?.toString() ??
-    organizationsRes.data[organizationsRes.data.length - 1]?.id ??
-    null
+  // If no organizations exist, show empty state
+  const hasOrganizations = organizationsRes.data.length > 0
+  const currentOrgId = hasOrganizations
+    ? (selectedOrgId?.toString() ??
+      organizationsRes.data[organizationsRes.data.length - 1]?.id ??
+      null)
+    : null
 
+  // Only fetch stats/events/workspace if we have an organization
   const [statsRes, eventsRes, workspaceRes] = await Promise.all([
     getDashboardStats(currentOrgId),
     getEvents(currentOrgId),
     currentOrgId ? getOrganizationWorkspace(currentOrgId) : Promise.resolve(null),
   ])
 
-  const stats = statsRes.data
-  const events = eventsRes.data.slice(0, 6)
+  const stats = statsRes?.data ?? { totalAgents: 0, activeAgents: 0, totalSessions: 0, totalWallets: 0, recentEvents: 0 }
+  const events = (eventsRes?.data ?? []).slice(0, 6)
   const workspace = workspaceRes?.data ?? null
 
   const cards = [
@@ -135,20 +139,60 @@ export default async function DashboardPage() {
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-zinc-500">Network</span>
-                  <span>{workspace.contracts.networkName}</span>
+                  <span className="capitalize">{workspace.contracts.networkName}</span>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-zinc-500">Verifier</span>
-                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.verifierAddress, 14)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-zinc-500">Registry</span>
-                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.credentialRegistryAddress, 14)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-zinc-500">Session manager</span>
-                  <span className="font-mono text-xs">{truncateAddress(workspace.contracts.sessionManagerAddress, 14)}</span>
-                </div>
+                {workspace.contracts.verifierAddress ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-zinc-500">Verifier</span>
+                    <a
+                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.verifierAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
+                    >
+                      {truncateAddress(workspace.contracts.verifierAddress, 14)}
+                    </a>
+                  </div>
+                ) : null}
+                {workspace.contracts.credentialRegistryAddress ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-zinc-500">Registry</span>
+                    <a
+                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.credentialRegistryAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
+                    >
+                      {truncateAddress(workspace.contracts.credentialRegistryAddress, 14)}
+                    </a>
+                  </div>
+                ) : null}
+                {workspace.contracts.sessionManagerAddress ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-zinc-500">Session manager</span>
+                    <a
+                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.sessionManagerAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
+                    >
+                      {truncateAddress(workspace.contracts.sessionManagerAddress, 14)}
+                    </a>
+                  </div>
+                ) : null}
+                {workspace.contracts.agentWalletFactoryAddress ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-zinc-500">Wallet Factory</span>
+                    <a
+                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.agentWalletFactoryAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
+                    >
+                      {truncateAddress(workspace.contracts.agentWalletFactoryAddress, 14)}
+                    </a>
+                  </div>
+                ) : null}
               </div>
             )}
           </section>

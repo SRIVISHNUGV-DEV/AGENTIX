@@ -63,7 +63,14 @@ router.post("/", async (req: Request, res: Response) => {
 
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+    const orgIdParam = req.query.orgId as string
+
+    if (!orgIdParam) {
+      // No org context - return empty array
+      return res.json([])
+    }
+
+    const orgId = requireInteger(orgIdParam, "orgId", 1)
 
     const agents = await agentService.listExternalAgents(orgId)
     res.json(agents)

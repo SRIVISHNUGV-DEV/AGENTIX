@@ -19,7 +19,10 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL ??
   (isProduction ? "http://backend:3001" : "http://127.0.0.1:3001")
 
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true" || process.env.USE_MOCK === "true"
+// FLAW 8 FIX: Mock mode requires explicit opt-in via environment variable
+// Production NEVER uses mock data
+// Development requires USE_MOCK=true to enable mock fallback
+const USE_MOCK = !isProduction && (process.env.NEXT_PUBLIC_USE_MOCK === "true" || process.env.USE_MOCK === "true")
 
 const FALLBACK_MOCK = {
   organizations: [
@@ -153,10 +156,15 @@ async function apiFetch<T>(path: string, init?: RequestInit, useFallback = true)
 
     return response.json() as Promise<T>
   } catch (error) {
-    if (useFallback && (USE_MOCK || !isProduction)) {
-      console.warn(`API call failed for ${path}, using fallback data:`, error instanceof Error ? error.message : String(error))
+    // FLAW 8 FIX: Remove silent fallback to mock data
+    // Mock data should only be used when explicitly enabled via USE_MOCK=true
+    // In production, errors are ALWAYS loud
+    // In development, mock fallback requires explicit USE_MOCK=true
+    if (useFallback && USE_MOCK && !isProduction) {
+      console.warn(`[DEV MOCK] API call failed for ${path}, using mock data:`, error instanceof Error ? error.message : String(error))
       return getFallbackData(path) as T
     }
+    // Always throw - no silent fallback
     throw error
   }
 }

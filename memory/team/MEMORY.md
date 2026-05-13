@@ -1,0 +1,28 @@
+- [Flaw Fixes Session](session-log-2026-05-12-flaw-fixes.md) — 2026-05-12 Part 2: All 12 design flaws fixed (migrations, audit, client-side secrets, merkle cache, rate limiting, nonce fix)
+- [Wallet Authentication Initiative](project-wallet-auth-initiative.md) — Wallet auth COMPLETE - useWalletAction hook, signatures for org/agent creation, credential ops
+- [Agentix Business Strategy](project-business-strategy.md) — Revenue models, monetization paths, and go-to-market strategy for money printing machine goal
+- [Session Log 2026-05-10 Part 4](session-log-2026-05-10-part4.md) — Landing page design spec + implementation plan complete (20 tasks, 5 phases)
+- [Agent Connection Improvements - Verified](session-log-2026-05-10-agents.md) — Agent connection UX improvements with status tracking and error handling - PASS verification
+- [Agentix Project Overview](project-agentix-overview.md) — Platform stack with PostgreSQL database
+- [Local Testing Requirements](project-local-testing.md) — Local PostgreSQL setup and environment configuration needed before AWS deployment
+- [Production Audit Complete](project-production-audit-complete.md) — 8 reports generated, 78/100 readiness, 2-3 days to production
+- [Security Audit Findings Updated](security-audit-findings-updated.md) — 2026-05-10: ALL P0 vulnerabilities FIXED
+- [Session Log 2026-05-10 Part 2](session-log-2026-05-10-part2.md) — BullMQ proof queue, cache TTL, SQL injection verification
+- [Session Log 2026-05-10 Part 3](session-log-2026-05-10-part3.md) — Vercel B&W redesign, Three.js 3D hero, API integration audit
+- [Graphify Usage for Component Analysis](graphify-usage.md) — Knowledge graph for verifying component connectivity
+- [Frontend Route Status](project-routing-status.md) — DEPRECATED - see frontend-backend-integration-fixes-2026-05-11.md for current status
+- [Frontend-Backend Integration Fixes](frontend-backend-integration-fixes-2026-05-11.md) — 2026-05-11: Fixed broken API flows, auth issues, missing routes
+- [Production Readiness](project-production-readiness.md) — ALL SECURITY FIXES COMPLETE, AWS RDS configured
+- [Project Cost and Scalability](project-cost-scalability.md) — $35-93/mo AWS costs, scaling path to 1M+ agents
+- [UI/UX Vercel B&W Redesign](project-ui-3d-redesign.md) — Pure black/white Vercel aesthetic with Three.js 3D hero
+- [Project Cleanup](project-cleanup-completed.md) — Migration explanation files removed; production-ready codebase
+- [External Design References](reference-design-resources.md) — reactbits.dev, snarklabs.xyz for UI inspiration
+- [Satoshi Font Source](reference-fontshare-satoshi.md) — Satoshi font MUST use Fontshare CDN, not Google Fonts
+- [Hydration Mismatch Fix](reference-hydration-mismatch-fix.md) — Browser extension attributes (fdprocessedid) need suppressHydrationWarning on form elements
+- [Session Log 2026-05-10](session-log-2026-05-10.md) — PostgreSQL migration, security fixes, frontend redesign complete
+- [Documentation Drift](documentation-drift-postgresql.md) — RESOLVED - AGENTS.md PostgreSQL reference fixed
+- [Database Schema Fix 2026-05-12](session-log-2026-05-12-db-schema.md) — AWS RDS schema drift fixed. ZK proof system verified compatible - no circuit changes needed.
+- [Architecture Flaws Analysis](project-architecture-flaws-analysis.md) — 14 critical design flaws identified: secret management broken, SDK Node-only, merkle tree scaling, nonce race conditions
+- [GitHub Repository](reference-github-repository.md) — https://github.com/SRIVISHNUGV-DEV/AGENTIX with production branch
+- [Documentation Session 2026-05-12](project-documentation-session-2026-05-12.md) — README rewritten, CLAUDE.md created for AI context, PERSONATEST.md for design critique
+- [CLAUDE.md Context Reference](reference-claude-md-context.md) — Read at session start - complete project tree, workflows, production status, known issues

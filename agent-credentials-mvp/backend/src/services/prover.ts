@@ -2,25 +2,76 @@ import fs from "fs"
 import path from "path"
 import { groth16 } from "snarkjs"
 
+// FLAW 4 FIX: Graceful circuit fallback
+// Circuit files are checked lazily at proof generation time, not at startup
+// This allows the backend to start without circuit files installed
+
 const CIRCUIT_WASM_PATH = path.resolve(
     __dirname,
     "../../../circuits/build/credential_js/credential.wasm"
 )
 
-const CIRCUIT_ZKEY_PATH = resolveZkeyPath()
+// Cache for resolved paths - null until first proof generation
+let circuitZkeyPath: string | null = null
+let checkedCircuitFiles = false
 
-function resolveZkeyPath(){
+function resolveZkeyPath(): string {
     const buildDir = path.resolve(__dirname, "../../../circuits/build")
+
+    if (!fs.existsSync(buildDir)) {
+        return ""
+    }
+
     const zkey = fs.readdirSync(buildDir).find((file) => file.endsWith(".zkey"))
 
-    if(!zkey){
-        throw new Error(`No .zkey file found in ${buildDir}`)
+    if (!zkey) {
+        return ""
     }
 
     return path.join(buildDir, zkey)
 }
 
-export async function generateProof(db:any,input:any){
+function checkCircuitFiles(): { wasm: boolean; zkey: boolean } {
+    const wasmExists = fs.existsSync(CIRCUIT_WASM_PATH)
+
+    if (!circuitZkeyPath) {
+        circuitZkeyPath = resolveZkeyPath()
+    }
+
+    return {
+        wasm: wasmExists,
+        zkey: !!circuitZkeyPath
+    }
+}
+
+export function isProverAvailable(): boolean {
+    if (!checkedCircuitFiles) {
+        const { wasm, zkey } = checkCircuitFiles()
+        checkedCircuitFiles = true
+        return wasm && zkey
+    }
+    return !!(circuitZkeyPath && fs.existsSync(CIRCUIT_WASM_PATH))
+}
+
+export function getProverStatus(): { available: boolean; wasmPath: string; zkeyPath: string | null } {
+    return {
+        available: isProverAvailable(),
+        wasmPath: CIRCUIT_WASM_PATH,
+        zkeyPath: circuitZkeyPath
+    }
+}
+
+export async function generateProof(db: any, input: any) {
+    // Check circuit files lazily when proof is requested
+    const { wasm, zkey } = checkCircuitFiles()
+
+    if (!wasm) {
+        throw new Error(`Circuit WASM file not found at ${CIRCUIT_WASM_PATH}. Run 'npm run build' in circuits/ directory.`)
+    }
+
+    if (!zkey || !circuitZkeyPath) {
+        throw new Error(`No .zkey file found. Run 'npm run build' in circuits/ directory to generate proving key.`)
+    }
 
     const cacheKey = JSON.stringify(input)
 
@@ -33,8 +84,7 @@ export async function generateProof(db:any,input:any){
         cacheKey
     )
 
-    if(cached){
-
+    if (cached) {
         return {
             proof: JSON.parse(cached.proof),
             publicSignals: JSON.parse(cached.public_signals)
@@ -45,7 +95,7 @@ export async function generateProof(db:any,input:any){
         await groth16.fullProve(
             input,
             CIRCUIT_WASM_PATH,
-            CIRCUIT_ZKEY_PATH
+            circuitZkeyPath
         )
 
     await db.run(

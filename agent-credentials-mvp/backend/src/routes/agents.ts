@@ -49,11 +49,19 @@ router.post("/", async (req: Request, res: Response)=>{
     }
 })
 
-// List agents for an org - requires orgId in query params and wallet signature
+// List agents for an org - requires orgId in query params
+// If no orgId provided, return empty array (no org context)
 router.get("/", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
-        const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+        const orgIdParam = req.query.orgId as string
+
+        if (!orgIdParam) {
+            // No org context - return empty array
+            return res.json([])
+        }
+
+        const orgId = requireInteger(orgIdParam, "orgId", 1)
 
         // Return agents for the specified org
         const agents = await db.all(

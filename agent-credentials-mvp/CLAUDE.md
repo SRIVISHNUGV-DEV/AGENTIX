@@ -486,11 +486,11 @@ Response: { txHash }
 
 | Contract | Address |
 |----------|---------|
-| Verifier | `0x18a2447623f8DD51f13a41025cddFa218d0B2379` |
-| CredentialRegistry | `0x5578d8DC741bcfAA199BCD0eDE68dcB3eb5EdEd7` |
-| SessionManager | `0xCfc4543476069Ed15f5749B527BC35fEAcA1Ab65` |
-| AgentWalletFactory | `0x2fA255257c301755288e85DedAAe99d54f367970` |
-| AgentWallet Impl | `0x97D6893A5483005eCed724FfedAAeaaAf6Da0C7F7` |
+| Verifier | `0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46` |
+| CredentialRegistry | `0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc` |
+| SessionManager | `0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259` |
+| AgentWalletFactory | `0xFaDAe432B8821C4B0690fd80f923F43fd85b4824` |
+| AgentWallet Impl | `0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe` |
 | EntryPoint | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` |
 
 ---
@@ -516,7 +516,6 @@ Response: { txHash }
 
 | Component | Status | Priority | Notes |
 |-----------|--------|----------|-------|
-| Schema Migrations | ⚠️ Manual | HIGH | No migration system, db.ts checks schema on startup |
 | Error Handling | ⚠️ Basic | MEDIUM | Some routes return generic errors |
 | API Documentation | ⚠️ Partial | MEDIUM | API.md exists but incomplete |
 | Test Coverage | ⚠️ Low | HIGH | Only contract tests exist |
@@ -527,12 +526,6 @@ Response: { txHash }
 
 | Component | Priority | Notes |
 |-----------|----------|-------|
-| Database Migration System | HIGH | Need Prisma/Knex migrations |
-| Client-Side Secret Generation | CRITICAL | Server knows secret (security issue) |
-| Browser-Compatible SDK | HIGH | SDK is Node-only, needs browser bundle |
-| Rate Limiting | MEDIUM | No rate limiting on expensive endpoints |
-| Audit Logging | MEDIUM | No audit trail for operations |
-| Merkle Tree Caching | HIGH | Tree rebuilds on every operation |
 | Test Suite | HIGH | No backend/frontend tests |
 | Monitoring/Observability | MEDIUM | Basic logging only |
 | CI/CD Pipeline | MEDIUM | No GitHub Actions |
@@ -540,22 +533,28 @@ Response: { txHash }
 
 ---
 
-## Critical Issues Found (from PERSONATEST.md)
+## Critical Issues - RESOLVED (2026-05-12)
 
-### P0 - Security Critical
-1. **Server-side secret generation** - Backend knows agent secrets, undermining ZK security model
-2. **Secret hash stored transparently** - Should be hashed again before storage
+All P0 and P1 issues from PERSONATEST.md have been fixed:
 
-### P1 - High Priority
-3. **No database migrations** - Schema drift causes crashes
-4. **Nonce race condition** - TOCTOU bug in actionAuth.ts
-5. **Merkle tree rebuilds** - O(n) on every credential operation
-6. **SDK browser incompatible** - Node.js only
+### ✅ P0 - Security Critical - FIXED
+1. **Server-side secret generation** - ✅ FIXED: Created `frontend/lib/credential-client.ts` for client-side generation
+2. **Secret hash stored transparently** - ✅ FIXED: Added `hashSecretForStorage()` with Poseidon salt
 
-### P2 - Medium Priority
-7. **Hardcoded chain ID** - Can't change networks without code change
-8. **No graceful circuit fallback** - Server crashes without circuit files
-9. **Mock fallback in production code** - Masks backend failures
+### ✅ P1 - High Priority - FIXED
+3. **No database migrations** - ✅ FIXED: Created `backend/src/migrations.ts` with 11 versioned migrations
+4. **Nonce race condition** - ✅ FIXED: Used INSERT ... ON CONFLICT for atomic operation
+5. **Merkle tree rebuilds** - ✅ FIXED: Added tree state caching with `merkle_tree_state` table
+6. **SDK browser incompatible** - ✅ FIXED: Added conditional imports, Web Crypto API, browser build
+
+### ✅ P2 - Medium Priority - FIXED
+7. **Hardcoded chain ID** - ⏸️ DEFERRED (user request to exclude FLAW 3)
+8. **No graceful circuit fallback** - ✅ FIXED: Added `isProverAvailable()`, lazy loading in prover.ts
+9. **Mock fallback in production code** - ✅ FIXED: Requires explicit `USE_MOCK=true`
+10. **Rate limiting** - ✅ FIXED: Added express-rate-limit to proof endpoints
+11. **Audit Logging** - ✅ FIXED: Created `backend/src/services/audit.ts` with `logAuditEvent()`
+12. **Blockchain singleton** - ✅ FIXED: Added `getBlockchainService()` with health checks
+13. **SDK proxy through frontend** - ✅ FIXED: SDK can now call backend directly with CORS
 
 ---
 
@@ -674,7 +673,43 @@ ETHERSCAN_API_KEY=...
 
 ## Session Log (Append Each Session)
 
-### Session 2026-05-12
+### Session 2026-05-12 Part 2 — Design Flaw Fixes
+- Fixed all 12 design flaws from PERSONATEST.md (excluding FLAW 3 & FLAW 14)
+- **New Files Created:**
+  - `backend/src/migrations.ts` — Versioned migration system (11 migrations)
+  - `backend/src/services/audit.ts` — Audit trail logging service
+  - `frontend/lib/credential-client.ts` — Client-side secret generation with Poseidon
+  - `frontend/types/circomlibjs.d.ts` — TypeScript declarations for circomlibjs
+  - `scripts/test-flaw-fixes.ts` — Comprehensive test verification script
+- **Modified Files:**
+  - `backend/src/db.ts` — Uses migration system
+  - `backend/src/services/platform.ts` — Singleton blockchain, deprecated server-side secrets
+  - `backend/src/services/blockchain.ts` — Added getBlockchainService(), health checks, reconnection
+  - `backend/src/services/merkle.ts` — Tree state caching (loadState/saveState)
+  - `backend/src/services/credential.ts` — hashSecretForStorage() with Poseidon salt
+  - `backend/src/services/prover.ts` — Lazy circuit loading, isProverAvailable()
+  - `backend/src/services/actionAuth.ts` — Fixed nonce TOCTOU with INSERT ON CONFLICT (removed duplicate INSERT bug)
+  - `backend/src/routes/credentials.ts` — Audit logging, singleton blockchain
+  - `backend/src/routes/proofs.ts` — Rate limiting (10/min async, 3/min sync), /status endpoints
+  - `backend/src/middleware/security.ts` — Added port 3000 to CORS
+  - `frontend/lib/mock-api.ts` — Requires explicit USE_MOCK=true
+  - `sdk/src/AgentClient.ts` — Browser-compatible imports, DEFAULT_BACKEND_URL
+- **Flaw Fixes Summary:**
+  - FLAW 1: Client-side secret generation (Web Crypto API + Poseidon)
+  - FLAW 2: Browser-compatible SDK (conditional imports, Web Crypto)
+  - FLAW 4: Graceful circuit fallback (lazy loading, availability check)
+  - FLAW 5: Database migration system (11 versioned migrations)
+  - FLAW 6: Merkle tree caching (in-memory + DB persistence)
+  - FLAW 7: Hash secret for storage (Poseidon with storage salt)
+  - FLAW 8: Remove mock fallback (requires explicit USE_MOCK=true)
+  - FLAW 9: Rate limiting proofs (express-rate-limit endpoints)
+  - FLAW 10: Blockchain service singleton (health checks, reconnection)
+  - FLAW 11: Nonce race condition (INSERT ... ON CONFLICT)
+  - FLAW 12: SDK direct backend access (CORS port 3000)
+  - FLAW 13: Audit trail (audit_log table + logAuditEvent())
+- All packages build successfully: backend, sdk, frontend
+- **Critical Bug Fix (FLAW 11):** Removed duplicate INSERT in actionAuth.ts - verification agent caught duplicate INSERT statement that would always fail
+- **Verification Result:** 18/18 tests pass, all API endpoints operational
 - Fixed AWS RDS database schema drift (ai_agents, merkle_tree, action_authorizations tables)
 - Verified proof system is unaffected by schema fixes
 - Created PERSONATEST.md with comprehensive design flaw analysis

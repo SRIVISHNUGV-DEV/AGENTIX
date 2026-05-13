@@ -12,11 +12,11 @@
 
 | Contract | Address | Network |
 |----------|---------|---------|
-| Verifier | [0x18a2...2379](https://sepolia.etherscan.io/address/0x18a2447623f8DD51f13a41025cddFa218d0B2379) | Sepolia |
-| CredentialRegistry | [0x5578...dEd7](https://sepolia.etherscan.io/address/0x5578d8DC741bcfAA199BCD0eDE68dcB3eb5EdEd7) | Sepolia |
-| SessionManager | [0xCfc4...Ab65](https://sepolia.etherscan.io/address/0xCfc4543476069Ed15f5749B527BC35fEAcA1Ab65) | Sepolia |
-| AgentWalletFactory | [0x2fA2...7970](https://sepolia.etherscan.io/address/0x2fA255257c301755288e85DedAAe99d54f367970) | Sepolia |
-| AgentWallet Implementation | [0x97D6...C7F7](https://sepolia.etherscan.io/address/0x97D6893A5483005eCed724FfedAAeaaAf6Da0C7F7) | Sepolia |
+| Verifier | [0x9536...6B46](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) | Sepolia |
+| CredentialRegistry | [0x77ca...0dc](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) | Sepolia |
+| SessionManager | [0x3044...1259](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) | Sepolia |
+| AgentWalletFactory | [0xFaDA...824](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) | Sepolia |
+| AgentWallet Implementation | [0x03F7...9fe](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) | Sepolia |
 | EntryPoint | [0x4337...F108](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | Sepolia |
 
 ## Frontend Pages

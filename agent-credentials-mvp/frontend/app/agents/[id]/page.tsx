@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Shield, Wallet, Clock, Key, ArrowRight } from 'lucide-react'
+import { ArrowLeft, Shield, Wallet, Clock, Key, ExternalLink } from 'lucide-react'
 import { AgentActions } from '@/components/platform/agent-actions'
 import { Button } from '@/components/ui/button'
 import { getAgent, getEventsByAgent, getSessionsByAgent } from '@/lib/mock-api'
 import { formatDate, truncateAddress } from '@/lib/utils'
+import { getAddressExplorerUrl, getTxExplorerUrl } from '@/lib/explorer'
 import Header from '@/components/header'
 
 export const dynamic = 'force-dynamic'
@@ -162,12 +163,17 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
                 <div className="mt-4 space-y-2">
                   {agent.wallets.map((wallet) => (
                     <div key={wallet.id} className="flex items-center justify-between py-3 border-b border-zinc-800/50 last:border-0">
-                      <div className="font-mono text-sm">{truncateAddress(wallet.address, 16)}</div>
+                      <a
+                        href={getAddressExplorerUrl(wallet.address)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-sm text-zinc-300 hover:text-white hover:underline transition-colors flex items-center gap-1"
+                      >
+                        {truncateAddress(wallet.address, 16)}
+                        <ExternalLink className="h-3 w-3 opacity-50" />
+                      </a>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-zinc-500 uppercase">{wallet.walletKind ?? 'ERC-4337'}</span>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                          <ArrowRight className="h-3 w-3" />
-                        </Button>
                       </div>
                     </div>
                   ))}

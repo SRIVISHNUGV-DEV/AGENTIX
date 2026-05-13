@@ -175,11 +175,12 @@ export class EventSyncService {
         await db.run(
             `
             INSERT INTO contract_events
-            (org_id, contract_name, contract_address, event_name, tx_hash, block_number, log_index, session_id, wallet_address, event_data)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            (org_id, event_type, contract_name, contract_address, event_name, tx_hash, block_number, log_index, session_id, wallet_address, event_data)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT (tx_hash, log_index) DO NOTHING
             `,
-            null,
+            orgId,
+            parsed.name, // event_type is the event name
             contractName,
             address,
             parsed.name,

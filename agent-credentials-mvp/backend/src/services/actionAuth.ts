@@ -103,16 +103,41 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
         }
     }
 
-    const existing = await db.get(
+    // Check-then-insert with atomic INSERT ... ON CONFLICT to prevent TOCTOU race condition
+    // This ensures atomicity: if two requests with the same nonce arrive simultaneously,
+    // only one will succeed due to the UNIQUE constraint on nonce column
+    try {
+        await db.run(
+            `
+            INSERT INTO action_authorizations
+            (nonce, org_id, wallet_address, action, target, requested_at)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(nonce) DO NOTHING
+            `,
+            nonce,
+            isNewOrg ? null : orgId,
+            walletAddress,
+            action,
+            target,
+            requestedAt
+        )
+    } catch (error: any) {
+        // PostgreSQL unique constraint violation
+        if (error.code === '23505' || error.message?.includes('unique constraint') || error.message?.includes('duplicate')) {
+            throw new AppError(409, "authorization nonce already used")
+        }
+        throw error
+    }
+
+    // Verify the insert actually happened (row was not rejected by ON CONFLICT)
+    const inserted = await db.get(
         `
-        SELECT nonce
-        FROM action_authorizations
-        WHERE nonce = ?
+        SELECT nonce FROM action_authorizations WHERE nonce = ?
         `,
         nonce
     )
 
-    if(existing){
+    if (!inserted) {
         throw new AppError(409, "authorization nonce already used")
     }
 
@@ -141,20 +166,8 @@ export async function requireSignedAction(db:any, options:AuthorizationOptions){
         throw new AppError(401, `wallet signature does not match requested wallet (expected ${walletAddress}, got ${recovered})`)
     }
 
-    // For new orgs, insert with org_id = NULL (will be updated later if needed)
-    await db.run(
-        `
-        INSERT INTO action_authorizations
-        (nonce, org_id, wallet_address, action, target, requested_at)
-        VALUES (?,?,?,?,?,?)
-        `,
-        nonce,
-        isNewOrg ? null : orgId,
-        walletAddress,
-        action,
-        target,
-        requestedAt
-    )
+    // Authorization already inserted at line 110-123 with atomic INSERT ... ON CONFLICT
+    // No need for second insert - the row is already in the database
 
     return {
         walletAddress,
