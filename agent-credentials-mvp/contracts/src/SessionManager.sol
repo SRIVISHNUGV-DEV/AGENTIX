@@ -40,6 +40,21 @@ contract SessionManager is ReentrancyGuard {
 
     event SessionRevoked(bytes32 indexed sessionId);
 
+    event LightSessionCreated(
+        bytes32 indexed sessionId,
+        address indexed sessionKey,
+        uint256 dailySpendLimit,
+        uint256 dailyTxLimit,
+        uint64 expiry
+    );
+    event LightSessionUsed(
+        bytes32 indexed sessionId,
+        uint256 value,
+        uint256 newDailySpend
+    );
+    event LightSessionRevoked(bytes32 indexed sessionId);
+    event DailyLimitsReset(bytes32 indexed sessionId, uint64 newDay);
+
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -52,7 +67,21 @@ contract SessionManager is ReentrancyGuard {
         bool revoked;
     }
 
+    // New struct for lightweight session with daily limits
+    struct LightweightSession {
+        address sessionKey;           // Session public key
+        uint256 dailySpendLimit;      // Max wei spend per day
+        uint256 dailyTxLimit;         // Max transactions per day
+        uint256 dailySpendUsed;       // Wei spent today
+        uint256 dailyTxUsed;          // Transactions today
+        uint64 lastResetDay;          // Unix day for reset tracking
+        uint64 expiry;                // Session expiration timestamp
+        bool revoked;                 // Revocation flag
+    }
+
     mapping(bytes32 => Session) public sessions;
+    mapping(bytes32 => LightweightSession) public lightSessions;
+    mapping(address => bytes32[]) public walletSessions;
 
     IVerifier public verifier;
     ICredentialRegistry public registry;
