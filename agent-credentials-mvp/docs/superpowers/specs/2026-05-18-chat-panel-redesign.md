@@ -2,52 +2,86 @@
 
 **Date:** 2026-05-18
 **Status:** Design Approved
-**Scope:** Fix chat panel to work with any connected runtime, simplify quick actions
+**Scope:** Fix chat panel, unify agent IDs, simplify quick actions to protocol-supported operations
 
 ---
 
 ## Problem Statement
 
-The chat execution panel has several issues:
+### Issue 1: Broken Chat Flow
+- Chat not connecting to runtime endpoints properly
+- Hardcoded to localhost:3002 instead of any connected runtime
 
-1. **Broken chat flow** - Not connecting to runtime endpoints properly
-2. **Non-functional quick actions** - Actions like "Execute Command", "Read File", "Query", "Deploy Contract" are not implemented
-3. **Hardcoded to local runtime** - Should work with any connected runtime (local, Lambda, Cloudflare Workers, etc.)
+### Issue 2: Non-Functional Quick Actions
+- Actions like "Execute Command", "Read File", "Query", "Deploy Contract" are not implemented
+- Users see buttons that don't work
+
+### Issue 3: Duplicate Agent ID Sequences
+- `agents` table has ID sequence: 1, 2, 3...
+- `external_agents` table has ID sequence: 1, 2, 3...
+- Confusing display: "External Agent 3 connected to Protocol Agent 1"
+
+### Issue 4: ID Increments on Reconnect
+- When runtime disconnects and reconnects, a new external_agent row is created with incremented ID
+- Should reuse existing agent identity
 
 ---
 
 ## Design Goals
 
-1. Chat works with **any connected runtime** (not just localhost:3002)
-2. Quick actions show only **what the protocol can actually do**
-3. Clean API path: Frontend → Backend → Runtime
-4. Proper error handling and connection status
+1. **Chat works with any connected runtime** (local, Lambda, Cloudflare, self-hosted)
+2. **Quick actions show only what protocol supports**
+3. **Unified agent IDs** - one sequence, one table concept
+4. **Stable IDs on reconnect** - reuse existing agent identity
 
 ---
 
 ## Architecture
 
-### Runtime-Agnostic Design
+### Unified Agent Model
 
-The chat panel must not hardcode runtime URLs. Instead:
-
+**Current (Broken):**
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────────────────┐
-│   Frontend  │────▶│   Backend   │────▶│   Runtime (any type)    │
-│  Chat Panel │     │   Port 3001 │     │ • Local (:3002)         │
-│             │     │             │     │ • Lambda (Function URL) │
-│             │     │             │     │ • Cloudflare Workers   │
-└─────────────┘     └─────────────┘     │ • Self-hosted           │
-                          │             └─────────────────────────┘
-                          │
-                          ▼
-                    ┌─────────────┐
-                    │  Database   │
-                    │ (PostgreSQL)│
-                    └─────────────┘
+agents (id: 1, 2, 3...)     ← Protocol agents
+    ↑ linked_agent_id
+external_agents (id: 1, 2, 3...) ← External runtimes
 ```
+Result: "External Agent 3 connected to Protocol Agent 1"
 
-**Key insight:** The backend knows the runtime endpoint. Frontend only calls backend.
+**New Design:**
+```
+agents (id: 1, 2, 3...)
+├── type: 'protocol' | 'external'
+├── source: 'platform' | 'runtime'
+└── runtime fields only if type='external'
+```
+Result: "Agent 1 - Runtime Connected" or "Agent 2 - Platform Native"
+
+### Agent Types
+
+| Type | Source | Capabilities |
+|------|--------|--------------|
+| `protocol` | Platform-created | Create credentials, wallets, sessions first, then connect runtime |
+| `external` | Runtime-connected | Connect runtime first, then create credentials, wallets |
+
+**Both types have same capabilities after setup.**
+
+---
+
+## Protocol-Supported Actions
+
+From `AgentWallet.sol` smart contract:
+
+| Action | Solidity Function | Quick Action |
+|--------|-------------------|--------------|
+| **Execute** | `execute(address, uint256, bytes)` | Send Transaction |
+| **Execute Batch** | `executeBatch(address[], uint256[], bytes[])` | Batch Transactions |
+| **Add Whitelist** | `addToWhitelist(address)` | Via chat only |
+| **Remove Whitelist** | `removeFromWhitelist(address)` | Via chat only |
+| **Deposit** | `depositToEntryPoint()` | Via chat only |
+| **Withdraw** | `withdrawFromEntryPoint()` | Via chat only |
+
+**Transactions ONLY execute to whitelisted addresses.**
 
 ---
 
@@ -57,56 +91,58 @@ The chat panel must not hardcode runtime URLs. Instead:
 
 **File:** `frontend/components/execute/quick-actions.tsx`
 
-Replace current actions with protocol-supported actions only:
-
 ```typescript
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "send_transaction",
     label: "Send Transaction",
     icon: <Send className="h-4 w-4" />,
-    template: "Send ETH to a whitelisted address",
-    action: "send_transaction",
-    paramsHint: { amount: "0.1", address: "" }
+    template: "Send 0.1 ETH to 0x...",
+    description: "Send ETH to a single whitelisted address"
   },
   {
     id: "batch_transactions",
     label: "Batch Transactions",
     icon: <Layers className="h-4 w-4" />,
-    template: "Send ETH to multiple whitelisted addresses",
-    action: "batch_transactions",
-    paramsHint: { amount: "0.1", addresses: [] }
+    template: "Send 0.05 ETH each to: 0x..., 0x...",
+    description: "Send ETH to multiple whitelisted addresses"
   },
   {
     id: "custom",
     label: "Custom",
     icon: <MessageSquare className="h-4 w-4" />,
     template: "",
-    action: "custom",
+    description: "Free-form request (whitelist, withdraw, etc.)"
   }
 ]
 ```
 
-**Remove:** `Execute Command`, `Read File`, `API Call`, `Query`, `Deploy Contract`
-
-**Remove:** `MORE_ACTIONS` dropdown (no longer needed)
+**Remove:** Execute Command, Read File, API Call, Query, Sign Transaction, Deploy Contract
 
 ---
 
-### 2. Chat Execution API
+### 2. Chat Execution Flow
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────────────────┐
+│   Frontend  │────▶│   Backend   │────▶│   Runtime (any type)    │
+│  Chat Panel │     │   Port 3001 │     │ • Local (:3002)         │
+│             │     │             │     │ • Lambda (Function URL) │
+│             │     │             │     │ • Cloudflare Workers   │
+└─────────────┘     └─────────────┘     │ • Self-hosted           │
+                          │             └─────────────────────────┘
+                          ▼
+                    ┌─────────────┐
+                    │  Database   │
+                    │ (PostgreSQL)│
+                    └─────────────┘
+```
 
 **File:** `frontend/lib/external-agents-api.ts`
 
-Add function to execute chat via backend:
-
 ```typescript
-/**
- * Send chat message to agent runtime
- * Works with any connected runtime (local, Lambda, etc.)
- * Backend routes to the correct runtime endpoint
- */
 export async function executeChatMessage(
-  externalAgentId: number,
+  agentId: number,
   message: string,
   orgId: number,
   signature?: SignaturePayload
@@ -116,7 +152,8 @@ export async function executeChatMessage(
   result?: any
   error?: string
 }> {
-  const response = await fetch(`${API_BASE_URL}/external/${externalAgentId}/execute`, {
+  // Backend routes to correct runtime based on agent's endpoint
+  const response = await fetch(`${API_BASE_URL}/external/${agentId}/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -126,157 +163,118 @@ export async function executeChatMessage(
       ...signature
     })
   })
-
-  if (!response.ok) {
-    throw new Error(`Chat execution failed: ${response.statusText}`)
-  }
-
-  return response.json()
-}
-
-/**
- * Execute a specific action on the agent runtime
- */
-export async function executeAgentAction(
-  externalAgentId: number,
-  action: string,
-  params: Record<string, any>,
-  orgId: number,
-  signature?: SignaturePayload
-): Promise<{
-  success: boolean
-  response?: string
-  result?: any
-  error?: string
-}> {
-  const response = await fetch(`${API_BASE_URL}/external/${externalAgentId}/execute`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action,
-      params,
-      orgId,
-      ...signature
-    })
-  })
-
-  if (!response.ok) {
-    throw new Error(`Action execution failed: ${response.statusText}`)
-  }
-
   return response.json()
 }
 ```
 
 ---
 
-### 3. Chat Panel Component Update
+### 3. Unified Agent Database Schema
 
-**File:** `frontend/components/execute/chat-execution-panel.tsx`
+**Migration:** `backend/src/migrations.ts`
 
-**Changes:**
+```sql
+-- Add type column to agents
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS agent_type VARCHAR(20) DEFAULT 'protocol';
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'platform';
 
-1. **Import new API functions:**
-```typescript
-import { executeChatMessage, executeAgentAction, getRuntimeStatus } from '@/lib/external-agents-api'
+-- Add runtime fields to agents (previously in external_agents)
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS endpoint VARCHAR(255);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS runtime_status VARCHAR(20) DEFAULT 'disconnected';
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS last_ping_at INTEGER;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS agent_metadata JSONB DEFAULT '{}';
+
+-- Create unique constraint on (org_id, endpoint) for runtime reconnection
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_org_endpoint 
+  ON agents(org_id, endpoint) 
+  WHERE endpoint IS NOT NULL;
+
+-- Migrate existing external_agents data into agents
+INSERT INTO agents (org_id, agent_name, agent_type, source, endpoint, runtime_status, agent_metadata, linked_agent_id)
+SELECT org_id, name, 'external', 'runtime', endpoint, status, metadata, linked_agent_id
+FROM external_agents
+ON CONFLICT DO NOTHING;
 ```
 
-2. **Remove hardcoded runtime URL:**
+**Benefits:**
+- Single ID sequence
+- No confusion about "External Agent X connected to Protocol Agent Y"
+- Reconnecting runtime reuses existing agent by endpoint
+
+---
+
+### 4. Stable Agent ID on Reconnect
+
+**Problem:** Each runtime connection creates new ID
+
+**Solution:** Upsert by endpoint
+
 ```typescript
-// REMOVE THIS:
-const RUNTIME_URL = 'http://localhost:3002'
+// backend/src/services/agentService.ts
+async connectRuntime(orgId: number, endpoint: string, name: string): Promise<Agent> {
+  const existingAgent = await db.get(
+    `SELECT * FROM agents WHERE org_id = $1 AND endpoint = $2`,
+    [orgId, endpoint]
+  )
 
-// USE THIS: Get runtime status from backend (already connected or not)
-const { data: runtimeStatus } = useQuery({
-  queryKey: ['runtime-status', agentId],
-  queryFn: () => getRuntimeStatus(externalAgentId),
-  refetchInterval: 5000 // Poll every 5s
-})
-```
-
-3. **Handle message sending:**
-```typescript
-const handleSendMessage = async () => {
-  if (!inputMessage.trim() || !externalAgentId) return
-
-  setIsLoading(true)
-  addMessage({ role: 'user', content: inputMessage })
-
-  try {
-    const result = await executeChatMessage(
-      externalAgentId,
-      inputMessage,
-      orgId,
-      signature
+  if (existingAgent) {
+    // Update status, reuse ID
+    await db.run(
+      `UPDATE agents SET runtime_status = 'active', last_ping_at = $1 WHERE id = $2`,
+      [Date.now(), existingAgent.id]
     )
-
-    if (result.success) {
-      addMessage({ role: 'assistant', content: result.response || 'Action completed' })
-      if (result.result) {
-        // Show transaction details if applicable
-        addMessage({ role: 'system', content: `Result: ${JSON.stringify(result.result, null, 2)}` })
-      }
-    } else {
-      addMessage({ role: 'assistant', content: `Error: ${result.error}` })
-    }
-  } catch (error: any) {
-    addMessage({ role: 'assistant', content: `Failed: ${error.message}` })
-  } finally {
-    setIsLoading(false)
-    setInputMessage('')
+    return existingAgent
   }
-}
-```
 
-4. **Quick action handler:**
-```typescript
-const handleQuickAction = (action: QuickAction) => {
-  if (action.id === 'custom') {
-    setInputMessage('')
-    inputRef.current?.focus()
-  } else if (action.id === 'send_transaction') {
-    setInputMessage(`Send 0.1 ETH to `)
-    inputRef.current?.focus()
-  } else if (action.id === 'batch_transactions') {
-    setInputMessage(`Send 0.05 ETH each to: `)
-    inputRef.current?.focus()
-  }
+  // Create new agent with type='external'
+  const result = await db.run(
+    `INSERT INTO agents (org_id, agent_name, agent_type, source, endpoint, runtime_status)
+     VALUES ($1, $2, 'external', 'runtime', $3, 'active')
+     RETURNING *`,
+    [orgId, name, endpoint]
+  )
+  return result
 }
 ```
 
 ---
 
-### 4. Backend Execute Endpoint (Already Exists)
+### 5. Frontend Changes
 
-**File:** `backend/src/routes/externalAgents.ts`
+**File:** `frontend/app/agents/page.tsx`
 
-The `POST /:agentId/execute` endpoint already forwards to runtime:
+Show all agents (both protocol and external) in one list:
 
-```typescript
-router.post("/:agentId/execute", async (req: Request, res: Response) => {
-  // 1. Validate agent exists
-  // 2. Check runtime endpoint
-  // 3. Forward request to runtime
-  // 4. Return response
-})
+```tsx
+// Filter/Tab to show: All | Platform | Runtime Connected
+<Tabs defaultValue="all">
+  <TabsList>
+    <TabsTrigger value="all">All Agents</TabsTrigger>
+    <TabsTrigger value="protocol">Platform Created</TabsTrigger>
+    <TabsTrigger value="external">Runtime Connected</TabsTrigger>
+  </TabsList>
+</Tabs>
+
+// Display agent type badge
+{agent.agent_type === 'external' && (
+  <Badge variant="outline">Runtime</Badge>
+)}
+{agent.agent_type === 'protocol' && (
+  <Badge variant="secondary">Platform</Badge>
+)}
 ```
 
-**No backend changes needed** - this endpoint already routes to the correct runtime based on `external_agents.endpoint` in the database.
+**File:** `frontend/app/ai-agents/page.tsx`
 
----
+Connect runtime flow reuses existing agent:
 
-### 5. Runtime Types
-
-The chat works with any runtime that implements the standard execute endpoint:
-
-| Runtime Type | Endpoint Source | Example |
-|--------------|-----------------|---------|
-| Local | `http://localhost:3002` | Development |
-| Lambda | Function URL from env | Production |
-| Cloudflare Workers | Worker URL | Edge deployment |
-| Self-hosted | Custom domain | Enterprise |
-
-**All runtimes must implement:** `POST /execute` with `{ action, params, orgId }`
+```typescript
+async function handleConnectRuntime(endpoint: string, name: string) {
+  // Backend will reuse existing agent if endpoint matches
+  const agent = await connectRuntime(orgId, endpoint, name)
+  // agent.id is STABLE - doesn't increment on reconnect
+}
+```
 
 ---
 
@@ -284,29 +282,47 @@ The chat works with any runtime that implements the standard execute endpoint:
 
 | File | Change |
 |------|--------|
-| `frontend/components/execute/quick-actions.tsx` | Replace actions array, remove dropdown |
-| `frontend/lib/external-agents-api.ts` | Add `executeChatMessage`, `executeAgentAction` |
+| `frontend/components/execute/quick-actions.tsx` | Replace actions with 3 buttons only |
+| `frontend/lib/external-agents-api.ts` | Add `executeChatMessage`, `connectRuntime` |
 | `frontend/components/execute/chat-execution-panel.tsx` | Use new API, remove hardcoded URL |
+| `backend/src/migrations.ts` | Add unified agent migration |
+| `backend/src/services/agentService.ts` | Add connectRuntime with upsert |
+| `backend/src/routes/agents.ts` | Support unified agent model |
+| `frontend/app/agents/page.tsx` | Show all agents with type filter |
+| `frontend/app/ai-agents/page.tsx` | Use connectRuntime for stable IDs |
 
 ---
 
 ## Testing Checklist
 
-- [ ] Quick actions show only 3 buttons: Send Transaction, Batch Transactions, Custom
+### Quick Actions
+- [ ] Only 3 buttons: Send Transaction, Batch Transactions, Custom
+- [ ] Buttons work without errors
+- [ ] Template text pre-fills correctly
+
+### Chat Flow
 - [ ] Chat sends message to backend `/external/:id/execute`
 - [ ] Backend forwards to correct runtime based on agent's endpoint
-- [ ] Runtime processes chat and returns response
-- [ ] Transaction requests check whitelist
-- [ ] Error handling for disconnected runtimes
+- [ ] Returns AI response to chat
+- [ ] Transactions check whitelist before execution
+
+### Unified Agent IDs
+- [ ] All agents show in `/agents` page
+- [ ] Type badge shows correctly (Platform/Runtime)
+- [ ] Reconnecting runtime reuses existing ID
+- [ ] No more "External Agent X connected to Protocol Agent Y"
+
+### Runtime Compatibility
 - [ ] Works with local runtime (port 3002)
-- [ ] Works with Lambda runtime (Function URL)
-- [ ] Works with any future runtime type
+- [ ] Works with Lambda runtime
+- [ ] Works with Cloudflare Workers
+- [ ] Works with self-hosted runtime
 
 ---
 
 ## Out of Scope
 
-- Changing the runtime server code (`runtime-local/server.ts`)
-- Changing backend execute endpoint (already works)
+- Changing smart contracts
 - Adding new transaction types
 - Wallet signature flow changes
+- Runtime server code changes
