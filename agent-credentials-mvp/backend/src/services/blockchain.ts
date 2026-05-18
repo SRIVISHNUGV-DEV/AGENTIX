@@ -673,6 +673,115 @@ export class BlockchainService {
         return bundler.getUserOperationReceipt(userOpHash)
     }
 
+    async setWhitelistedParty(
+        walletAddress: string,
+        party: string,
+        status: boolean
+    ): Promise<{ txHash: string; walletAddress: string; party: string; status: boolean }> {
+        const walletContract = this.getContract(walletAddress, this.getWalletAbi())
+
+        const tx = await this.withRpcRetry(
+            "setWhiteListedParty",
+            () => walletContract.setWhiteListedParty(party, status)
+        )
+
+        const receipt: any = await this.withRpcRetry(
+            "wait setWhiteListedParty",
+            () => tx.wait()
+        )
+
+        return {
+            txHash: receipt.hash,
+            walletAddress,
+            party,
+            status
+        }
+    }
+
+    async setWhitelistedPartyBatch(
+        walletAddress: string,
+        parties: string[],
+        statuses: boolean[]
+    ): Promise<{ txHash: string; walletAddress: string; parties: string[]; statuses: boolean[] }> {
+        if (parties.length !== statuses.length) {
+            throw new Error("Array length mismatch: parties and statuses must have same length")
+        }
+        if (parties.length === 0) {
+            throw new Error("Empty arrays: at least one party required")
+        }
+
+        const walletContract = this.getContract(walletAddress, this.getWalletAbi())
+
+        const tx = await this.withRpcRetry(
+            "setWhiteListedPartyBatch",
+            () => walletContract.setWhiteListedPartyBatch(parties, statuses)
+        )
+
+        const receipt: any = await this.withRpcRetry(
+            "wait setWhiteListedPartyBatch",
+            () => tx.wait()
+        )
+
+        return {
+            txHash: receipt.hash,
+            walletAddress,
+            parties,
+            statuses
+        }
+    }
+
+    async getWhitelistedParties(walletAddress: string, db?: any): Promise<string[]> {
+        // For Alchemy free tier compatibility, try to get whitelist from database first
+        if (db) {
+            try {
+                const dbParties = await db.all(
+                    `SELECT address FROM wallet_whitelist WHERE wallet_address = ? AND is_active = 1`,
+                    walletAddress.toLowerCase()
+                )
+                if (dbParties.length > 0) {
+                    return dbParties.map((row: any) => row.address)
+                }
+            } catch {
+                // Table might not exist, fall through to contract query
+            }
+        }
+
+        // Fallback: Query only last 10 blocks for Alchemy free tier compatibility
+        const walletContract = this.getContract(walletAddress, this.getWalletAbi())
+
+        try {
+            const currentBlock = await this.provider.getBlockNumber()
+            const fromBlock = Math.max(0, currentBlock - 10)
+
+            const filter = walletContract.filters.WhiteListUpdated()
+            const events = await walletContract.queryFilter(filter, fromBlock, currentBlock)
+
+            const parties = new Set<string>()
+            for (const event of events) {
+                if ('args' in event && event.args) {
+                    const party = event.args.party as string
+                    const status = event.args.status as boolean
+                    if (status) {
+                        parties.add(party)
+                    } else {
+                        parties.delete(party)
+                    }
+                }
+            }
+
+            return Array.from(parties)
+        } catch (error: any) {
+            // If event query fails, return empty array (whitelist not queryable via events)
+            console.warn(`[getWhitelistedParties] Could not query events for ${walletAddress}:`, error?.message || error)
+            return []
+        }
+    }
+
+    async isWhitelisted(walletAddress: string, party: string): Promise<boolean> {
+        const walletContract = this.getContract(walletAddress, this.getWalletAbi())
+        return await walletContract.whiteListedParties(party)
+    }
+
     async getEventContracts(db:any){
         const deployments = await db.all(
             `
@@ -725,6 +834,69 @@ export class BlockchainService {
                 abi: this.getFactoryAbi()
             }
         ])
+    }
+
+    // ============================================
+    // EntryPoint Gas Deposit Methods
+    // ============================================
+
+    /**
+     * Get the EntryPoint balance for an agent wallet
+     * This is the gas funding available for transaction execution
+     */
+    async getEntryPointBalance(walletAddress: string): Promise<bigint> {
+        const entryPointAddress = DEFAULT_ENTRY_POINT_ADDRESS
+
+        if (!entryPointAddress) {
+            throw new Error("EntryPoint address not configured")
+        }
+
+        const entryPointAbi = [
+            "function balanceOf(address account) external view returns (uint256)"
+        ]
+
+        const entryPoint = new ethers.Contract(entryPointAddress, entryPointAbi, this.provider)
+        const balance = await entryPoint.balanceOf(walletAddress)
+
+        return balance
+    }
+
+    /**
+     * Deposit ETH to the EntryPoint for an agent wallet
+     *
+     * This funds the agent's smart account so it can pay for gas
+     * during transaction execution via ERC-4337.
+     *
+     * @param walletAddress - The agent wallet address
+     * @param amountWei - Amount to deposit in wei
+     */
+    async depositToEntryPoint(
+        walletAddress: string,
+        amountWei: bigint
+    ): Promise<{ txHash: string; newBalance: string }> {
+        const entryPointAddress = DEFAULT_ENTRY_POINT_ADDRESS
+
+        if (!entryPointAddress) {
+            throw new Error("EntryPoint address not configured")
+        }
+
+        const entryPointAbi = [
+            "function depositTo(address account) external payable"
+        ]
+
+        const entryPoint = new ethers.Contract(entryPointAddress, entryPointAbi, this.wallet)
+
+        // Send transaction to deposit to EntryPoint
+        const tx = await entryPoint.depositTo(walletAddress, { value: amountWei })
+        const receipt = await tx.wait()
+
+        // Get new balance
+        const newBalance = await this.getEntryPointBalance(walletAddress)
+
+        return {
+            txHash: receipt.hash,
+            newBalance: ethers.formatEther(newBalance)
+        }
     }
 }
 

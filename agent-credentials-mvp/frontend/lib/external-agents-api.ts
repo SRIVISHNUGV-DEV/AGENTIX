@@ -1,5 +1,13 @@
 const API_BASE_URL = "/api"
 
+// Signature payload type for wallet-authenticated requests
+export type SignaturePayload = {
+  walletAddress: string
+  signature: string
+  nonce: string
+  requestedAt: number
+}
+
 export interface ExternalAgent {
   id: number
   orgId: number
@@ -96,6 +104,50 @@ export async function createExternalAgent(data: {
     body: JSON.stringify(data),
   })
   if (!response.ok) throw new Error("Failed to create agent")
+  return response.json()
+}
+
+export async function connectExternalAgentToProtocolAgent(
+  data: {
+    protocolAgentId: number
+    orgId: number
+    runtimeType: string
+    name: string
+  },
+  signature: SignaturePayload
+): Promise<{ success: boolean; agentId: number; linkedAgentId: number }> {
+  const response = await fetch(`${API_BASE_URL}/external`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      orgId: data.orgId,
+      agentType: data.runtimeType,
+      name: data.name,
+      linkedAgentId: data.protocolAgentId,
+      metadata: { ownerAddress: signature.walletAddress },
+      walletAddress: signature.walletAddress,
+      signature: signature.signature,
+      nonce: signature.nonce,
+      requestedAt: signature.requestedAt,
+    }),
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: "Failed to connect runtime" }))
+    throw new Error(errorData.error || "Failed to connect runtime")
+  }
+  return response.json()
+}
+
+export async function disconnectExternalAgent(agentId: number, orgId: number): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/external/${agentId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to disconnect runtime" }))
+    throw new Error(error.error || "Failed to disconnect runtime")
+  }
   return response.json()
 }
 
@@ -254,4 +306,139 @@ export async function deleteWhitelistedContract(agentId: number, contractId: num
   })
   if (!response.ok) throw new Error("Failed to delete contract")
   return response.json()
+}
+
+// ============================================
+// Chat Execution API - Runtime Agnostic
+// ============================================
+
+export interface ChatMessageResult {
+  success: boolean
+  response?: string
+  result?: {
+    type: "transaction" | "whitelist" | "deposit" | "withdraw" | "custom"
+    txHash?: string
+    amount?: string
+    address?: string
+    addresses?: string[]
+    [key: string]: unknown
+  }
+  error?: string
+}
+
+export interface RuntimeStatus {
+  connected: boolean
+  lastPing?: number
+  endpoint?: string
+  status: "disconnected" | "connecting" | "connected" | "error"
+}
+
+/**
+ * Send a chat message to the agent runtime
+ * Routes through backend which forwards to the correct runtime endpoint
+ * Works with any runtime type: local, Lambda, Cloudflare, self-hosted
+ */
+export async function executeChatMessage(
+  externalAgentId: number,
+  message: string,
+  orgId: number,
+  signature?: SignaturePayload
+): Promise<ChatMessageResult> {
+  const response = await fetch(`${API_BASE_URL}/external/${externalAgentId}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "chat",
+      params: { message },
+      orgId,
+      ...(signature || {}),
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Chat execution failed" }))
+    return { success: false, error: error.error || response.statusText }
+  }
+
+  return response.json()
+}
+
+/**
+ * Execute a specific action on the agent runtime
+ * Actions: send_transaction, batch_transactions, deposit_gas, whitelist, withdraw
+ */
+export async function executeAgentAction(
+  externalAgentId: number,
+  action: string,
+  params: Record<string, unknown>,
+  orgId: number,
+  signature?: SignaturePayload
+): Promise<ChatMessageResult> {
+  const response = await fetch(`${API_BASE_URL}/external/${externalAgentId}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action,
+      params,
+      orgId,
+      ...(signature || {}),
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Action execution failed" }))
+    return { success: false, error: error.error || response.statusText }
+  }
+
+  return response.json()
+}
+
+/**
+ * Get runtime connection status
+ */
+export async function getRuntimeStatus(externalAgentId: number): Promise<RuntimeStatus> {
+  const response = await fetch(`${API_BASE_URL}/external/${externalAgentId}/status`)
+
+  if (!response.ok) {
+    return { connected: false, status: "error" }
+  }
+
+  return response.json()
+}
+
+/**
+ * Deposit ETH to EntryPoint for gas
+ * Owner wallet funds the agent's smart account for transaction execution
+ */
+export async function depositToEntryPoint(
+  externalAgentId: number,
+  amount: string,
+  orgId: number,
+  signature: SignaturePayload
+): Promise<ChatMessageResult> {
+  return executeAgentAction(externalAgentId, "deposit_gas", { amount }, orgId, signature)
+}
+
+/**
+ * Add address to whitelist
+ */
+export async function addToWhitelist(
+  externalAgentId: number,
+  address: string,
+  orgId: number,
+  signature: SignaturePayload
+): Promise<ChatMessageResult> {
+  return executeAgentAction(externalAgentId, "whitelist", { address, action: "add" }, orgId, signature)
+}
+
+/**
+ * Remove address from whitelist
+ */
+export async function removeFromWhitelist(
+  externalAgentId: number,
+  address: string,
+  orgId: number,
+  signature: SignaturePayload
+): Promise<ChatMessageResult> {
+  return executeAgentAction(externalAgentId, "whitelist", { address, action: "remove" }, orgId, signature)
 }

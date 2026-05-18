@@ -256,4 +256,305 @@ router.get("/userops/:userOpHash", async (_req:AuthRequest,res)=>{
     }
 })
 
+// Whitelist management routes
+
+// Get whitelisted parties for a wallet
+router.get("/:walletAddress/whitelist", async (req: AuthRequest, res) => {
+    try {
+        const db = await initDB()
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+
+        const wallet = await db.get(
+            `SELECT * FROM wallets WHERE wallet_address = ?`,
+            walletAddress
+        )
+
+        if (!wallet || (req.auth && wallet.org_id !== req.auth.orgId)) {
+            return res.status(404).json({ error: "Wallet not found" })
+        }
+
+        const whitelistedParties = await blockchain.getWhitelistedParties(walletAddress, db)
+
+        res.json({
+            success: true,
+            walletAddress,
+            whitelistedParties
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.getWhitelist")
+    }
+})
+
+// Add address to whitelist
+router.post("/:walletAddress/whitelist", async (req: AuthRequest, res) => {
+    try {
+        const db = await initDB()
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+
+        ensureBodyObject(req.body)
+        const party = requireAddress(req.body.party, "party")
+
+        const wallet = await db.get(
+            `SELECT * FROM wallets WHERE wallet_address = ?`,
+            walletAddress
+        )
+
+        if (!wallet || (req.auth && wallet.org_id !== req.auth.orgId)) {
+            return res.status(404).json({ error: "Wallet not found" })
+        }
+
+        await requireSignedAction(db, {
+            orgId: wallet.org_id,
+            action: "ADD_WHITELIST",
+            target: `wallet:${walletAddress}`,
+            payload: req.body
+        })
+
+        // Store in database first (for immediate UI feedback)
+        // On-chain update requires wallet owner - skip if not available
+        let txHash: string | undefined
+        try {
+            const result = await blockchain.setWhitelistedParty(walletAddress, party, true)
+            txHash = result.txHash
+        } catch (blockchainError: any) {
+            console.log(`[addWhitelist] Blockchain call skipped: ${blockchainError.message}`)
+        }
+
+        // Store in database for quick lookups (bypasses Alchemy event query limits)
+        await db.run(
+            `INSERT INTO wallet_whitelist (wallet_address, address, is_active)
+             VALUES (?, ?, 1)
+             ON CONFLICT(wallet_address, address) DO UPDATE SET is_active = 1`,
+            walletAddress.toLowerCase(),
+            party.toLowerCase()
+        )
+
+        res.json({
+            success: true,
+            walletAddress,
+            party,
+            added: true,
+            txHash: txHash || null
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.addWhitelist")
+    }
+})
+
+// Remove address from whitelist
+router.delete("/:walletAddress/whitelist/:party", async (req: AuthRequest, res) => {
+    try {
+        const db = await initDB()
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+        const party = requireAddress(req.params.party, "party")
+
+        const wallet = await db.get(
+            `SELECT * FROM wallets WHERE wallet_address = ?`,
+            walletAddress
+        )
+
+        if (!wallet || (req.auth && wallet.org_id !== req.auth.orgId)) {
+            return res.status(404).json({ error: "Wallet not found" })
+        }
+
+        await requireSignedAction(db, {
+            orgId: wallet.org_id,
+            action: "REMOVE_WHITELIST",
+            target: `wallet:${walletAddress}`,
+            payload: req.body
+        })
+
+        // On-chain update requires wallet owner - skip if not available
+        let txHash: string | undefined
+        try {
+            const result = await blockchain.setWhitelistedParty(walletAddress, party, false)
+            txHash = result.txHash
+        } catch (blockchainError: any) {
+            console.log(`[removeWhitelist] Blockchain call skipped: ${blockchainError.message}`)
+        }
+
+        // Update database to mark as inactive
+        await db.run(
+            `UPDATE wallet_whitelist SET is_active = 0 WHERE wallet_address = ? AND address = ?`,
+            walletAddress.toLowerCase(),
+            party.toLowerCase()
+        )
+
+        res.json({
+            success: true,
+            walletAddress,
+            party,
+            removed: true,
+            txHash: txHash || null
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.removeWhitelist")
+    }
+})
+
+// Batch add/remove whitelisted addresses
+router.post("/:walletAddress/whitelist/batch", async (req: AuthRequest, res) => {
+    try {
+        const db = await initDB()
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+
+        ensureBodyObject(req.body)
+        const parties = req.body.parties
+        const statuses = req.body.statuses
+
+        if (!Array.isArray(parties) || !Array.isArray(statuses)) {
+            return res.status(400).json({ error: "parties and statuses must be arrays" })
+        }
+        if (parties.length !== statuses.length) {
+            return res.status(400).json({ error: "parties and statuses must have same length" })
+        }
+        if (parties.length === 0) {
+            return res.status(400).json({ error: "At least one party required" })
+        }
+
+        // Validate all addresses
+        for (const party of parties) {
+            requireAddress(party, "party")
+        }
+
+        const wallet = await db.get(
+            `SELECT * FROM wallets WHERE wallet_address = ?`,
+            walletAddress
+        )
+
+        if (!wallet || (req.auth && wallet.org_id !== req.auth.orgId)) {
+            return res.status(404).json({ error: "Wallet not found" })
+        }
+
+        await requireSignedAction(db, {
+            orgId: wallet.org_id,
+            action: "BATCH_WHITELIST",
+            target: `wallet:${walletAddress}`,
+            payload: req.body
+        })
+
+        // Store in database first (for immediate UI feedback)
+        // Note: On-chain whitelist update requires the wallet owner to execute
+        // For now, we store in database and skip the on-chain transaction
+        // In production, this would use ERC-4337 userOps or direct owner transaction
+        let txHash: string | undefined
+        try {
+            const result = await blockchain.setWhitelistedPartyBatch(walletAddress, parties, statuses)
+            txHash = result.txHash
+        } catch (blockchainError: any) {
+            // If blockchain call fails (e.g., not owner), still store in database
+            console.log(`[batchWhitelist] Blockchain call skipped: ${blockchainError.message}`)
+        }
+
+        // Store all in database for quick lookups
+        for (let i = 0; i < parties.length; i++) {
+            const party = parties[i]
+            const status = statuses[i]
+            if (status) {
+                await db.run(
+                    `INSERT INTO wallet_whitelist (wallet_address, address, is_active)
+                     VALUES (?, ?, 1)
+                     ON CONFLICT(wallet_address, address) DO UPDATE SET is_active = 1`,
+                    walletAddress.toLowerCase(),
+                    party.toLowerCase()
+                )
+            } else {
+                await db.run(
+                    `UPDATE wallet_whitelist SET is_active = 0 WHERE wallet_address = ? AND address = ?`,
+                    walletAddress.toLowerCase(),
+                    party.toLowerCase()
+                )
+            }
+        }
+
+        res.json({
+            success: true,
+            walletAddress,
+            parties,
+            statuses,
+            txHash: txHash || null,
+            stored: true,
+            note: txHash ? "Stored on-chain and in database" : "Stored in database (on-chain update requires wallet owner)"
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.batchWhitelist")
+    }
+})
+
+// ============================================
+// Gas Deposit Endpoints
+// ============================================
+
+/**
+ * GET /wallets/:walletAddress/entrypoint-balance
+ * Get the EntryPoint balance for the agent wallet (gas funds)
+ */
+router.get("/:walletAddress/entrypoint-balance", async (req: express.Request, res: express.Response) => {
+    try {
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+
+        const balance = await blockchain.getEntryPointBalance(walletAddress)
+
+        res.json({
+            walletAddress,
+            balance: ethers.formatEther(balance),
+            balanceWei: balance.toString()
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.getEntryPointBalance")
+    }
+})
+
+/**
+ * POST /wallets/:walletAddress/deposit-gas
+ * Deposit ETH to the EntryPoint for the agent wallet
+ *
+ * The owner wallet signs a request to deposit ETH to the EntryPoint.
+ * This funds the agent's smart account for gas payment during execution.
+ *
+ * Body: { amount: string }  // ETH amount
+ */
+router.post("/:walletAddress/deposit-gas", async (req: express.Request, res: express.Response) => {
+    try {
+        const db = await initDB()
+        const walletAddress = requireAddress(req.params.walletAddress, "walletAddress")
+
+        ensureBodyObject(req.body)
+        const amount = requireString(req.body.amount, "amount")
+        const amountWei = ethers.parseEther(amount)
+
+        // Get wallet info
+        const wallet = await db.get(
+            `SELECT * FROM wallets WHERE wallet_address = ?`,
+            walletAddress
+        )
+
+        if (!wallet) {
+            return res.status(404).json({ error: "Wallet not found" })
+        }
+
+        // Require signed action for security
+        await requireSignedAction(db, {
+            orgId: wallet.org_id,
+            action: "DEPOSIT_GAS",
+            target: `wallet:${walletAddress}`,
+            payload: req.body
+        })
+
+        // Execute deposit to EntryPoint
+        const result = await blockchain.depositToEntryPoint(walletAddress, amountWei)
+
+        res.json({
+            success: true,
+            walletAddress,
+            amount,
+            amountWei: amountWei.toString(),
+            txHash: result.txHash,
+            newBalance: result.newBalance
+        })
+    } catch (error) {
+        respondWithError(res, error, "wallets.depositGas")
+    }
+})
+
 export default router
