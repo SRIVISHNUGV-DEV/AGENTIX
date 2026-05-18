@@ -7,9 +7,9 @@
 
 ## Project Overview
 
-**Name:** Agentix (agent-credentials-mvp)
+**Name:** Agentix
 **Purpose:** Platform for issuing private agent credentials, verifying authorization with ZK proofs, and creating on-chain sessions/wallets for autonomous agents.
-**Repository:** `D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp`
+**Repository:** `D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL`
 
 ### Tech Stack
 
@@ -28,457 +28,183 @@
 ## Project Tree Structure
 
 ```
-agent-credentials-mvp/
+agentix/
 │
 ├── 📁 backend/                          # Express API Server
 │   ├── 📄 package.json                  # Dependencies: express, pg, ethers, snarkjs, bullmq
 │   ├── 📄 tsconfig.json                 # TypeScript config
 │   │
 │   ├── 📁 src/
-│   │   ├── 📄 index.ts                  # Server entry point, middleware setup, routes mount
-│   │   ├── 📄 db.ts                     # PostgreSQL connection, schema init, query helpers
+│   │   ├── 📄 index.ts                  # Server entry point
+│   │   ├── 📄 db.ts                     # PostgreSQL connection, schema init
+│   │   ├── 📄 migrations.ts             # Versioned database migrations
 │   │   │
 │   │   ├── 📁 routes/                   # API Endpoints
-│   │   │   ├── 📄 orgs.ts               # Organization CRUD, deploy contracts, fund org
-│   │   │   ├── 📄 agents.ts             # Agent registration, listing, types
-│   │   │   ├── 📄 credentials.ts        # Credential issuance, revocation, verification
-│   │   │   ├── 📄 sessions.ts           # Session creation, status, listing
-│   │   │   ├── 📄 wallets.ts            # Wallet deployment, funding, balance
-│   │   │   ├── 📄 proofs.ts             # Merkle proof generation for credentials
-│   │   │   ├── 📄 events.ts             # Contract event indexing, event feed
-│   │   │   ├── 📄 externalAgents.ts     # External AI agent integration (Claude, LangChain, etc.)
-│   │   │   ├── 📄 ai.ts                 # AI agent capabilities endpoint
-│   │   │   ├── 📄 auth.ts               # Legacy session auth (deprecated, use wallet auth)
-│   │   │   ├── 📄 simple.ts             # Simple health/status endpoints
+│   │   │   ├── 📄 orgs.ts               # Organization CRUD
+│   │   │   ├── 📄 agents.ts             # Agent registration
+│   │   │   ├── 📄 credentials.ts        # Credential issuance
+│   │   │   ├── 📄 sessions.ts           # Session management
+│   │   │   ├── 📄 wallets.ts            # Wallet operations
+│   │   │   ├── 📄 proofs.ts             # Merkle proof generation
+│   │   │   ├── 📄 events.ts             # Contract event indexing
+│   │   │   ├── 📄 externalAgents.ts     # External AI agent integration
+│   │   │   ├── 📄 ai.ts                 # AI agent capabilities
 │   │   │   └── 📄 v1.ts                 # API versioning router
 │   │   │
 │   │   ├── 📁 services/                 # Business Logic Layer
-│   │   │   ├── 📄 platform.ts           # Core orchestration: orgs, agents, credentials, sessions
-│   │   │   ├── 📄 actionAuth.ts         # Wallet signature verification, nonce management
-│   │   │   ├── 📄 blockchain.ts         # Contract interactions, deployments, RPC calls
-│   │   │   ├── 📄 merkle.ts             # Incremental Poseidon merkle tree
-│   │   │   ├── 📄 revocationTree.ts     # Sparse merkle tree for revocation
+│   │   │   ├── 📄 platform.ts           # Core orchestration
+│   │   │   ├── 📄 actionAuth.ts         # Wallet signature verification
+│   │   │   ├── 📄 blockchain.ts         # Contract interactions
+│   │   │   ├── 📄 merkle.ts             # Poseidon merkle tree
+│   │   │   ├── 📄 revocationTree.ts     # Sparse merkle revocation
 │   │   │   ├── 📄 prover.ts             # Groth16 proof generation
-│   │   │   ├── 📄 proofQueue.ts         # BullMQ queue for async proof generation
-│   │   │   ├── 📄 bundler.ts            # ERC-4337 bundler integration
-│   │   │   ├── 📄 eventSync.ts          # Contract event sync to database
-│   │   │   ├── 📄 credential.ts         # Credential-specific utilities
-│   │   │   ├── 📄 session.ts            # Session-specific utilities
-│   │   │   ├── 📄 externalAgent.ts      # External agent service layer
-│   │   │   └── 📄 auth.ts               # Legacy auth service (deprecated)
+│   │   │   ├── 📄 proofQueue.ts         # BullMQ queue
+│   │   │   ├── 📄 bundler.ts            # ERC-4337 bundler
+│   │   │   ├── 📄 eventSync.ts          # Contract event sync
+│   │   │   ├── 📄 audit.ts              # Audit trail logging
+│   │   │   └── 📄 agentTools.ts         # Agent blockchain tools
 │   │   │
 │   │   ├── 📁 middleware/
-│   │   │   ├── 📄 auth.ts               # JWT/session auth middleware
-│   │   │   └── 📄 security.ts           # CORS, rate limiting, security headers
+│   │   │   ├── 📄 auth.ts               # JWT/session auth
+│   │   │   └── 📄 security.ts           # CORS, rate limiting
 │   │   │
 │   │   ├── 📁 types/
-│   │   │   ├── 📄 externalAgent.ts      # External agent TypeScript types
-│   │   │   └── 📄 http.ts               # HTTP request/response types
+│   │   │   └── 📄 externalAgent.ts      # External agent types
 │   │   │
 │   │   └── 📁 utils/
-│   │       ├── 📄 errors.ts             # AppError class, error handlers
-│   │       ├── 📄 validation.ts         # Input validation helpers
-│   │       ├── 📄 crypto.ts             # Cryptographic utilities
-│   │       └── 📄 monitoring.ts         # Logging, metrics
+│   │       ├── 📄 errors.ts             # AppError class
+│   │       └── 📄 validation.ts         # Input validation
 │   │
-│   ├── 📁 db/
-│   │   └── 📄 schema.sql                # Reference SQL schema (db.ts applies migrations)
-│   │
-│   ├── 📁 scripts/
-│   │   └── 📄 migrate-to-postgres.ts    # SQLite to PostgreSQL migration script
-│   │
-│   ├── 📁 docs/
-│   │   └── 📄 DATABASE_MIGRATION.md     # Migration documentation
-│   │
-│   └── 📄 .env.example                  # Environment template: DATABASE_URL, RPC_URL, PRIVATE_KEY
+│   └── 📄 .env.example                  # Environment template
 │
 ├── 📁 frontend/                         # Next.js 14 Operator UI
-│   ├── 📄 package.json                  # Dependencies: next, react, ethers, wagmi, viem
+│   ├── 📄 package.json
 │   ├── 📄 tsconfig.json
 │   ├── 📄 next.config.mjs
-│   ├── 📄 vercel.json                   # Vercel deployment config
-│   ├── 📄 components.json               # shadcn/ui config
+│   ├── 📄 vercel.json                   # Vercel deployment
 │   │
-│   ├── 📁 app/                          # Next.js App Router Pages
-│   │   ├── 📄 layout.tsx                # Root layout with providers
-│   │   ├── 📄 page.tsx                  # Landing page with 3D neural hero
-│   │   │
-│   │   ├── 📁 dashboard/
-│   │   │   └── 📄 page.tsx              # Org workspace, contracts, treasury
-│   │   │
-│   │   ├── 📁 agents/
-│   │   │   ├── 📄 page.tsx              # Agent inventory list
-│   │   │   ├── 📄 new/page.tsx          # Create new agent form
-│   │   │   └── 📁 [id]/
-│   │   │       └── 📄 page.tsx          # Agent detail: credential, wallet, session
-│   │   │
-│   │   ├── 📁 agent/[id]/
-│   │   │   └── 📄 page.tsx              # Alternative agent detail view
-│   │   │
-│   │   ├── 📁 ai-agents/
-│   │   │   └── 📄 page.tsx              # Provider-first AI agent connect flow
-│   │   │
-│   │   ├── 📁 external-agents/
-│   │   │   └── 📄 page.tsx              # External agent integrations
-│   │   │
-│   │   ├── 📁 credentials/
-│   │   │   ├── 📄 page.tsx              # Credentials overview
-│   │   │   └── 📁 issue/
-│   │   │       └── 📄 page.tsx          # Issue new credential form
-│   │   │
-│   │   ├── 📁 sessions/
-│   │   │   └── 📄 page.tsx              # Sessions overview
-│   │   │
-│   │   ├── 📁 events/
-│   │   │   └── 📄 page.tsx              # Contract event feed
-│   │   │
-│   │   ├── 📁 docs/
-│   │   │   └── 📄 page.tsx              # Documentation page
-│   │   │
-│   │   ├── 📁 sdk/
-│   │   │   └── 📄 page.tsx              # SDK integration guide
-│   │   │
-│   │   ├── 📁 integration/
-│   │   │   └── 📄 page.tsx              # Integration steps
-│   │   │
-│   │   ├── 📁 login/
-│   │   │   └── 📄 page.tsx              # Login page (legacy)
-│   │   │
-│   │   └── 📁 api/                      # Next.js API Routes (proxy to backend)
-│   │       ├── 📁 auth/                 # Auth routes (login, logout, register, me)
-│   │       ├── 📁 external/             # External agent proxy
-│   │       ├── 📁 ai/                   # AI agent proxy
-│   │       └── 📁 platform/             # Platform API proxy
-│   │           ├── 📁 agents/           # Agent CRUD, credential, wallet, session, fund
-│   │           ├── 📁 orgs/             # Org CRUD, deploy, fund
-│   │           ├── 📁 wallets/          # UserOp prepare, submit, status
-│   │           └── 📁 org/              # Org select
+│   ├── 📁 app/                         # App Router Pages
+│   │   ├── 📄 layout.tsx                # Root layout
+│   │   ├── 📄 page.tsx                 # Landing page
+│   │   ├── 📁 dashboard/page.tsx       # Org workspace
+│   │   ├── 📁 agents/                  # Agent management
+│   │   │   ├── 📄 page.tsx             # Agent list
+│   │   │   └── 📁 [id]/page.tsx        # Agent detail
+│   │   ├── 📁 credentials/             # Credential workflows
+│   │   ├── 📁 sessions/                # Session overview
+│   │   ├── 📁 events/                  # Event timeline
+│   │   ├── 📁 docs/                    # Documentation
+│   │   └── 📁 api/                     # API routes (proxies)
 │   │
-│   ├── 📁 components/                   # React Components
-│   │   │
-│   │   ├── 📁 wallet/
-│   │   │   ├── 📄 wallet-provider.tsx   # EIP-6963 wallet connection, wagmi config
-│   │   │   └── 📄 connect-wallet-button.tsx
-│   │   │
-│   │   ├── 📁 platform/
-│   │   │   ├── 📄 agent-actions.tsx     # Credential, wallet, session, revoke buttons
-│   │   │   ├── 📄 org-actions.tsx       # Deploy contracts, fund org buttons
-│   │   │   ├── 📄 create-org-form.tsx   # Organization creation form
-│   │   │   ├── 📄 wallet-userop-panel.tsx # ERC-4337 user operation UI
-│   │   │   └── 📄 workspace-controls.tsx # Org switching, refresh controls
-│   │   │
-│   │   ├── 📁 landing/
-│   │   │   ├── 📄 hero-section.tsx      # Main hero with CTA
-│   │   │   ├── 📄 neural-core.tsx       # 3D animated neural visualization
-│   │   │   ├── 📄 features-section.tsx  # Feature cards
-│   │   │   ├── 📄 security-section.tsx  # Security highlights
-│   │   │   ├── 📄 developer-section.tsx # Developer integration
-│   │   │   ├── 📄 integration-section.tsx
-│   │   │   ├── 📄 protocol-grid.tsx
-│   │   │   ├── 📄 platform-section.tsx
-│   │   │   ├── 📄 cta-section.tsx
-│   │   │   └── 📄 footer-section.tsx
-│   │   │
-│   │   ├── 📁 dashboard/
-│   │   │   ├── 📄 overview-cards.tsx    # Stats cards
-│   │   │   ├── 📄 agents-table.tsx      # Agent list table
-│   │   │   ├── 📄 sessions-table.tsx    # Session list table
-│   │   │   └── 📄 events-feed.tsx       # Real-time events
-│   │   │
-│   │   ├── 📁 agent/
-│   │   │   ├── 📄 agent-detail.tsx      # Main agent detail component
-│   │   │   ├── 📄 agent-detail-actions.tsx
-│   │   │   ├── 📄 agent-identity.tsx
-│   │   │   ├── 📄 credentials-list.tsx
-│   │   │   ├── 📄 sessions-list.tsx
-│   │   │   └── 📄 wallets-list.tsx
-│   │   │
-│   │   ├── 📁 events/
-│   │   │   └── 📄 events-page-client.tsx
-│   │   │
-│   │   ├── 📁 integration/
-│   │   │   └── 📄 integration-steps.tsx
-│   │   │
-│   │   ├── 📁 auth/
-│   │   │   └── 📄 auth-form.tsx
-│   │   │
-│   │   ├── 📁 common/
-│   │   │   ├── 📄 stat-card.tsx
-│   │   │   ├── 📄 status-badge.tsx
-│   │   │   ├── 📄 code-block.tsx
-│   │   │   ├── 📄 signal-strip.tsx
-│   │   │   └── 📄 stack-metrics.tsx
-│   │   │
-│   │   ├── 📁 effects/
-│   │   │   ├── 📄 hero-3d.tsx           # Three.js 3D hero component
-│   │   │   ├── 📄 hero-3d-wrapper.tsx
-│   │   │   └── 📄 card-3d.tsx
-│   │   │
-│   │   ├── 📁 ui/                       # shadcn/ui components (50+ files)
-│   │   │   ├── 📄 button.tsx
-│   │   │   ├── 📄 card.tsx
-│   │   │   ├── 📄 dialog.tsx
-│   │   │   ├── 📄 form.tsx
-│   │   │   ├── 📄 input.tsx
-│   │   │   ├── 📄 select.tsx
-│   │   │   ├── 📄 table.tsx
-│   │   │   └── ... (see frontend/components/ui/ for full list)
-│   │   │
-│   │   ├── 📄 header.tsx
-│   │   ├── 📄 footer.tsx
-│   │   ├── 📄 theme-provider.tsx
-│   │   └── 📄 *.tsx                     # Other shared components
+│   ├── 📁 components/                  # React Components
+│   │   ├── 📁 wallet/                  # Wallet connection
+│   │   ├── 📁 platform/                # Platform actions
+│   │   ├── 📁 landing/                 # Landing page sections
+│   │   ├── 📁 dashboard/               # Dashboard components
+│   │   ├── 📁 agents/                  # Agent components
+│   │   ├── 📁 execute/                 # Execution panels
+│   │   ├── 📁 effects/                 # 3D effects
+│   │   └── 📁 ui/                      # shadcn/ui components
 │   │
-│   ├── 📁 lib/                          # Utilities & API Clients
-│   │   ├── 📄 api-base.ts               # Base fetch wrapper for backend
-│   │   ├── 📄 backend-proxy.ts          # Proxies requests to backend
-│   │   ├── 📄 wallet-action.ts          # useWalletAction hook for signed actions
-│   │   ├── 📄 signed-actions.ts         # Signature generation utilities
-│   │   ├── 📄 org-session.ts            # Org context management
-│   │   ├── 📄 auth.ts                   # Auth utilities
-│   │   ├── 📄 types.ts                  # Shared TypeScript types
-│   │   ├── 📄 utils.ts                  # General utilities (cn, etc.)
-│   │   ├── 📄 animations.ts             # Framer Motion animations
-│   │   ├── 📄 explorer.ts               # Etherscan link generation
-│   │   ├── 📄 ai-api.ts                 # AI agent API client
-│   │   ├── 📄 external-agents-api.ts    # External agents API client
-│   │   ├── 📄 mock-api.ts               # Mock fallback data (dev only)
-│   │   └── 📄 mock-data.ts              # Mock data definitions
+│   ├── 📁 lib/                         # Utilities
+│   │   ├── 📄 wallet-action.ts         # useWalletAction hook
+│   │   ├── 📄 api-base.ts              # API client
+│   │   ├── 📄 types.ts                 # TypeScript types
+│   │   └── 📄 utils.ts                 # General utilities
 │   │
-│   ├── 📁 hooks/
-│   │   ├── 📄 use-toast.ts
-│   │   └── 📄 use-mobile.ts
-│   │
-│   └── 📄 .env.example                  # NEXT_PUBLIC_API_URL, etc.
+│   └── 📁 hooks/                       # Custom hooks
 │
-├── 📁 contracts/                        # Solidity Smart Contracts
-│   ├── 📄 package.json                  # Dependencies: hardhat, ethers, @openzeppelin
-│   ├── 📄 hardhat.config.ts             # Network config (Sepolia), compiler settings
-│   ├── 📄 tsconfig.json
+├── 📁 contracts/                       # Solidity Smart Contracts
+│   ├── 📄 package.json
+│   ├── 📄 hardhat.config.ts            # Network config
 │   │
-│   ├── 📁 src/                          # Contract Source Files
-│   │   ├── 📄 CredentialRegistry.sol    # Stores activeRoot, revokedRoot, issuer management
-│   │   ├── 📄 SessionManager.sol        # Verifies Groth16 proofs, creates sessions
-│   │   ├── 📄 AgentWalletFactory.sol    # Deploys deterministic ERC-4337 wallets
-│   │   ├── 📄 AgentWallet.sol           # Smart account with owner/session execution
-│   │   └── 📄 Verifier.sol              # Groth16 verifier (auto-generated)
+│   ├── 📁 src/                         # Contract Source
+│   │   ├── 📄 CredentialRegistry.sol   # Credential root storage
+│   │   ├── 📄 SessionManager.sol       # Session management + LightweightSession
+│   │   ├── 📄 AgentWallet.sol          # ERC-4337 smart account
+│   │   ├── 📄 AgentWalletFactory.sol   # Deterministic deployment
+│   │   └── 📄 Verifier.sol             # Groth16 verifier
 │   │
-│   ├── 📁 contracts/mocks/
-│   │   └── 📄 MockVerifier.sol          # Test verifier
-│   │
-│   ├── 📁 scripts/
-│   │   ├── 📄 deploy.ts                 # Contract deployment script
-│   │   └── 📄 verify.ts                 # Etherscan verification
-│   │
-│   ├── 📁 test/
+│   ├── 📁 test/                        # Contract tests
 │   │   ├── 📄 AgentWallet.test.ts
-│   │   └── 📄 SessionManager.test.ts
+│   │   ├── 📄 SessionManager.test.ts
+│   │   └── 📄 LightweightSession.test.ts
 │   │
-│   ├── 📁 artifacts/                    # Compiled contracts (gitignored but present)
-│   ├── 📁 typechain-types/              # TypeScript bindings (auto-generated)
-│   │
-│   └── 📄 .env.example                  # RPC_URL, PRIVATE_KEY, etc.
+│   └── 📁 scripts/                     # Deployment scripts
 │
-├── 📁 circuits/                         # ZK Circuit Definitions
-│   ├── 📄 package.json                  # Dependencies: circomlibjs, snarkjs
-│   ├── 📄 credential.circom             # Main credential circuit
-│   │
-│   └── 📁 build/                        # Compiled artifacts (generated)
-│       ├── credential.r1cs
-│       ├── credential.wasm
-│       ├── circuit.zkey
-│       └── verification_key.json
+├── 📁 circuits/                        # ZK Circuit Definitions
+│   ├── 📄 package.json
+│   ├── 📄 credential.circom            # Credential circuit
+│   └── 📁 build/                       # Compiled artifacts
 │
-├── 📁 sdk/                              # Self-Hosted SDK
+├── 📁 sdk/                             # Self-Hosted SDK
 │   ├── 📄 package.json
 │   ├── 📄 README.md
-│   ├── 📄 tsconfig.json
-│   │
-│   ├── 📁 src/
-│   │   ├── 📄 index.ts                  # SDK exports
-│   │   ├── 📄 AgentClient.ts            # Credential registration client
-│   │   ├── 📄 SessionManager.ts         # ZK proof generation, session creation
-│   │   └── 📄 types.ts                  # TypeScript types
-│   │
-│   └── 📁 examples/
-│       ├── 📄 create-session.ts         # Example: create a session
-│       └── 📄 perform-action.ts         # Example: execute an action
+│   └── 📁 src/
+│       ├── 📄 index.ts                 # SDK exports
+│       ├── 📄 AgentClient.ts           # Main client
+│       └── 📄 types.ts                 # TypeScript types
 │
-├── 📁 docs/                             # Documentation
-│   ├── 📄 API.md                        # API reference
-│   ├── 📄 ARCHITECTURE.md               # Deep architecture docs
-│   ├── 📄 SETUP.md                      # Setup guide
-│   │
-│   └── 📁 superpowers/
-│       ├── 📁 plans/
-│       │   └── 📄 2026-05-10-agentix-landing-redesign.md
-│       └── 📁 specs/
-│           ├── 📄 2026-05-10-agentix-landing-redesign.md
-│           └── 📄 2026-05-12-wallet-auth-design.md
+├── 📁 docs/                            # Documentation
+│   ├── 📁 superpowers/
+│   │   ├── 📁 plans/                   # Implementation plans
+│   │   └── 📁 specs/                   # Design specs
 │
-├── 📄 README.md                         # Main documentation
-├── 📄 CLAUDE.md                         # This file - AI context
-├── 📄 PERSONATEST.md                    # Developer persona analysis & flaws
-├── 📄 DEPLOYMENT.md                     # Deployment guide
-├── 📄 quickstart.md                     # Quick start guide
-├── 📄 LICENSE.md                        # License file
-│
-├── 📄 package.json                      # Workspace root config
-├── 📄 package-lock.json
-└── 📄 .env.example                      # Root env template
+├── 📄 README.md                        # Main documentation
+├── 📄 CLAUDE.md                        # This file
+├── 📄 AGENTS.md                        # Session context
+├── 📄 package.json                     # Workspace root
+├── 📄 .env.example                     # Root env template
+├── 📄 docker-compose.yml               # Development compose
+└── 📄 docker-compose.prod.yml          # Production compose
 ```
 
 ---
 
-## Data Flow Architecture
+## Smart Contract Architecture
+
+### Contract Stack
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           USER INTERACTION                               │
-│  User connects MetaMask → Selects/Creates Org → Manages Agents          │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND (Next.js)                             │
-│  - wallet-provider.tsx: EIP-6963 wallet connection                       │
-│  - wallet-action.ts: Signs actions with wallet                           │
-│  - api/platform/*: Proxies to backend with signature                     │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           BACKEND (Express)                              │
-│  - actionAuth.ts: Verifies wallet signature, checks nonce               │
-│  - platform.ts: Orchestrates all business logic                          │
-│  - db.ts: PostgreSQL connection and queries                              │
-└─────────────────────────────────────────────────────────────────────────┘
-                         │              │              │
-                         ▼              ▼              ▼
-              ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-              │  PostgreSQL  │ │   Blockchain │ │   ZK Proofs  │
-              │   Database   │ │   Services   │ │   (Circom)   │
-              └──────────────┘ └──────────────┘ └──────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    EntryPoint (ERC-4337)                      │
+│                  UserOperation entry point                   │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      AgentWallet                              │
+│  Smart account with owner/session execution modes             │
+│  - validateUserOp: Owner or valid session                     │
+│  - execute: Call target contracts                             │
+│  - Lightweight session support (lower gas)                    │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    SessionManager                             │
+│  Two session types:                                           │
+│  1. ZK-Proof Sessions (createSession)                         │
+│  2. Lightweight Sessions (createLightweightSession)           │
+│     - Daily spend/tx limits                                   │
+│     - EIP-191 signature verification                          │
+│     - No ZK proof required                                     │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  CredentialRegistry                           │
+│  - activeRoot: Current valid merkle root                      │
+│  - revokedRoot: Revocation sparse merkle tree                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
----
+### Session Types
 
-## Key Workflows
-
-### 1. Organization Creation Flow
-```
-Frontend: user clicks "Create Org"
-    ↓
-wallet-action.ts: signAction({ action: "CREATE_ORG", ... })
-    ↓
-api/platform/orgs: POST with signature
-    ↓
-Backend routes/orgs.ts: receives request
-    ↓
-actionAuth.ts: verifySignature(signature, expectedMessage)
-    ↓
-platform.ts: createOrganization(walletAddress, name)
-    ↓
-db.ts: INSERT INTO organizations (owner_wallet_address, name)
-    ↓
-Response: { orgId, name, owner_wallet_address }
-```
-
-### 2. Credential Issuance Flow
-```
-Frontend: user clicks "Issue Credential" for agent
-    ↓
-wallet-action.ts: signAction({ action: "ISSUE_CREDENTIAL", agentId, ... })
-    ↓
-api/platform/agents/[agentId]/credential: POST with signature
-    ↓
-Backend routes/credentials.ts: receives request
-    ↓
-actionAuth.ts: verifySignature(...)
-    ↓
-platform.ts: issueCredential(agentId)
-    ↓
-    ├── Generate secret (BigInt random)
-    ├── Compute commitment = Poseidon(agentId, orgId, permissions, expiry, secret)
-    ├── Insert into merkle tree → get leafIndex
-    └── Store in credentials table
-    ↓
-merkle.ts: updateMerkleTree(orgId, commitment)
-    ↓
-db.ts: INSERT INTO credentials (commitment, secret_hash, leaf_index, ...)
-    ↓
-Response: { credentialId, commitment, leafIndex }
-```
-
-### 3. Session Creation Flow (ZK Proof)
-```
-Frontend: user clicks "Create Session"
-    ↓
-wallet-action.ts: signAction({ action: "CREATE_SESSION", agentId, ... })
-    ↓
-api/platform/agents/[agentId]/session: POST with signature
-    ↓
-Backend routes/sessions.ts: receives request
-    ↓
-actionAuth.ts: verifySignature(...)
-    ↓
-platform.ts: createSession(agentId, maxValue, expiry)
-    ↓
-    ├── merkle.ts: generateMerkleProof(leafIndex) → merklePath, activeRoot
-    ├── revocationTree.ts: generateNonRevocationProof(secretHash) → smtProof
-    └── prover.ts: generateProof(witnessInputs)
-    ↓
-proofQueue.ts: add to BullMQ queue for async processing
-    ↓
-prover.ts: groth16.fullProve(witness, wasm, zkey)
-    ↓
-blockchain.ts: sessionManager.createSession(proof, publicSignals, ...)
-    ↓
-Contract: SessionManager.sol verifies proof, creates session
-    ↓
-eventSync.ts: index SessionCreated event
-    ↓
-Response: { sessionId, txHash, sessionKey }
-```
-
-### 4. Wallet Execution Flow (ERC-4337)
-```
-Frontend: user wants agent to execute transaction
-    ↓
-api/platform/wallets/[address]/userop/prepare: POST
-    ↓
-Backend bundler.ts: prepareUserOp(walletAddress, calls, sessionKey)
-    ↓
-Response: { userOp, userOpHash }
-    ↓
-Frontend: wallet-action.ts: signUserOp(userOpHash)
-    ↓
-api/platform/wallets/[address]/userop/submit: POST with signature
-    ↓
-Backend bundler.ts: submitUserOp(signedUserOp)
-    ↓
-EntryPoint: execute via ERC-4337 bundler
-    ↓
-Response: { txHash }
-```
-
----
-
-## Database Tables
-
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `organizations` | Org registry | `id`, `name`, `owner_wallet_address`, `contracts_deployed` |
-| `agents` | Agent identities | `id`, `org_id`, `agent_name`, `linked_agent_id` |
-| `credentials` | ZK credential data | `id`, `agent_id`, `commitment`, `secret_hash`, `leaf_index` |
-| `merkle_tree` | Active tree nodes | `id`, `org_id`, `level`, `node_index`, `hash` |
-| `revoked_secrets` | Revocation SMT | `id`, `org_id`, `smt_key`, `revoked_value` |
-| `wallets` | Agent wallets | `id`, `agent_id`, `wallet_address`, `session_manager_address` |
-| `sessions` | On-chain sessions | `id`, `agent_id`, `session_id`, `public_signals`, `max_value` |
-| `events` | Contract events | `id`, `org_id`, `contract_name`, `event_name`, `tx_hash` |
-| `action_authorizations` | Nonce tracking | `id`, `nonce`, `wallet_address`, `requested_at` |
-| `external_agents` | Provider integrations | `id`, `org_id`, `agent_type`, `linked_agent_id` |
-| `ai_agents` | AI agent configs | `id`, `org_id`, `provider`, `model`, `config` |
+| Type | Creation | Verification | Gas Cost | Use Case |
+|------|----------|--------------|----------|----------|
+| ZK-Proof | `createSession(proof, signals)` | Groth16 verification | ~300k gas | Privacy-preserving agents |
+| Lightweight | `createLightweightSession(sig, params)` | EIP-191 signature | ~80k gas | Trusted agents, direct control |
 
 ---
 
@@ -495,73 +221,10 @@ Response: { txHash }
 
 ---
 
-## Production Readiness Status
-
-### ✅ COMPLETED
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| PostgreSQL Migration | ✅ Done | Migrated from SQLite to PostgreSQL |
-| Database Schema | ✅ Fixed | Fixed schema drift in ai_agents, merkle_tree, action_authorizations |
-| Wallet Authentication | ✅ Done | All platform routes use wallet signature auth |
-| Smart Contracts | ✅ Deployed | All contracts deployed to Sepolia |
-| ZK Circuit | ✅ Working | credential.circom generates valid Groth16 proofs |
-| BullMQ Proof Queue | ✅ Working | Async proof generation with Redis |
-| Event Indexing | ✅ Working | Contract events synced to database |
-| Frontend Operator UI | ✅ Working | Dashboard, agents, credentials, sessions |
-| Landing Page | ✅ Done | 3D neural hero, Vercel B&W aesthetic |
-| SDK Core | ✅ Working | AgentClient, SessionManager functional |
-
-### ⚠️ IN PROGRESS / NEEDS WORK
-
-| Component | Status | Priority | Notes |
-|-----------|--------|----------|-------|
-| Error Handling | ⚠️ Basic | MEDIUM | Some routes return generic errors |
-| API Documentation | ⚠️ Partial | MEDIUM | API.md exists but incomplete |
-| Test Coverage | ⚠️ Low | HIGH | Only contract tests exist |
-| Session Timeout | ⚠️ Partial | MEDIUM | Session expiry check may be missing |
-| Revocation Flow | ⚠️ Partial | MEDIUM | Works but needs refresh |
-
-### ❌ NOT STARTED / TODO
-
-| Component | Priority | Notes |
-|-----------|----------|-------|
-| Test Suite | HIGH | No backend/frontend tests |
-| Monitoring/Observability | MEDIUM | Basic logging only |
-| CI/CD Pipeline | MEDIUM | No GitHub Actions |
-| Mainnet Deployment | LOW | Sepolia only currently |
-
----
-
-## Critical Issues - RESOLVED (2026-05-12)
-
-All P0 and P1 issues from PERSONATEST.md have been fixed:
-
-### ✅ P0 - Security Critical - FIXED
-1. **Server-side secret generation** - ✅ FIXED: Created `frontend/lib/credential-client.ts` for client-side generation
-2. **Secret hash stored transparently** - ✅ FIXED: Added `hashSecretForStorage()` with Poseidon salt
-
-### ✅ P1 - High Priority - FIXED
-3. **No database migrations** - ✅ FIXED: Created `backend/src/migrations.ts` with 11 versioned migrations
-4. **Nonce race condition** - ✅ FIXED: Used INSERT ... ON CONFLICT for atomic operation
-5. **Merkle tree rebuilds** - ✅ FIXED: Added tree state caching with `merkle_tree_state` table
-6. **SDK browser incompatible** - ✅ FIXED: Added conditional imports, Web Crypto API, browser build
-
-### ✅ P2 - Medium Priority - FIXED
-7. **Hardcoded chain ID** - ⏸️ DEFERRED (user request to exclude FLAW 3)
-8. **No graceful circuit fallback** - ✅ FIXED: Added `isProverAvailable()`, lazy loading in prover.ts
-9. **Mock fallback in production code** - ✅ FIXED: Requires explicit `USE_MOCK=true`
-10. **Rate limiting** - ✅ FIXED: Added express-rate-limit to proof endpoints
-11. **Audit Logging** - ✅ FIXED: Created `backend/src/services/audit.ts` with `logAuditEvent()`
-12. **Blockchain singleton** - ✅ FIXED: Added `getBlockchainService()` with health checks
-13. **SDK proxy through frontend** - ✅ FIXED: SDK can now call backend directly with CORS
-
----
-
 ## Development Commands
 
 ```bash
-# Root commands (run from project root)
+# Root commands
 npm run dev              # Start both frontend and backend
 npm run dev:backend      # Start backend only (port 3001)
 npm run dev:frontend     # Start frontend only (port 3000)
@@ -575,11 +238,9 @@ cd backend && npm run dev
 cd frontend && npm run dev
 
 # Contract commands
+cd contracts && npx hardhat compile
 cd contracts && npx hardhat test
-cd contracts && npx hardhat deploy --network sepolia
-
-# Circuit commands (if rebuilding)
-cd circuits && circom credential.circom --r1cs --wasm --sym
+cd contracts && npx hardhat run scripts/deploy.ts --network sepolia
 ```
 
 ---
@@ -588,78 +249,76 @@ cd circuits && circom credential.circom --r1cs --wasm --sym
 
 ### Backend (.env)
 ```bash
-# Database
 DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
-
-# Blockchain
 RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-PRIVATE_KEY=0x...                           # For contract interactions
-
-# ERC-4337
-BUNDLER_URL=https://...
-
-# Queue
+PRIVATE_KEY=0x...
 REDIS_URL=redis://localhost:6379
-
-# Optional
 PORT=3001
-NODE_ENV=production
+NODE_ENV=development
 ```
 
 ### Frontend (.env.local)
 ```bash
-# API
 NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3001
 AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3001
-
-# Wallet
 NEXT_PUBLIC_CHAIN_ID=11155111
-```
-
-### Contracts (.env)
-```bash
-RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-PRIVATE_KEY=0x...
-ETHERSCAN_API_KEY=...
 ```
 
 ---
 
-## File Change Guidelines
+## Key Implementation Notes
 
-### When modifying backend routes:
-1. Update the route file in `backend/src/routes/`
-2. Ensure wallet signature auth is used for protected routes
-3. Update `actionAuth.ts` if changing signature format
-4. Add error handling with `AppError` from `utils/errors.ts`
+### LightweightSession (New)
+The SessionManager now supports two session types:
 
-### When modifying frontend pages:
-1. Page file goes in `frontend/app/[route]/page.tsx`
-2. Components go in `frontend/components/`
-3. Use `useWalletAction` hook for signed actions
-4. Update `wallet-action.ts` if changing signature format
+1. **ZK-Proof Sessions** - Privacy-preserving, requires Groth16 proof
+2. **Lightweight Sessions** - Lower gas, EIP-191 signature based
 
-### When modifying contracts:
-1. Contract goes in `contracts/src/`
-2. Run `npx hardhat compile` to generate typechain
-3. Update `blockchain.ts` if changing interfaces
-4. Deploy with `npx hardhat run scripts/deploy.ts --network sepolia`
+```solidity
+// Create lightweight session (in SessionManager.sol)
+function createLightweightSession(
+    bytes32 sessionId,
+    address agentWallet,
+    address sessionKey,
+    uint256 dailySpendLimit,
+    uint256 dailyTxLimit,
+    uint256 expiresAt,
+    bytes calldata sessionSignature  // EIP-191 signature
+) external;
 
-### When modifying circuits:
-1. Circuit goes in `circuits/`
-2. Rebuild with circom (`circom credential.circom --r1cs --wasm --sym`)
-3. Run powers of tau and generate zkey
-4. Update `prover.ts` if changing signals
+// Validate in AgentWallet
+function _validateUserOp(UserOperation calldata userOp) internal {
+    // Try lightweight session first (lower gas)
+    try ISessionManager(sessionManager).validateLightweightSession(...) {
+        // Valid lightweight session
+    } catch {
+        // Fallback to ZK-proof session
+        ISessionManager(sessionManager).validateSession(...);
+    }
+}
+```
+
+### Wallet Authentication
+All protected routes use EIP-191 wallet signature verification:
+
+```typescript
+// Frontend: wallet-action.ts
+const { signAction } = useWalletAction();
+const signature = await signAction({ action: "CREATE_ORG", name, timestamp });
+
+// Backend: actionAuth.ts
+verifySignature(signature, expectedMessage, walletAddress);
+```
 
 ---
 
 ## Known Gotchas
 
-1. **Port 3000 vs 3001**: Frontend is 3000, Backend is 3001. Don't confuse them.
+1. **Port 3000 vs 3001**: Frontend is 3000, Backend is 3001.
 
-2. **Database must be migrated**: If backend crashes on startup, check database schema matches db.ts expectations.
+2. **Database migrations**: Run migrations via `migrations.ts` on first backend start.
 
-3. **Circuit files required**: Backend needs `circuits/build/credential.wasm` and `.zkey` for proof generation.
+3. **Circuit files required**: Backend needs `circuits/build/credential.wasm` and `.zkey`.
 
 4. **Sepolia ETH required**: Need Sepolia ETH for contract interactions.
 
@@ -667,55 +326,6 @@ ETHERSCAN_API_KEY=...
 
 6. **Wallet must be on Sepolia**: Signature verification checks chain ID 11155111.
 
-7. **No session auth**: Legacy session auth is deprecated, use wallet signature auth.
-
 ---
 
-## Session Log (Append Each Session)
-
-### Session 2026-05-12 Part 2 — Design Flaw Fixes
-- Fixed all 12 design flaws from PERSONATEST.md (excluding FLAW 3 & FLAW 14)
-- **New Files Created:**
-  - `backend/src/migrations.ts` — Versioned migration system (11 migrations)
-  - `backend/src/services/audit.ts` — Audit trail logging service
-  - `frontend/lib/credential-client.ts` — Client-side secret generation with Poseidon
-  - `frontend/types/circomlibjs.d.ts` — TypeScript declarations for circomlibjs
-  - `scripts/test-flaw-fixes.ts` — Comprehensive test verification script
-- **Modified Files:**
-  - `backend/src/db.ts` — Uses migration system
-  - `backend/src/services/platform.ts` — Singleton blockchain, deprecated server-side secrets
-  - `backend/src/services/blockchain.ts` — Added getBlockchainService(), health checks, reconnection
-  - `backend/src/services/merkle.ts` — Tree state caching (loadState/saveState)
-  - `backend/src/services/credential.ts` — hashSecretForStorage() with Poseidon salt
-  - `backend/src/services/prover.ts` — Lazy circuit loading, isProverAvailable()
-  - `backend/src/services/actionAuth.ts` — Fixed nonce TOCTOU with INSERT ON CONFLICT (removed duplicate INSERT bug)
-  - `backend/src/routes/credentials.ts` — Audit logging, singleton blockchain
-  - `backend/src/routes/proofs.ts` — Rate limiting (10/min async, 3/min sync), /status endpoints
-  - `backend/src/middleware/security.ts` — Added port 3000 to CORS
-  - `frontend/lib/mock-api.ts` — Requires explicit USE_MOCK=true
-  - `sdk/src/AgentClient.ts` — Browser-compatible imports, DEFAULT_BACKEND_URL
-- **Flaw Fixes Summary:**
-  - FLAW 1: Client-side secret generation (Web Crypto API + Poseidon)
-  - FLAW 2: Browser-compatible SDK (conditional imports, Web Crypto)
-  - FLAW 4: Graceful circuit fallback (lazy loading, availability check)
-  - FLAW 5: Database migration system (11 versioned migrations)
-  - FLAW 6: Merkle tree caching (in-memory + DB persistence)
-  - FLAW 7: Hash secret for storage (Poseidon with storage salt)
-  - FLAW 8: Remove mock fallback (requires explicit USE_MOCK=true)
-  - FLAW 9: Rate limiting proofs (express-rate-limit endpoints)
-  - FLAW 10: Blockchain service singleton (health checks, reconnection)
-  - FLAW 11: Nonce race condition (INSERT ... ON CONFLICT)
-  - FLAW 12: SDK direct backend access (CORS port 3000)
-  - FLAW 13: Audit trail (audit_log table + logAuditEvent())
-- All packages build successfully: backend, sdk, frontend
-- **Critical Bug Fix (FLAW 11):** Removed duplicate INSERT in actionAuth.ts - verification agent caught duplicate INSERT statement that would always fail
-- **Verification Result:** 18/18 tests pass, all API endpoints operational
-- Fixed AWS RDS database schema drift (ai_agents, merkle_tree, action_authorizations tables)
-- Verified proof system is unaffected by schema fixes
-- Created PERSONATEST.md with comprehensive design flaw analysis
-- Rewrote README.md to match actual architecture
-- Committed checkpoint to production branch
-
----
-
-*Last updated: 2026-05-12*
+*Last updated: 2026-05-18*

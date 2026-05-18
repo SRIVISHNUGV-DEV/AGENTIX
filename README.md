@@ -1,6 +1,8 @@
-# AGENTIX - The Private Agent Authorization Rail
+# Agentix
 
-**Built to give autonomous agents constrained, revocable, on-chain access without exposing raw credentials**
+**Autonomous Agent Credentials Protocol**
+
+A platform for issuing private agent credentials, verifying authorization with ZK proofs, and enabling bounded autonomous execution through session-based wallets.
 
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
 ![Sepolia](https://img.shields.io/badge/Network-Sepolia-purple)
@@ -8,364 +10,270 @@
 ![Groth16](https://img.shields.io/badge/ZK-Groth16-white)
 ![License](https://img.shields.io/badge/BUSR-1.1-orange)
 
-## Live Deployment
+---
 
-| Contract | Address | Network |
-|----------|---------|---------|
-| Verifier | [0x9536...6B46](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) | Sepolia |
-| CredentialRegistry | [0x77ca...0dc](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) | Sepolia |
-| SessionManager | [0x3044...1259](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) | Sepolia |
-| AgentWalletFactory | [0xFaDA...824](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) | Sepolia |
-| AgentWallet Implementation | [0x03F7...9fe](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) | Sepolia |
-| EntryPoint | [0x4337...F108](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | Sepolia |
+## Overview
 
-## Frontend Pages
+Agentix enables AI agents to act autonomously on behalf of users within cryptographically enforced boundaries:
 
-| Route | Description |
-|-------|-------------|
-| `/` | Protocol landing page with 3D neural hero |
-| `/dashboard` | Organization workspace, contract stack, treasury actions |
-| `/agents` | Agent inventory for the active organization |
-| `/agents/new` | Create new agent form |
-| `/agents/[id]` | Per-agent credential, wallet, session, funding surface |
-| `/agent/[id]` | Alternative agent detail view |
-| `/ai-agents` | Provider-first AI agent connect flow |
-| `/external-agents` | External agent integrations |
-| `/credentials` | Credentials overview page |
-| `/credentials/issue` | Issue new credential form |
-| `/sessions` | Sessions overview page |
-| `/events` | Indexed contract activity feed |
-| `/docs` | Documentation page |
-| `/sdk` | Self-hosted SDK path and integration guide |
-| `/integration` | SDK/self-host redirect surface |
-| `/login` | Login page (legacy session auth) |
+| Feature | Description |
+|---------|-------------|
+| **Credential Issuance** | Issue private, verifiable credentials to agents |
+| **ZK Proof Verification** | Prove authorization without revealing identity |
+| **Session Management** | Time-bounded, value-limited execution sessions |
+| **Autonomous Execution** | Agents execute transactions within defined limits |
 
-## Quick Start (30 seconds)
+---
 
-```bash
-# install
-npm install --workspaces
+## Deployed Contracts (Sepolia)
 
-# configure environment
-copy backend\.env.example backend\.env
-copy frontend\.env.example frontend\.env.local
+| Contract | Address |
+|----------|---------|
+| Verifier | [0x9536...6B46](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) |
+| CredentialRegistry | [0x77ca...0dc](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) |
+| SessionManager | [0x3044...1259](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) |
+| AgentWalletFactory | [0xFaDA...824](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) |
+| AgentWallet | [0x03F7...9fe](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) |
+| EntryPoint | [0x4337...F108](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) |
 
-# start backend (port 3001)
-npm run dev:backend
+---
 
-# start frontend (port 3000) in another terminal
-npm run dev:frontend
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              AGENTIX                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌──────────────┐         ┌──────────────┐         ┌───────────────┐   │
+│   │   Frontend   │◄───────►│   Backend    │◄───────►│   Contracts   │   │
+│   │   (Next.js)  │         │   (Express)  │         │   (Solidity)  │   │
+│   └──────────────┘         └──────────────┘         └───────────────┘   │
+│          │                        │                        │             │
+│          │                        ▼                        │             │
+│          │                 ┌───────────┐                   │             │
+│          │                 │PostgreSQL │                   │             │
+│          │                 │ Database  │                   │             │
+│          │                 └───────────┘                   │             │
+│          │                                                │             │
+│          ▼                        ▼                        ▼             │
+│   ┌──────────────┐         ┌──────────────┐         ┌───────────────┐   │
+│   │     SDK      │         │   Runtime    │         │   Circuits    │   │
+│   │ (TypeScript) │         │   (Local)    │         │   (Circom)    │   │
+│   └──────────────┘         └──────────────┘         └───────────────┘   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Then open:
-- Frontend: `http://127.0.0.1:3000`
-- Backend API: `http://127.0.0.1:3001`
+### Data Flow
 
-Full setup guide: [quickstart.md](./quickstart.md)
-
-## The Vision
-
-Agentix is a private authorization rail for the agent economy.
-
-It gives organizations a way to:
-
-- Create agent identities under an organization workspace
-- Issue private credentials without publishing plaintext allowlists
-- Deploy organization-scoped contract stacks
-- Fund agent wallets without directly handing unrestricted treasury access to model providers
-- Create bounded sessions with expiry and value constraints
-- Revoke future session access without revealing the agent secret
-- Operate ERC-4337-ready wallets through a managed operator surface or a self-hosted SDK
-
-**Default operator scenario:** "Connect. Credential. Wallet. Session. Execute."
-
-- The org owner connects a wallet (MetaMask on Sepolia)
-- The org creates an agent
-- The org issues a credential commitment
-- The org deploys a wallet and funds it
-- The backend or SDK proves credential validity in zero knowledge
-- The session manager opens a bounded session
-- The wallet executes only within that session boundary
-
-## Agentix Layered Architecture
-
-This is the concrete architecture implemented in this repository.
-
-```mermaid
-flowchart TD
-    subgraph L5[Layer 5 - Interface and Consumption]
-        UI[Next.js operator platform
-        dashboard agents ai-agents events sdk]
-        SDK[Self-hosted SDK
-        direct org, session, and wallet flows]
-    end
-
-    subgraph L4[Layer 4 - Backend Control Plane]
-        API[Express API routes
-        orgs agents credentials sessions wallets]
-        PLATFORM[Platform service
-        signed org actions and orchestration]
-        PROOFQ[BullMQ proof queue
-        async proof generation]
-        INDEXER[Event indexer
-        contract events into PostgreSQL]
-    end
-
-    subgraph L3[Layer 3 - Proof and State Services]
-        ACTIVE[Active credential tree
-        Poseidon Merkle root]
-        REVOKE[Revocation tree
-        sparse keyed root]
-        PROVER[Groth16 proving flow
-        proof bundle and witness generation]
-        BUNDLER[4337 bundler bridge
-        prepare submit receipt]
-    end
-
-    subgraph L2[Layer 2 - Protocol Contracts]
-        REG[CredentialRegistry
-        activeRoot revokedRoot]
-        SESS[SessionManager
-        proof verification and session creation]
-        FACTORY[AgentWalletFactory
-        deterministic account creation]
-        WALLET[AgentWallet
-        ERC-4337 account and execution surface]
-    end
-
-    subgraph L1[Layer 1 - Trust Anchors]
-        VERIFY[Groth16 Verifier]
-        ENTRY[ERC-4337 EntryPoint]
-        OWNER[Organization owner wallet]
-    end
-
-    UI --> API
-    SDK --> API
-    API --> PLATFORM
-    API --> ACTIVE
-    API --> REVOKE
-    API --> PROOFQ
-    PROOFQ --> PROVER
-    API --> BUNDLER
-    PLATFORM --> REG
-    PLATFORM --> SESS
-    PLATFORM --> FACTORY
-    FACTORY --> WALLET
-    SESS --> VERIFY
-    WALLET --> ENTRY
-    OWNER --> API
+```
+Operator ──► Frontend ──► Backend ──► PostgreSQL
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Contract Stack     │
+                    │  ┌───────────────┐  │
+                    │  │ EntryPoint    │  │
+                    │  │     ▼         │  │
+                    │  │ AgentWallet   │  │
+                    │  │     ▼         │  │
+                    │  │SessionManager │  │
+                    │  │     ▼         │  │
+                    │  │CredentialReg │  │
+                    │  └───────────────┘  │
+                    └─────────────────────┘
 ```
 
-### Authentication Flow
-
-All critical platform actions require wallet signature authentication:
-
-```mermaid
-sequenceDiagram
-    participant W as Wallet (MetaMask)
-    participant FE as Frontend
-    participant BE as Backend
-    participant DB as PostgreSQL
-
-    W->>FE: Sign action message
-    Note over W,FE: action, orgId, target, nonce
-    FE->>BE: POST with signature payload
-    BE->>BE: Verify signature
-    BE->>BE: Check nonce uniqueness
-    BE->>DB: Execute authorized action
-    BE-->>FE: Response with result
-```
-
-### End-to-End Execution Path
-
-```mermaid
-sequenceDiagram
-    participant O as Org Owner
-    participant FE as Frontend or SDK
-    participant BE as Backend
-    participant MT as Merkle and Revocation Trees
-    participant C as CredentialRegistry
-    participant S as SessionManager
-    participant F as AgentWalletFactory
-    participant W as AgentWallet
-    participant E as EntryPoint or Bundler
-
-    O->>FE: Connect wallet and choose org
-    FE->>BE: Create org (signed action)
-    BE->>BE: Verify wallet signature
-    FE->>BE: Register agent (signed action)
-    O->>FE: Sign credential issue intent
-    FE->>BE: Issue credential request
-    BE->>MT: Insert commitment and update roots
-    BE->>C: Set active and revoked roots
-    O->>FE: Sign wallet deploy intent
-    FE->>BE: Create wallet request
-    BE->>F: Deploy deterministic agent wallet
-    O->>FE: Sign session create intent
-    FE->>BE: Create session request
-    BE->>MT: Build proof inputs
-    BE->>S: Submit Groth16 proof
-    S-->>BE: Emit SessionCreated
-    BE-->>FE: Indexed session and tx state
-    FE->>BE: Prepare 4337 user operation
-    O->>FE: Sign userOpHash
-    FE->>BE: Submit signed user operation
-    BE->>E: Send UserOperation
-    E->>W: Execute wallet call under EntryPoint
-```
-
-### Access and Money Model
-
-```mermaid
-flowchart LR
-    OWNER[Org owner wallet] -->|signs intent| PLATFORM[Platform backend]
-    PLATFORM -->|issues credential| AGENT[Agent identity]
-    PLATFORM -->|deploys wallet| WALLET[Agent wallet]
-    OWNER -->|funds| WALLET
-    AGENT -->|proves membership + non-revocation| SESSION[Bounded session]
-    SESSION -->|maxValue + expiry| WALLET
-    WALLET -->|4337 execute or executeBatch| TARGET[Allowed on-chain actions]
-    REVOKE[Revocation] -->|blocks new sessions| SESSION
-```
-
-Interpretation:
-
-- **model provider != treasury holder**
-- **agent wallet holds value**
-- **credential binds the identity**
-- **session defines the spend boundary**
-- **revocation stops future session creation**
-
-## Key Features Implemented
-
-### Smart Contracts
-
-- **CredentialRegistry.sol**: Stores active and revoked roots on-chain
-- **SessionManager.sol**: Validates Groth16 proofs and creates replay-safe sessions
-- **AgentWalletFactory.sol**: Deploys deterministic organization-linked wallets
-- **AgentWallet.sol**: ERC-4337-style smart account with owner/session execution model
-- **Verifier.sol**: Groth16 verifier generated from the credential circuit
-
-### Backend
-
-- Organization, agent, credential, session, wallet, and indexed event persistence
-- PostgreSQL database with connection pooling and SSL support
-- Poseidon-based active Merkle tree and sparse revocation tree handling
-- BullMQ proof queue for async proof generation
-- Groth16 proof bundle and witness generation, session submission
-- Wallet signature authentication for all critical actions
-- Contract deployment and event indexing
-- ERC-4337 bundler prepare/submit/receipt flow
-
-### Frontend
-
-- Wallet-connected operator platform (MetaMask, Sepolia)
-- EIP-6963 multi-provider discovery
-- Organization workspace switching and creation
-- Provider-first AI agent connect flow
-- Credential issuance, wallet deployment, funding, session creation, and revocation
-- Indexed event and transaction visibility
-- Etherscan links for all surfaced transactions
-- 3D landing page with Three.js neural visualization
-
-### SDK
-
-- Self-hosted organization and agent workflows
-- Direct proof and session orchestration
-- Wallet and session automation outside the hosted UI
-- AgentClient for credential registration
-- SessionManager for ZK proof generation
+---
 
 ## Project Structure
 
-```text
-agent-credentials-mvp/
-├── package.json              # Workspace root
-├── README.md
-├── quickstart.md
-├── PERSONATEST.md            # Developer persona analysis
-├── docs/
-│   ├── SETUP.md
-│   ├── ARCHITECTURE.md
-│   └── API.md
-├── frontend/                 # Next.js 14 operator platform
-│   ├── app/                  # App router pages
-│   │   ├── page.tsx          # Landing page
-│   │   ├── dashboard/        # Org workspace
-│   │   ├── agents/           # Agent inventory
-│   │   ├── ai-agents/        # Provider connect
-│   │   ├── credentials/      # Credential management
-│   │   ├── sessions/         # Session overview
-│   │   └── api/              # API routes
-│   │       ├── external/     # External agent proxy
-│   │       └── platform/     # Platform API proxy
-│   ├── components/           # React components
-│   │   ├── wallet/           # Wallet provider & connect
-│   │   ├── platform/         # Org/agent actions
-│   │   └── effects/          # 3D visual effects
-│   └── lib/                  # Utilities
-├── backend/                  # Express API server
+```
+agentix/
+│
+├── frontend/                     # Next.js operator dashboard
+│   ├── app/                       # App router pages
+│   │   ├── agents/               # Agent management
+│   │   │   ├── page.tsx          # Agent list
+│   │   │   └── [id]/page.tsx     # Agent details
+│   │   ├── credentials/           # Credential workflows
+│   │   ├── dashboard/            # Main dashboard
+│   │   ├── docs/                # Documentation pages
+│   │   ├── sessions/             # Session management
+│   │   └── events/              # Event timeline
+│   ├── components/               # React components
+│   │   ├── wallet/              # Wallet connection
+│   │   ├── agents/              # Agent cards
+│   │   └── execute/             # Execution panels
+│   ├── hooks/                    # Custom hooks
+│   └── lib/                      # Utilities
+│
+├── backend/                      # Express API server
 │   ├── src/
-│   │   ├── index.ts          # Server entry
-│   │   ├── db.ts             # PostgreSQL connection
-│   │   ├── routes/           # API endpoints
-│   │   │   ├── orgs.ts
-│   │   │   ├── agents.ts
-│   │   │   ├── credentials.ts
-│   │   │   ├── sessions.ts
-│   │   │   ├── wallets.ts
-│   │   │   ├── proofs.ts
-│   │   │   ├── events.ts
-│   │   │   ├── externalAgents.ts
-│   │   │   └── ai.ts
-│   │   ├── services/         # Business logic
-│   │   │   ├── platform.ts
-│   │   │   ├── actionAuth.ts # Wallet signature verification
-│   │   │   ├── merkle.ts
-│   │   │   ├── revocationTree.ts
-│   │   │   ├── prover.ts
-│   │   │   ├── proofQueue.ts # BullMQ queue
-│   │   │   ├── blockchain.ts
-│   │   │   └── eventSync.ts
-│   │   └── middleware/
-│   │       ├── auth.ts
-│   │       └── security.ts
-│   └── db/
-│       └── schema.sql
-├── contracts/                # Solidity protocol
+│   │   ├── routes/              # API endpoints
+│   │   │   ├── orgs.ts          # Organization CRUD
+│   │   │   ├── agents.ts        # Agent management
+│   │   │   ├── credentials.ts   # Credential issuance
+│   │   │   ├── sessions.ts      # Session creation
+│   │   │   ├── wallets.ts       # Wallet operations
+│   │   │   ├── externalAgents.ts # Runtime connections
+│   │   │   └── v1.ts            # API v1 routes
+│   │   ├── services/            # Business logic
+│   │   │   ├── platform.ts      # Core orchestration
+│   │   │   ├── actionAuth.ts    # Signature verification
+│   │   │   ├── merkle.ts        # Merkle tree
+│   │   │   ├── prover.ts        # ZK proof generation
+│   │   │   ├── blockchain.ts   # Contract interactions
+│   │   │   └── eventSync.ts    # Event indexing
+│   │   ├── middleware/          # Auth and security
+│   │   └── utils/               # Utilities
+│   └── migrations.ts            # Database migrations
+│
+├── contracts/                   # Solidity smart contracts
 │   ├── src/
-│   │   ├── CredentialRegistry.sol
-│   │   ├── SessionManager.sol
-│   │   ├── AgentWalletFactory.sol
-│   │   ├── AgentWallet.sol
-│   │   └── Verifier.sol
-│   ├── scripts/
-│   │   └── deploy.ts
-│   └── test/
-├── circuits/                 # Circom ZK circuits
-│   ├── credential.circom
-│   └── build/                # Compiled artifacts
-└── sdk/                      # Self-hosted integration
-    ├── src/
-    │   ├── index.ts
-    │   ├── AgentClient.ts
-    │   ├── SessionManager.ts
-    │   └── types.ts
-    └── examples/
+│   │   ├── AgentWallet.sol        # ERC-4337 smart account
+│   │   ├── AgentWalletFactory.sol # Deterministic deployment
+│   │   ├── SessionManager.sol     # Session lifecycle
+│   │   ├── CredentialRegistry.sol # Credential roots
+│   │   └── Verifier.sol           # Groth16 verifier
+│   ├── test/                    # Contract tests
+│   └── scripts/                 # Deployment scripts
+│
+├── circuits/                    # Circom ZK circuits
+│   ├── circom/                  # Circuit definitions
+│   └── build/                   # Compiled artifacts
+│
+├── sdk/                         # TypeScript SDK
+│   ├── src/
+│   │   ├── AgentClient.ts       # Main client
+│   │   ├── SessionManager.ts    # Session handling
+│   │   └── types.ts             # Type definitions
+│   └── examples/                # Usage examples
+│
+├── runtime-local/               # Local agent runtime
+│   └── server.ts                # Runtime server
+│
+├── docs/                        # Documentation
+│   ├── API.md                   # API reference
+│   ├── ARCHITECTURE.md          # Architecture details
+│   └── SETUP.md                 # Setup guide
+│
+├── scripts/                     # Utility scripts
+├── nginx/                       # Nginx config
+├── docker-compose.yml           # Development compose
+└── docker-compose.prod.yml      # Production compose
 ```
 
-## Development Scripts
+---
 
-From the repository root:
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | Next.js 14, React, Tailwind CSS, Three.js |
+| Backend | Express, TypeScript, PostgreSQL |
+| Contracts | Solidity, Hardhat, OpenZeppelin |
+| ZK Circuits | Circom, snarkjs |
+| Account Abstraction | ERC-4337, EntryPoint |
+| SDK | TypeScript, ethers.js |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL 14+
+- Foundry or Hardhat
+
+### Installation
 
 ```bash
-npm run dev              # Start both frontend and backend
-npm run dev:backend      # Start backend only (port 3001)
-npm run dev:frontend     # Start frontend only (port 3000)
-npm run build            # Build all workspaces
-npm run test:contracts   # Run contract tests
-npm run example:create-session  # Run SDK example
+# Install dependencies
+npm install
+
+# Install workspace dependencies
+npm run install:all
 ```
+
+### Environment Setup
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+Required environment variables:
+
+```env
+# Backend
+DATABASE_URL=postgresql://user:password@localhost:5432/agentix
+PRIVATE_KEY=your_wallet_private_key
+JWT_SECRET=your_jwt_secret
+RPC_URL=https://eth-sepolia.g.alchemy.com/v2/your-api-key
+
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_CHAIN_ID=11155111
+```
+
+### Development
+
+```bash
+# Start all services
+npm run dev
+
+# Or individually:
+npm run dev:backend   # Backend API on :3001
+npm run dev:frontend  # Frontend on :3000
+```
+
+### Contract Compilation & Testing
+
+```bash
+cd contracts
+npx hardhat compile
+npx hardhat test
+npx hardhat run scripts/deploy.ts --network sepolia
+```
+
+---
+
+## Core Workflows
+
+### 1. Organization Setup
+
+```
+Operator ──► Connect Wallet ──► Create Org ──► Deploy Contracts
+```
+
+### 2. Agent Registration
+
+```
+Org Owner ──► Create Agent ──► Issue Credential ──► Update Merkle Root
+```
+
+### 3. Wallet Deployment
+
+```
+Org Owner ──► Deploy AgentWallet ──► Fund Wallet ──► Ready for Execution
+```
+
+### 4. Session Creation
+
+```
+Agent Runtime ──► Generate Session Key ──► ZK Proof ──► Create Session
+```
+
+### 5. Transaction Execution
+
+```
+Agent ──► Sign UserOp ──► Submit to EntryPoint ──► Execute on AgentWallet
+```
+
+---
 
 ## API Endpoints
 
@@ -375,35 +283,26 @@ npm run example:create-session  # Run SDK example
 |--------|----------|-------------|
 | POST | `/orgs` | Create organization |
 | GET | `/orgs` | List organizations |
-| GET | `/orgs/:orgId` | Get organization details |
-| DELETE | `/orgs/:orgId` | Delete organization |
-| POST | `/orgs/:orgId/deploy-contracts` | Deploy contract stack |
-| POST | `/orgs/:orgId/fund` | Fund organization |
 | POST | `/agents` | Create agent |
-| GET | `/agents` | List agents (requires `orgId` query param) |
-| GET | `/agents/types` | Get agent types |
-| POST | `/agents/:agentId/credential` | Issue credential |
-| POST | `/agents/:agentId/wallet` | Deploy agent wallet |
-| POST | `/agents/:agentId/session` | Create session |
-| POST | `/agents/:agentId/fund` | Fund agent wallet |
-| POST | `/agents/:agentId/revoke` | Revoke credential |
-| POST | `/wallets/:walletAddress/userop/prepare` | Prepare user operation |
-| POST | `/wallets/:walletAddress/userop/submit` | Submit user operation |
-| GET | `/wallets/userops/:userOpHash` | Get user operation status |
+| POST | `/agents/:id/credential` | Issue credential |
+| POST | `/agents/:id/wallet` | Deploy wallet |
+| POST | `/agents/:id/session` | Create session |
+| POST | `/agents/:id/fund` | Fund wallet |
 
 ### External Agent Routes
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/external/types` | Get external agent types |
-| POST | `/external` | Create external agent |
-| GET | `/external` | List external agents |
+| GET | `/external-agents` | List connected runtimes |
+| POST | `/external-agents` | Connect runtime |
+| GET | `/external-agents/:id/poll` | Poll for actions |
 
 ### Public Routes
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
+<<<<<<< HEAD
 | GET | `/proofs/:agentId` | Get merkle proof for agent |
 
 ## Deployment Model
@@ -464,7 +363,47 @@ npm run example:create-session  # Run SDK example
 ## License
 
 BUSR 1.1
+=======
+| GET | `/proofs/:agentId` | Get merkle proof |
+>>>>>>> eeb3d9b (docs: rewrite README and CLAUDE.md with new repository structure)
 
 ---
 
-*"The cleanest agent systems are the ones that never confuse identity, permission, and money."*
+## Frontend Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Landing page with 3D hero |
+| `/dashboard` | Organization workspace |
+| `/agents` | Agent inventory |
+| `/agents/[id]` | Agent details |
+| `/credentials` | Credential management |
+| `/sessions` | Session overview |
+| `/events` | Contract event timeline |
+| `/docs` | Documentation |
+
+---
+
+## Security Model
+
+| Principle | Implementation |
+|-----------|----------------|
+| No raw secrets on-chain | ZK proofs verify authorization |
+| Owner signature required | EIP-191 for all critical actions |
+| Session boundaries | Daily spend/tx limits, expiry |
+| Credential revocation | Blocks new session creation |
+| Nonce protection | Replay attack prevention |
+
+---
+
+## Documentation
+
+- **[API Reference](docs/API.md)** - REST API endpoints
+- **[Architecture](docs/ARCHITECTURE.md)** - System design details
+- **[Setup Guide](docs/SETUP.md)** - Installation instructions
+
+---
+
+## License
+
+MIT
