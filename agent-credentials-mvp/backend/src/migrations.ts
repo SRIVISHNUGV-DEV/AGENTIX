@@ -386,6 +386,42 @@ export const migrations: Migration[] = [
             );
             CREATE INDEX IF NOT EXISTS idx_merkle_tree_state_org ON merkle_tree_state(org_id, tree_type);
         `
+    },
+    {
+        version: 13,
+        name: "agent_execution_logs",
+        up: `
+            CREATE TABLE IF NOT EXISTS agent_execution_logs (
+                id SERIAL PRIMARY KEY,
+                external_agent_id INTEGER NOT NULL,
+                org_id INTEGER NOT NULL,
+                request_id TEXT NOT NULL UNIQUE,
+                action TEXT NOT NULL,
+                params TEXT NOT NULL,
+                proof TEXT,
+                result TEXT,
+                success BOOLEAN NOT NULL DEFAULT FALSE,
+                error_message TEXT,
+                execution_time_ms INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_execution_logs_agent ON agent_execution_logs(external_agent_id);
+            CREATE INDEX IF NOT EXISTS idx_execution_logs_org ON agent_execution_logs(org_id);
+            CREATE INDEX IF NOT EXISTS idx_execution_logs_created ON agent_execution_logs(created_at DESC);
+        `
+    },
+    {
+        version: 14,
+        name: "used_nullifiers",
+        up: `
+            CREATE TABLE IF NOT EXISTS used_nullifiers (
+                id SERIAL PRIMARY KEY,
+                nullifier TEXT NOT NULL UNIQUE,
+                used_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_nullifiers_nullifier ON used_nullifiers(nullifier);
+            CREATE INDEX IF NOT EXISTS idx_nullifiers_used_at ON used_nullifiers(used_at);
+        `
     }
 ]
 

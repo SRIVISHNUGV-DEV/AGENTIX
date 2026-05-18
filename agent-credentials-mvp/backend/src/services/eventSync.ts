@@ -134,7 +134,7 @@ export class EventSyncService {
             const logs = await contract.queryFilter("*" as any, start, end)
 
             for (const log of logs) {
-                await this.storeEvent(db, contractName, address, iface, log)
+                await this.storeEvent(db, orgId, contractName, address, iface, log)
                 await this.assignEventOrg(db, log.transactionHash, log.index, orgId)
             }
         }
@@ -155,7 +155,7 @@ export class EventSyncService {
         }
     }
 
-    private async storeEvent(db:any, contractName:string, address:string, iface:Interface, log:Log){
+    private async storeEvent(db:any, orgId:number, contractName:string, address:string, iface:Interface, log:Log){
         const parsed = iface.parseLog(log)
 
         if(!parsed){

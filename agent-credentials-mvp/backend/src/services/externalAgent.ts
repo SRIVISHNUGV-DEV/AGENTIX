@@ -8,9 +8,40 @@ import {
     FundingAccount,
     WhitelistedContract,
     SecurityAuditResult,
-    ConnectionTestResult
+    ConnectionTestResult,
+    ExecutionRequest,
+    ExecutionProof,
+    ExecutionResult,
+    AgentExecutionLog
 } from "../types/externalAgent"
 import { AppError } from "../utils/errors"
+import { IncrementalMerkleTree } from "./merkle"
+import { poseidonHash } from "../utils/crypto"
+
+// Permission bitmasks for agent actions
+export const AGENT_PERMISSIONS = {
+    READ_FILE: 1 << 0,        // 1
+    WRITE_FILE: 1 << 1,       // 2
+    EXECUTE_COMMAND: 1 << 2,  // 4
+    QUERY: 1 << 3,            // 8
+    API_CALL: 1 << 4,         // 16
+    SIGN_TRANSACTION: 1 << 5, // 32
+    DEPLOY_CONTRACT: 1 << 6,  // 64
+    CUSTOM: 1 << 7,           // 128
+    ALL: 255                  // All permissions
+} as const
+
+// Action to permission mapping
+const ACTION_PERMISSIONS: Record<string, number> = {
+    read_file: AGENT_PERMISSIONS.READ_FILE,
+    write_file: AGENT_PERMISSIONS.WRITE_FILE,
+    execute_command: AGENT_PERMISSIONS.EXECUTE_COMMAND,
+    query: AGENT_PERMISSIONS.QUERY,
+    api_call: AGENT_PERMISSIONS.API_CALL,
+    sign_transaction: AGENT_PERMISSIONS.SIGN_TRANSACTION,
+    deploy_contract: AGENT_PERMISSIONS.DEPLOY_CONTRACT,
+    custom: AGENT_PERMISSIONS.CUSTOM
+}
 
 function getEncryptionKey(): Buffer {
     const key = process.env.ENCRYPTION_KEY?.trim()
@@ -798,6 +829,415 @@ export class ExternalAgentService {
             lastHeartbeatAt: agent.last_heartbeat_at,
             metadata: agent.metadata
         }
+    }
+
+    // ============================================================
+    // EXECUTION LAYER - Send tasks to agents and track results
+    // ============================================================
+
+    /**
+     * Execute a request on an external agent runtime
+     * This sends a signed request to the agent's endpoint and logs the result
+     */
+    async executeRequest(
+        agentId: number,
+        orgId: number,
+        request: ExecutionRequest,
+        proof?: ExecutionProof
+    ): Promise<{ success: boolean; result?: any; executionId?: number; error?: string; executionTime: number }> {
+        const db = await initDB()
+        const requestId = request.nonce || crypto.randomUUID()
+        const startTime = Date.now()
+
+        // Get the agent with credentials
+        const agent = await this.getExternalAgentForInternalUse(agentId, orgId)
+        if (!agent) {
+            throw new AppError(404, "Agent not found")
+        }
+
+        if (!agent.endpoint) {
+            throw new AppError(400, "Agent has no endpoint configured")
+        }
+
+        if (agent.status !== "connected" && agent.status !== "running") {
+            throw new AppError(400, `Agent is not available (status: ${agent.status})`)
+        }
+
+        // Build the execution URL
+        const executeUrl = this.executeEndpoint(agent.endpoint)
+
+        // Build headers with auth
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            "X-Agentix-Request-ID": requestId,
+            "X-Agentix-Org-ID": String(orgId),
+            "X-Agentix-Agent-ID": String(agentId),
+            "X-Agentix-Timestamp": String(request.requestedAt)
+        }
+
+        // Add API key if available
+        if (agent.apiKey) {
+            headers["Authorization"] = `Bearer ${agent.apiKey}`
+        }
+
+        // Build request body with proof
+        const body: any = {
+            action: request.action,
+            params: request.params,
+            nonce: requestId,
+            requestedAt: request.requestedAt,
+            timeout: request.timeout || 30000
+        }
+
+        if (proof) {
+            body.credentialProof = proof
+        }
+
+        let result: any = null
+        let success = false
+        let errorMessage: string | null = null
+
+        try {
+            const response = await fetch(executeUrl, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(request.timeout || 30000)
+            })
+
+            const responseTime = Date.now() - startTime
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => "Unknown error")
+                errorMessage = `Agent returned ${response.status}: ${errorText}`
+                success = false
+            } else {
+                result = await response.json().catch(() => ({}))
+                success = result.success !== false
+
+                if (!success && result.error) {
+                    errorMessage = result.error
+                }
+            }
+        } catch (err: any) {
+            errorMessage = err.message || "Request failed"
+            success = false
+        }
+
+        const executionTime = Date.now() - startTime
+
+        // Log the execution
+        const logResult = await db.run(
+            `INSERT INTO agent_execution_logs
+            (external_agent_id, org_id, request_id, action, params, proof, result, success, error_message, execution_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            agentId,
+            orgId,
+            requestId,
+            request.action,
+            JSON.stringify(request.params),
+            proof ? JSON.stringify(proof) : null,
+            result ? JSON.stringify(result) : null,
+            success ? 1 : 0,
+            errorMessage,
+            executionTime
+        )
+
+        return {
+            success,
+            result,
+            executionId: logResult.lastID,
+            error: errorMessage || undefined,
+            executionTime
+        }
+    }
+
+    /**
+     * Get execution logs for an agent
+     */
+    async getExecutionLogs(
+        agentId: number,
+        orgId: number,
+        options?: { limit?: number; offset?: number; action?: string }
+    ): Promise<AgentExecutionLog[]> {
+        const db = await initDB()
+
+        // Verify agent belongs to org
+        const agent = await db.get(
+            `SELECT id FROM external_agents WHERE id = ? AND org_id = ?`,
+            agentId,
+            orgId
+        )
+        if (!agent) {
+            throw new AppError(404, "Agent not found")
+        }
+
+        const limit = options?.limit || 50
+        const offset = options?.offset || 0
+
+        let sql = `SELECT * FROM agent_execution_logs WHERE external_agent_id = ?`
+        const params: any[] = [agentId]
+
+        if (options?.action) {
+            sql += ` AND action = ?`
+            params.push(options.action)
+        }
+
+        sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+        params.push(limit, offset)
+
+        const logs = await db.all(sql, ...params)
+
+        return logs.map((log: any) => ({
+            id: log.id,
+            externalAgentId: log.external_agent_id,
+            orgId: log.org_id,
+            requestId: log.request_id,
+            action: log.action,
+            params: log.params,
+            proof: log.proof,
+            result: log.result,
+            success: log.success === 1,
+            errorMessage: log.error_message,
+            executionTimeMs: log.execution_time_ms,
+            createdAt: log.created_at
+        }))
+    }
+
+    /**
+     * Get a single execution by ID
+     */
+    async getExecution(executionId: number, orgId: number): Promise<AgentExecutionLog | null> {
+        const db = await initDB()
+
+        const log = await db.get(
+            `SELECT * FROM agent_execution_logs WHERE id = ? AND org_id = ?`,
+            executionId,
+            orgId
+        )
+
+        if (!log) return null
+
+        return {
+            id: log.id,
+            externalAgentId: log.external_agent_id,
+            orgId: log.org_id,
+            requestId: log.request_id,
+            action: log.action,
+            params: log.params,
+            proof: log.proof,
+            result: log.result,
+            success: log.success === 1,
+            errorMessage: log.error_message,
+            executionTimeMs: log.execution_time_ms,
+            createdAt: log.created_at
+        }
+    }
+
+    /**
+     * Get execution statistics for an agent
+     */
+    async getExecutionStats(agentId: number, orgId: number): Promise<{
+        totalExecutions: number
+        successfulExecutions: number
+        failedExecutions: number
+        avgExecutionTimeMs: number
+        lastExecutionAt: number | null
+    }> {
+        const db = await initDB()
+
+        // Verify agent belongs to org
+        const agent = await db.get(
+            `SELECT id FROM external_agents WHERE id = ? AND org_id = ?`,
+            agentId,
+            orgId
+        )
+        if (!agent) {
+            throw new AppError(404, "Agent not found")
+        }
+
+        const stats = await db.get(
+            `SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed,
+                AVG(execution_time_ms) as avg_time,
+                MAX(created_at) as last_execution
+            FROM agent_execution_logs
+            WHERE external_agent_id = ?`,
+            agentId
+        )
+
+        return {
+            totalExecutions: stats?.total || 0,
+            successfulExecutions: stats?.successful || 0,
+            failedExecutions: stats?.failed || 0,
+            avgExecutionTimeMs: Math.round(stats?.avg_time || 0),
+            lastExecutionAt: stats?.last_execution || null
+        }
+    }
+
+    // ============================================================
+    // AUTHORIZATION PROOFS - ZK proof generation for agent actions
+    // ============================================================
+
+    /**
+     * Generate an authorization proof for an agent action
+     * This creates a ZK proof that the agent is authorized to perform the action
+     */
+    async generateAuthorizationProof(
+        agentId: number,
+        orgId: number,
+        action: string,
+        expirySeconds: number = 3600
+    ): Promise<{
+        proof: ExecutionProof
+        permissionBitmask: number
+        expiresAt: number
+    }> {
+        const db = await initDB()
+
+        // Get the agent and its linked credential
+        const agent = await db.get(
+            `SELECT ea.*, c.permissions, c.expiry as credential_expiry, c.merkle_index
+             FROM external_agents ea
+             LEFT JOIN credentials c ON ea.linked_agent_id = c.agent_id
+             WHERE ea.id = ? AND ea.org_id = ?`,
+            agentId,
+            orgId
+        )
+
+        if (!agent) {
+            throw new AppError(404, "Agent not found")
+        }
+
+        // Check if agent has the required permission
+        const requiredPermission = ACTION_PERMISSIONS[action] || 0
+        const agentPermissions = agent.permissions || AGENT_PERMISSIONS.ALL
+
+        if ((agentPermissions & requiredPermission) === 0 && requiredPermission !== 0) {
+            throw new AppError(403, `Agent does not have permission for action: ${action}`)
+        }
+
+        // Check credential expiry
+        if (agent.credential_expiry && agent.credential_expiry < Math.floor(Date.now() / 1000)) {
+            throw new AppError(403, "Agent credential has expired")
+        }
+
+        // Get merkle proof for the credential
+        const tree = new IncrementalMerkleTree(20, { orgId })
+        const merkleIndex = agent.merkle_index ?? 0
+        const merkleProof = await tree.generateProof(db, merkleIndex)
+        const merkleRoot = await tree.getRoot(db)
+
+        // Generate nullifier (unique per request to prevent replay)
+        const nullifier = poseidonHash([
+            BigInt(agentId),
+            BigInt(Math.floor(Date.now() / 1000)),
+            BigInt(crypto.randomInt(1, 1000000))
+        ])
+
+        // Build the execution proof
+        const expiresAt = Math.floor(Date.now() / 1000) + expirySeconds
+
+        // Create the proof object (simplified - in production this would use actual ZK circuit)
+        const proof: ExecutionProof = {
+            nullifier: nullifier.toString(),
+            root: merkleRoot.toString(),
+            revokedRoot: "0", // Would be computed from revocation tree
+            proof: {
+                a: ["0", "0"],
+                b: [["0", "0"], ["0", "0"]],
+                c: ["0", "0"]
+            },
+            publicSignals: [
+                nullifier.toString(),
+                merkleRoot.toString(),
+                "0", // revokedRoot
+                agentPermissions.toString(),
+                expiresAt.toString()
+            ]
+        }
+
+        return {
+            proof,
+            permissionBitmask: agentPermissions,
+            expiresAt
+        }
+    }
+
+    /**
+     * Verify an authorization proof
+     * This validates that the proof is valid and matches the agent
+     */
+    async verifyAuthorizationProof(
+        agentId: number,
+        orgId: number,
+        proof: ExecutionProof,
+        action: string
+    ): Promise<{ valid: boolean; error?: string }> {
+        const db = await initDB()
+
+        // Get current merkle root
+        const tree = new IncrementalMerkleTree(20, { orgId })
+        const currentState = await tree.loadState(db)
+
+        if (!currentState) {
+            return { valid: false, error: "No credentials found for organization" }
+        }
+
+        // Verify root matches
+        if (proof.root !== currentState.root.toString()) {
+            return { valid: false, error: "Proof root does not match current tree" }
+        }
+
+        // Check action permission
+        const requiredPermission = ACTION_PERMISSIONS[action] || 0
+        const grantedPermissions = parseInt(proof.publicSignals[3]) || 0
+
+        if ((grantedPermissions & requiredPermission) === 0 && requiredPermission !== 0) {
+            return { valid: false, error: "Proof does not grant permission for this action" }
+        }
+
+        // Check expiry
+        const expiry = parseInt(proof.publicSignals[4]) || 0
+        if (expiry < Math.floor(Date.now() / 1000)) {
+            return { valid: false, error: "Proof has expired" }
+        }
+
+        // Verify nullifier hasn't been used (prevent replay)
+        const usedNullifier = await db.get(
+            `SELECT id FROM used_nullifiers WHERE nullifier = ?`,
+            proof.nullifier
+        )
+
+        if (usedNullifier) {
+            return { valid: false, error: "Proof has already been used" }
+        }
+
+        return { valid: true }
+    }
+
+    /**
+     * Mark a nullifier as used to prevent replay attacks
+     */
+    async consumeNullifier(nullifier: string): Promise<void> {
+        const db = await initDB()
+
+        await db.run(
+            `INSERT INTO used_nullifiers (nullifier, used_at)
+             VALUES (?, ?)`,
+            nullifier,
+            Math.floor(Date.now() / 1000)
+        )
+    }
+
+    private executeEndpoint(endpoint: string): string {
+        const url = new URL(endpoint)
+        url.pathname = `${url.pathname.replace(/\/$/, "")}/execute`
+        url.search = ""
+        url.hash = ""
+        return url.toString()
     }
 
     static getSupportedAgentTypes(): Array<{

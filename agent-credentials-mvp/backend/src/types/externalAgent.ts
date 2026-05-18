@@ -86,3 +86,58 @@ export interface ConnectionTestResult {
   status?: string
   error?: string
 }
+
+// Execution Layer Types
+export type ExecutionAction =
+  | "read_file"
+  | "write_file"
+  | "execute_command"
+  | "query"
+  | "api_call"
+  | "sign_transaction"
+  | "deploy_contract"
+  | "custom"
+
+export interface ExecutionRequest {
+  action: ExecutionAction
+  params: Record<string, any>
+  nonce: string
+  requestedAt: number
+  timeout?: number
+}
+
+export interface ExecutionProof {
+  nullifier: string
+  root: string
+  revokedRoot: string
+  proof: {
+    a: [string, string]
+    b: [[string, string], [string, string]]
+    c: [string, string]
+  }
+  publicSignals: [string, string, string, string, string]
+}
+
+export interface ExecutionResult {
+  success: boolean
+  result?: any
+  error?: string
+  executionTime: number
+  timestamp: number
+  proofOfExecution?: ExecutionProof
+}
+
+export interface AgentExecutionLog {
+  id: number
+  externalAgentId: number
+  orgId: number
+  requestId: string
+  action: ExecutionAction
+  params: string // JSON string
+  proof: string | null // JSON string of ExecutionProof
+  result: string | null // JSON string
+  success: boolean
+  errorMessage: string | null
+  executionTimeMs: number
+  createdAt: number
+}

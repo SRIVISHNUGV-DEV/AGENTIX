@@ -1,4 +1,5 @@
 import express from "express"
+import crypto from "crypto"
 import { initDB } from "../db"
 import { ExternalAgentService } from "../services/externalAgent"
 import { requireSignedAction } from "../services/actionAuth"
@@ -405,6 +406,279 @@ router.delete("/:agentId/contracts/:contractId", async (req: Request, res: Respo
     res.json(result)
   } catch (error) {
     respondWithError(res, error, "contracts.delete")
+  }
+})
+
+// ============================================================
+// EXECUTION ROUTES - Send tasks to agents
+// ============================================================
+
+/**
+ * Execute a request on an external agent
+ * POST /external/agents/:agentId/execute
+ *
+ * Request body:
+ * - action: The action type (read_file, write_file, execute_command, query, etc.)
+ * - params: Action-specific parameters
+ * - nonce: Optional unique request identifier
+ * - timeout: Optional timeout in ms (default 30000)
+ * - credentialProof: Optional ZK proof for authorization
+ */
+router.post("/:agentId/execute", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    ensureBodyObject(req.body)
+
+    const orgId = requireInteger(req.body.orgId, "orgId", 1)
+    const action = requireString(req.body.action, "action")
+    const params = req.body.params || {}
+    const nonce = req.body.nonce || crypto.randomUUID()
+    const timeout = req.body.timeout || 30000
+    const proof = req.body.credentialProof || undefined
+
+    // Validate action type
+    const validActions = [
+      "read_file", "write_file", "execute_command", "query",
+      "api_call", "sign_transaction", "deploy_contract", "custom"
+    ]
+    if (!validActions.includes(action)) {
+      return res.status(400).json({
+        error: `Invalid action. Must be one of: ${validActions.join(", ")}`
+      })
+    }
+
+    // Verify signature
+    const db = await initDB()
+    await requireSignedAction(db, {
+      orgId,
+      action: "EXECUTE_AGENT_REQUEST",
+      target: `agent:${agentId}`,
+      payload: req.body // Contains walletAddress, signature, nonce, requestedAt
+    })
+
+    // Execute the request
+    const result = await agentService.executeRequest(
+      agentId,
+      orgId,
+      {
+        action: action as any,
+        params,
+        nonce,
+        requestedAt: Math.floor(Date.now() / 1000),
+        timeout
+      },
+      proof
+    )
+
+    res.json({
+      success: result.success,
+      result: result.result,
+      executionId: result.executionId,
+      executionTime: result.executionTime,
+      error: result.error
+    })
+  } catch (error) {
+    respondWithError(res, error, "execute")
+  }
+})
+
+/**
+ * Get execution logs for an agent
+ * GET /external/agents/:agentId/executions
+ *
+ * Query params:
+ * - limit: Number of logs to return (default 50)
+ * - offset: Pagination offset
+ * - action: Filter by action type
+ */
+router.get("/:agentId/executions", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+    const limit = parseInt(req.query.limit as string) || 50
+    const offset = parseInt(req.query.offset as string) || 0
+    const action = req.query.action as string | undefined
+
+    const logs = await agentService.getExecutionLogs(agentId, orgId, {
+      limit,
+      offset,
+      action
+    })
+
+    res.json(logs)
+  } catch (error) {
+    respondWithError(res, error, "executions.list")
+  }
+})
+
+/**
+ * Get a single execution by ID
+ * GET /external/agents/:agentId/executions/:executionId
+ */
+router.get("/:agentId/executions/:executionId", async (req: Request, res: Response) => {
+  try {
+    const executionId = requireInteger(req.params.executionId, "executionId")
+    const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+
+    const execution = await agentService.getExecution(executionId, orgId)
+
+    if (!execution) {
+      return res.status(404).json({ error: "Execution not found" })
+    }
+
+    res.json(execution)
+  } catch (error) {
+    respondWithError(res, error, "executions.get")
+  }
+})
+
+/**
+ * Get execution statistics for an agent
+ * GET /external/agents/:agentId/executions/stats
+ */
+router.get("/:agentId/executions/stats", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+
+    const stats = await agentService.getExecutionStats(agentId, orgId)
+    res.json(stats)
+  } catch (error) {
+    respondWithError(res, error, "executions.stats")
+  }
+})
+
+// ============================================================
+// AUTHORIZATION PROOFS - ZK proof generation and verification
+// ============================================================
+
+/**
+ * Generate an authorization proof for an agent action
+ * POST /external/agents/:agentId/proof
+ *
+ * Request body:
+ * - action: The action to authorize
+ * - expirySeconds: Optional expiry time in seconds (default 3600)
+ */
+router.post("/:agentId/proof", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    ensureBodyObject(req.body)
+
+    const orgId = requireInteger(req.body.orgId, "orgId", 1)
+    const action = requireString(req.body.action, "action")
+    const expirySeconds = req.body.expirySeconds || 3600
+
+    // Verify signature
+    const db = await initDB()
+    await requireSignedAction(db, {
+      orgId,
+      action: "GENERATE_AUTHORIZATION_PROOF",
+      target: `agent:${agentId}`,
+      payload: req.body // Contains walletAddress, signature, nonce, requestedAt
+    })
+
+    // Generate the proof
+    const result = await agentService.generateAuthorizationProof(
+      agentId,
+      orgId,
+      action,
+      expirySeconds
+    )
+
+    res.json({
+      success: true,
+      proof: result.proof,
+      permissionBitmask: result.permissionBitmask,
+      expiresAt: result.expiresAt
+    })
+  } catch (error) {
+    respondWithError(res, error, "proof.generate")
+  }
+})
+
+/**
+ * Verify an authorization proof
+ * POST /external/agents/:agentId/proof/verify
+ *
+ * Request body:
+ * - proof: The proof to verify
+ * - action: The action to verify against
+ */
+router.post("/:agentId/proof/verify", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    ensureBodyObject(req.body)
+
+    const orgId = requireInteger(req.body.orgId, "orgId", 1)
+    const proof = req.body.proof
+    const action = requireString(req.body.action, "action")
+
+    if (!proof || !proof.nullifier || !proof.root) {
+      return res.status(400).json({
+        error: "Invalid proof format"
+      })
+    }
+
+    const result = await agentService.verifyAuthorizationProof(
+      agentId,
+      orgId,
+      proof,
+      action
+    )
+
+    res.json({
+      valid: result.valid,
+      error: result.error
+    })
+  } catch (error) {
+    respondWithError(res, error, "proof.verify")
+  }
+})
+
+/**
+ * Get agent permissions
+ * GET /external/agents/:agentId/permissions
+ */
+router.get("/:agentId/permissions", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.query.orgId as string, "orgId", 1)
+
+    const db = await initDB()
+    const agent = await db.get(
+      `SELECT ea.agent_name, c.permissions, c.expiry
+       FROM external_agents ea
+       LEFT JOIN credentials c ON ea.linked_agent_id = c.agent_id
+       WHERE ea.id = ? AND ea.org_id = ?`,
+      agentId,
+      orgId
+    )
+
+    if (!agent) {
+      return res.status(404).json({ error: "Agent not found" })
+    }
+
+    const permissions = agent.permissions || 255
+    const permissionList = []
+
+    if (permissions & 1) permissionList.push("read_file")
+    if (permissions & 2) permissionList.push("write_file")
+    if (permissions & 4) permissionList.push("execute_command")
+    if (permissions & 8) permissionList.push("query")
+    if (permissions & 16) permissionList.push("api_call")
+    if (permissions & 32) permissionList.push("sign_transaction")
+    if (permissions & 64) permissionList.push("deploy_contract")
+    if (permissions & 128) permissionList.push("custom")
+
+    res.json({
+      agentName: agent.agent_name,
+      permissions: permissionList,
+      permissionBitmask: permissions,
+      expiry: agent.expiry
+    })
+  } catch (error) {
+    respondWithError(res, error, "permissions.get")
   }
 })
 
