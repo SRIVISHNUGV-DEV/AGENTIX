@@ -1,0 +1,115 @@
+Initial event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+Event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+Event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+Event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+Event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\node_modules\express\lib\application.js:635:24)
+    at start (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\backend\src\index.ts:117:9)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+
+Node.js v24.11.1
+Initial event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\node_modules\express\lib\application.js:635:24)
+    at start (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\backend\src\index.ts:117:9)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+
+Node.js v24.11.1
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\node_modules\express\lib\application.js:635:24)
+    at start (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\backend\src\index.ts:117:9)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+
+Node.js v24.11.1
+Initial event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+[dev.create_agent] column "proof_hash" of relation "credentials" does not exist
+[dev.create_agent] column "proof_hash" of relation "credentials" does not exist
+Event sync failed: null value in column "agent_id" of relation "wallets" violates not-null constraint
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\node_modules\express\lib\application.js:635:24)
+    at start (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\backend\src\index.ts:117:9)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+
+Node.js v24.11.1
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\node_modules\express\lib\application.js:635:24)
+    at start (D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL\agent-credentials-mvp\backend\src\index.ts:117:9)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+
+Node.js v24.11.1

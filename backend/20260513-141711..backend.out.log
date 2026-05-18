@@ -1,0 +1,52 @@
+
+> @agentix/backend@0.1.0 dev
+> tsx watch src/index.ts
+
+[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+Backend running on port 3001 (production)
+[db] PostgreSQL connection established
+[db] Database initialized successfully
+[actionAuth] Received payload: {
+  "party": "0x0000000000000000000000000000000000000000"
+}
+[actionAuth] Extracted: {
+  walletAddress: undefined,
+  hasSignature: false,
+  nonce: undefined,
+  requestedAt: NaN
+}
+[actionAuth] Missing required fields
+[actionAuth] Received payload: {
+  "orgId": 1,
+  "action": "read_file",
+  "params": {
+    "path": "/test"
+  }
+}
+[actionAuth] Extracted: {
+  walletAddress: undefined,
+  hasSignature: false,
+  nonce: undefined,
+  requestedAt: NaN
+}
+[actionAuth] Missing required fields
+2:22:07 pm [tsx] change in ./src\services\blockchain.ts Restarting...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+2:23:28 pm [tsx] change in ./src\routes\externalAgents.ts Rerunning...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+Backend running on port 3001 (production)
+[db] PostgreSQL connection established
+[db] Database initialized successfully
+2:24:30 pm [tsx] change in ./src\routes\externalAgents.ts Restarting...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+2:26:45 pm [tsx] change in ./src\routes\externalAgents.ts Rerunning...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+2:28:15 pm [tsx] change in ./src\routes\externalAgents.ts Rerunning...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+Backend running on port 3001 (development)
+[db] PostgreSQL connection established
+[db] Database initialized successfully
+2:30:29 pm [tsx] change in ./src\routes\externalAgents.ts Restarting...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
+2:31:36 pm [tsx] change in ./src\routes\externalAgents.ts Rerunning...
+c[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)

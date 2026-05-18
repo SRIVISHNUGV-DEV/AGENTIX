@@ -1,0 +1,17 @@
+{
+  "status": 307,
+  "headers": {
+    "location": "/ai-agents",
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/external-agents/layout,_N_T_/external-agents/page,_N_T_/external-agents"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/external-agents/__PAGE__",
+    "/external-agents",
+    "/_index",
+    "/_head"
+  ]
+}

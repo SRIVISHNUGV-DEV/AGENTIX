@@ -1,0 +1,322 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "onMatchHeaders": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/agent/[id]",
+      "regex": "^/agent/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/agent/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/agents/[id]",
+      "regex": "^/agents/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/agents/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/ai/[[...path]]",
+      "regex": "^/api/ai(?:/(.+?))?(?:/)?$",
+      "routeKeys": {
+        "nxtPpath": "nxtPpath"
+      },
+      "namedRegex": "^/api/ai(?:/(?<nxtPpath>.+?))?(?:/)?$"
+    },
+    {
+      "page": "/api/external/[[...path]]",
+      "regex": "^/api/external(?:/(.+?))?(?:/)?$",
+      "routeKeys": {
+        "nxtPpath": "nxtPpath"
+      },
+      "namedRegex": "^/api/external(?:/(?<nxtPpath>.+?))?(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents/[agentId]/credential",
+      "regex": "^/api/platform/agents/([^/]+?)/credential(?:/)?$",
+      "routeKeys": {
+        "nxtPagentId": "nxtPagentId"
+      },
+      "namedRegex": "^/api/platform/agents/(?<nxtPagentId>[^/]+?)/credential(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents/[agentId]/fund",
+      "regex": "^/api/platform/agents/([^/]+?)/fund(?:/)?$",
+      "routeKeys": {
+        "nxtPagentId": "nxtPagentId"
+      },
+      "namedRegex": "^/api/platform/agents/(?<nxtPagentId>[^/]+?)/fund(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents/[agentId]/revoke",
+      "regex": "^/api/platform/agents/([^/]+?)/revoke(?:/)?$",
+      "routeKeys": {
+        "nxtPagentId": "nxtPagentId"
+      },
+      "namedRegex": "^/api/platform/agents/(?<nxtPagentId>[^/]+?)/revoke(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents/[agentId]/session",
+      "regex": "^/api/platform/agents/([^/]+?)/session(?:/)?$",
+      "routeKeys": {
+        "nxtPagentId": "nxtPagentId"
+      },
+      "namedRegex": "^/api/platform/agents/(?<nxtPagentId>[^/]+?)/session(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents/[agentId]/wallet",
+      "regex": "^/api/platform/agents/([^/]+?)/wallet(?:/)?$",
+      "routeKeys": {
+        "nxtPagentId": "nxtPagentId"
+      },
+      "namedRegex": "^/api/platform/agents/(?<nxtPagentId>[^/]+?)/wallet(?:/)?$"
+    },
+    {
+      "page": "/api/platform/orgs/[orgId]",
+      "regex": "^/api/platform/orgs/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPorgId": "nxtPorgId"
+      },
+      "namedRegex": "^/api/platform/orgs/(?<nxtPorgId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/platform/orgs/[orgId]/deploy",
+      "regex": "^/api/platform/orgs/([^/]+?)/deploy(?:/)?$",
+      "routeKeys": {
+        "nxtPorgId": "nxtPorgId"
+      },
+      "namedRegex": "^/api/platform/orgs/(?<nxtPorgId>[^/]+?)/deploy(?:/)?$"
+    },
+    {
+      "page": "/api/platform/orgs/[orgId]/fund",
+      "regex": "^/api/platform/orgs/([^/]+?)/fund(?:/)?$",
+      "routeKeys": {
+        "nxtPorgId": "nxtPorgId"
+      },
+      "namedRegex": "^/api/platform/orgs/(?<nxtPorgId>[^/]+?)/fund(?:/)?$"
+    },
+    {
+      "page": "/api/platform/wallets/userops/[userOpHash]",
+      "regex": "^/api/platform/wallets/userops/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPuserOpHash": "nxtPuserOpHash"
+      },
+      "namedRegex": "^/api/platform/wallets/userops/(?<nxtPuserOpHash>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/platform/wallets/[walletAddress]/userop/prepare",
+      "regex": "^/api/platform/wallets/([^/]+?)/userop/prepare(?:/)?$",
+      "routeKeys": {
+        "nxtPwalletAddress": "nxtPwalletAddress"
+      },
+      "namedRegex": "^/api/platform/wallets/(?<nxtPwalletAddress>[^/]+?)/userop/prepare(?:/)?$"
+    },
+    {
+      "page": "/api/platform/wallets/[walletAddress]/userop/submit",
+      "regex": "^/api/platform/wallets/([^/]+?)/userop/submit(?:/)?$",
+      "routeKeys": {
+        "nxtPwalletAddress": "nxtPwalletAddress"
+      },
+      "namedRegex": "^/api/platform/wallets/(?<nxtPwalletAddress>[^/]+?)/userop/submit(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/agents",
+      "regex": "^/agents(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/agents(?:/)?$"
+    },
+    {
+      "page": "/agents/new",
+      "regex": "^/agents/new(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/agents/new(?:/)?$"
+    },
+    {
+      "page": "/ai-agents",
+      "regex": "^/ai\\-agents(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/ai\\-agents(?:/)?$"
+    },
+    {
+      "page": "/api/auth/login",
+      "regex": "^/api/auth/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/login(?:/)?$"
+    },
+    {
+      "page": "/api/auth/logout",
+      "regex": "^/api/auth/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/logout(?:/)?$"
+    },
+    {
+      "page": "/api/auth/me",
+      "regex": "^/api/auth/me(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/me(?:/)?$"
+    },
+    {
+      "page": "/api/auth/register",
+      "regex": "^/api/auth/register(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/register(?:/)?$"
+    },
+    {
+      "page": "/api/platform/agents",
+      "regex": "^/api/platform/agents(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/platform/agents(?:/)?$"
+    },
+    {
+      "page": "/api/platform/org/select",
+      "regex": "^/api/platform/org/select(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/platform/org/select(?:/)?$"
+    },
+    {
+      "page": "/api/platform/orgs",
+      "regex": "^/api/platform/orgs(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/platform/orgs(?:/)?$"
+    },
+    {
+      "page": "/credentials",
+      "regex": "^/credentials(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credentials(?:/)?$"
+    },
+    {
+      "page": "/credentials/issue",
+      "regex": "^/credentials/issue(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credentials/issue(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/docs",
+      "regex": "^/docs(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/docs(?:/)?$"
+    },
+    {
+      "page": "/docs/api",
+      "regex": "^/docs/api(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/docs/api(?:/)?$"
+    },
+    {
+      "page": "/docs/mcp",
+      "regex": "^/docs/mcp(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/docs/mcp(?:/)?$"
+    },
+    {
+      "page": "/docs/sdk",
+      "regex": "^/docs/sdk(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/docs/sdk(?:/)?$"
+    },
+    {
+      "page": "/events",
+      "regex": "^/events(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/events(?:/)?$"
+    },
+    {
+      "page": "/external-agents",
+      "regex": "^/external\\-agents(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/external\\-agents(?:/)?$"
+    },
+    {
+      "page": "/integration",
+      "regex": "^/integration(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/integration(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/sdk",
+      "regex": "^/sdk(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sdk(?:/)?$"
+    },
+    {
+      "page": "/sessions",
+      "regex": "^/sessions(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sessions(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}
