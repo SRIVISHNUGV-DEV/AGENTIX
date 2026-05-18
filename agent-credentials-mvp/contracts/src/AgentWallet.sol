@@ -28,6 +28,12 @@ interface ISessionManager {
         address signer,
         uint256 value
     ) external returns (bool);
+
+    function validateLightweightSession(
+        bytes32 sessionId,
+        address signer,
+        uint256 value
+    ) external returns (bool);
 }
 
 contract AgentWallet is ReentrancyGuard {
@@ -177,6 +183,14 @@ contract AgentWallet is ReentrancyGuard {
         emit WhiteListUpdated(party, status);
     }
 
+    function setWhiteListedPartyBatch(address[] calldata parties, bool[] calldata statuses) external onlyOwner onlyInitialized {
+        require(parties.length == statuses.length, "Array length mismatch");
+        for (uint256 i = 0; i < parties.length; i++) {
+            whiteListedParties[parties[i]] = statuses[i];
+            emit WhiteListUpdated(parties[i], statuses[i]);
+        }
+    }
+
     function _validateUserOperation(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
@@ -184,18 +198,35 @@ contract AgentWallet is ReentrancyGuard {
         spendValue = _extractSpendValue(userOp.callData);
 
         bytes32 digest = ECDSA.toEthSignedMessageHash(userOpHash);
+
+        // Check if signature is direct owner signature (65 bytes)
         if (userOp.signature.length == 65) {
             signer = digest.recover(userOp.signature);
             require(signer == owner, "Invalid owner signature");
             return (spendValue, bytes32(0), signer);
         }
 
+        // Session key signature: abi.encode(sessionId, signature)
         bytes memory sessionSignature;
         (sessionId, sessionSignature) = abi.decode(userOp.signature, (bytes32, bytes));
         signer = digest.recover(sessionSignature);
 
-        bool valid = ISessionManager(sessionManager).validateSession(sessionId, signer, spendValue);
-        require(valid, "Invalid session");
+        // Try lightweight session first (lower gas)
+        try ISessionManager(sessionManager).validateLightweightSession(
+            sessionId,
+            signer,
+            spendValue
+        ) returns (bool valid) {
+            require(valid, "Lightweight session validation failed");
+        } catch {
+            // Fallback to ZK-proof session for existing sessions
+            bool valid = ISessionManager(sessionManager).validateSession(
+                sessionId,
+                signer,
+                spendValue
+            );
+            require(valid, "Session validation failed");
+        }
     }
 
     function _extractSpendValue(bytes calldata callData) internal view returns (uint256 totalValue) {
