@@ -463,7 +463,7 @@ npm run example:create-session  # Run SDK example
 
 ## License
 
-Apache 2.0
+BUSR 1.1
 
 ---
 
