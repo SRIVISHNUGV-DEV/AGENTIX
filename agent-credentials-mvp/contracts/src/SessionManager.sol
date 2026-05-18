@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 interface IVerifier {
     function verifyProof(
@@ -19,7 +20,12 @@ interface ICredentialRegistry {
     function markNullifierUsed(bytes32 nullifier) external;
 }
 
+interface IAgentWallet {
+    function owner() external view returns (address);
+}
+
 contract SessionManager is ReentrancyGuard {
+    using ECDSA for bytes32;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -185,6 +191,175 @@ contract SessionManager is ReentrancyGuard {
         s.revoked = true;
 
         emit SessionRevoked(sessionId);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    LIGHTWEIGHT SESSION HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    function _checkAndResetDaily(LightweightSession storage s) internal {
+        uint64 currentDay = uint64(block.timestamp / 1 days);
+        if (s.lastResetDay < currentDay) {
+            s.dailySpendUsed = 0;
+            s.dailyTxUsed = 0;
+            s.lastResetDay = currentDay;
+            emit DailyLimitsReset(keccak256(abi.encode(s.sessionKey, s.expiry)), currentDay);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    LIGHTWEIGHT SESSION MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Create a lightweight session with owner signature
+     * @dev Called by backend on behalf of wallet owner through wallet contract
+     * @param sessionId Unique session identifier
+     * @param sessionKey Public key of session (signer address)
+     * @param dailySpendLimit Maximum wei spendable per day
+     * @param dailyTxLimit Maximum transactions per day
+     * @param expiry Unix timestamp when session expires
+     * @param ownerSignature EIP-191 signature from wallet owner
+     */
+    function createLightweightSession(
+        bytes32 sessionId,
+        address sessionKey,
+        uint256 dailySpendLimit,
+        uint256 dailyTxLimit,
+        uint64 expiry,
+        bytes calldata ownerSignature
+    ) external {
+        require(sessionKey != address(0), "Invalid session key");
+        require(expiry > block.timestamp, "Invalid expiry");
+        require(lightSessions[sessionId].sessionKey == address(0), "Session exists");
+
+        // Verify owner signature over session params
+        bytes32 messageHash = keccak256(abi.encode(
+            sessionId,
+            sessionKey,
+            dailySpendLimit,
+            dailyTxLimit,
+            expiry
+        ));
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            messageHash
+        ));
+        address signer = ECDSA.recover(digest, ownerSignature);
+
+        // Verify signer is the wallet owner (msg.sender is the wallet contract)
+        require(IAgentWallet(msg.sender).owner() == signer, "Not wallet owner");
+
+        lightSessions[sessionId] = LightweightSession({
+            sessionKey: sessionKey,
+            dailySpendLimit: dailySpendLimit,
+            dailyTxLimit: dailyTxLimit,
+            dailySpendUsed: 0,
+            dailyTxUsed: 0,
+            lastResetDay: uint64(block.timestamp / 1 days),
+            expiry: expiry,
+            revoked: false
+        });
+
+        walletSessions[msg.sender].push(sessionId);
+
+        emit LightSessionCreated(
+            sessionId,
+            sessionKey,
+            dailySpendLimit,
+            dailyTxLimit,
+            expiry
+        );
+    }
+
+    /**
+     * @notice Validate a lightweight session for UserOperation execution
+     * @param sessionId Session to validate
+     * @param signer Address that signed the UserOperation
+     * @param value Value being transferred in this transaction
+     * @return valid True if session is valid and limits not exceeded
+     */
+    function validateLightweightSession(
+        bytes32 sessionId,
+        address signer,
+        uint256 value
+    ) external returns (bool) {
+        LightweightSession storage s = lightSessions[sessionId];
+
+        require(s.sessionKey != address(0), "Session not found");
+        require(!s.revoked, "Session revoked");
+        require(block.timestamp <= s.expiry, "Session expired");
+        require(s.sessionKey == signer, "Invalid session signer");
+
+        _checkAndResetDaily(s);
+
+        uint256 newSpend = s.dailySpendUsed + value;
+        require(newSpend <= s.dailySpendLimit, "Daily spend limit exceeded");
+        require(s.dailyTxUsed + 1 <= s.dailyTxLimit, "Daily tx limit exceeded");
+
+        s.dailySpendUsed = newSpend;
+        s.dailyTxUsed++;
+
+        emit LightSessionUsed(sessionId, value, s.dailySpendUsed);
+
+        return true;
+    }
+
+    /**
+     * @notice Revoke a lightweight session
+     * @dev Only wallet owner or session key holder can revoke
+     * @param sessionId Session to revoke
+     */
+    function revokeLightweightSession(bytes32 sessionId) external {
+        LightweightSession storage s = lightSessions[sessionId];
+
+        require(s.sessionKey != address(0), "Session not found");
+        require(!s.revoked, "Already revoked");
+
+        // Verify caller is wallet owner (through wallet contract)
+        address walletOwner = IAgentWallet(msg.sender).owner();
+        require(
+            walletOwner == msg.sender ||
+            s.sessionKey == msg.sender,
+            "Not authorized to revoke"
+        );
+
+        s.revoked = true;
+
+        emit LightSessionRevoked(sessionId);
+    }
+
+    /**
+     * @notice Get session details
+     * @param sessionId Session to query
+     */
+    function getLightSession(bytes32 sessionId) external view returns (
+        address sessionKey,
+        uint256 dailySpendLimit,
+        uint256 dailyTxLimit,
+        uint256 dailySpendUsed,
+        uint256 dailyTxUsed,
+        uint64 expiry,
+        bool revoked
+    ) {
+        LightweightSession storage s = lightSessions[sessionId];
+        return (
+            s.sessionKey,
+            s.dailySpendLimit,
+            s.dailyTxLimit,
+            s.dailySpendUsed,
+            s.dailyTxUsed,
+            s.expiry,
+            s.revoked
+        );
+    }
+
+    /**
+     * @notice Get all sessions for a wallet
+     * @param wallet Wallet address
+     */
+    function getWalletSessions(address wallet) external view returns (bytes32[] memory) {
+        return walletSessions[wallet];
     }
 
 }
