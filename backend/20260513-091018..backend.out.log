@@ -1,8 +1,0 @@
-
-> @agentix/backend@0.1.0 dev
-> tsx watch src/index.ts
-
-[proof-queue] Queue disabled (ENABLE_PROOF_QUEUE=false)
-Backend running on port 3001 (production)
-[db] PostgreSQL connection established
-[db] Database initialized successfully
