@@ -1,0 +1,5 @@
+export { ChatExecutionPanel } from "./chat-execution-panel"
+export { ChatMessageComponent } from "./chat-message"
+export { ChatInput } from "./chat-input"
+export { QuickActions, type QuickAction } from "./quick-actions"
+export type { ChatMessage } from "@/lib/chat-storage"
