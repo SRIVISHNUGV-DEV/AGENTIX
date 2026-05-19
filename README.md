@@ -3,10 +3,10 @@
 **Built to give autonomous agents constrained, revocable, on-chain access without exposing raw credentials**
 
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
-![Sepolia](https://img.shields.io/badge/Network-Sepolia-white)
+![Sepolia](https://img.shields.io/badge/Network-Sepolia-purple)
 ![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-lightgrey)
-![Groth16](https://img.shields.io/badge/ZK-Groth16-darkgrey)
-![License](https://img.shields.io/badge/License-Apache--2.0-white)
+![Groth16](https://img.shields.io/badge/ZK-Groth16-white)
+![License](https://img.shields.io/badge/BUSR-1.1-orange)
 
 ## Live Deployment
 
