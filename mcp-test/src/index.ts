@@ -16,8 +16,27 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { createMCPServer } from "./server.js"
+import { createMCPServer, TOOL_DEFS } from "./server.js"
 import { getProverStatus } from "./circuits.js"
+
+let connected = false
+
+function showConnectionBanner(mode: string) {
+  if (connected) return
+  connected = true
+  const status = getProverStatus()
+  console.error("")
+  console.error("╔══════════════════════════════════════════════════════╗")
+  console.error("║        AGENTIX MCP TEST SERVER — CONNECTED         ║")
+  console.error("╠══════════════════════════════════════════════════════╣")
+  console.error(`║  Mode:  ${mode.padEnd(39)}║`)
+  console.error(`║  Transport:  ${(mode === "HTTP" ? "Streamable HTTP" : "Stdio").padEnd(34)}║`)
+  console.error(`║  Prover:  ${(status.available ? "Groth16 (snarkjs) ✓" : "Simulated (circuit files missing) ⚡").padEnd(34)}║`)
+  console.error(`║  Tools:  ${TOOL_DEFS.length.toString().padEnd(38)}║`)
+  console.error(`║  Clients:  ${"All MCP-compatible (Claude, Cursor, VS Code, etc.)".padEnd(15)}║`)
+  console.error("╚══════════════════════════════════════════════════════╝")
+  console.error("")
+}
 
 const args = process.argv.slice(2)
 const useHttp = args.includes("--http")
@@ -34,21 +53,17 @@ async function main() {
   const server = createMCPServer()
 
   if (useHttp) {
-    // Streamable HTTP transport
-    const { WebStandardStreamableHTTPServerTransport } =
-      await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js")
-    const transport = new WebStandardStreamableHTTPServerTransport()
-
     const isBun = typeof (globalThis as any).Bun !== "undefined"
     await (isBun ? serveHttpWithBun(server, port) : serveHttpWithNode(server, port))
 
     console.error(`[agentix-mcp-test] HTTP server listening on port ${port}`)
     console.error(`[agentix-mcp-test] Connect your MCP client to http://localhost:${port}/mcp`)
+    console.error(`[agentix-mcp-test] Waiting for client connection...`)
   } else {
     // Stdio transport (for Claude Desktop, Cline, etc.)
     const transport = new StdioServerTransport()
     await server.connect(transport)
-    console.error(`[agentix-mcp-test] Running in stdio mode — connect via MCP client`)
+    showConnectionBanner("Stdio")
   }
 }
 
@@ -57,11 +72,18 @@ async function serveHttpWithNode(server: Server, port: number) {
   const { WebStandardStreamableHTTPServerTransport } =
     await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js")
 
+  let firstRequest = true
+
   const httpServer = http.createServer(async (req: any, res: any) => {
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
       res.end(JSON.stringify({ status: "ok", prover: getProverStatus() }))
       return
+    }
+
+    if (firstRequest) {
+      firstRequest = false
+      showConnectionBanner("HTTP")
     }
 
     const transport = new WebStandardStreamableHTTPServerTransport()
@@ -97,6 +119,8 @@ async function serveHttpWithBun(server: Server, port: number) {
   const { WebStandardStreamableHTTPServerTransport } =
     await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js")
 
+  let firstRequest = true
+
   ;(globalThis as any).Bun.serve({
     port,
     async fetch(req: Request) {
@@ -104,6 +128,11 @@ async function serveHttpWithBun(server: Server, port: number) {
         return new Response(JSON.stringify({ status: "ok", prover: getProverStatus() }), {
           headers: { "Content-Type": "application/json" },
         })
+      }
+
+      if (firstRequest) {
+        firstRequest = false
+        showConnectionBanner("HTTP")
       }
 
       const transport = new WebStandardStreamableHTTPServerTransport()

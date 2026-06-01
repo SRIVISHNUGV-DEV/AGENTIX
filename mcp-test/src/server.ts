@@ -302,7 +302,7 @@ handlers.heartbeat = async (args) => {
 
 // ─── Tool Definitions ─────────────────────────────────────────
 
-const TOOL_DEFS = [
+export const TOOL_DEFS = [
   {
     name: "register_agent",
     description: "Register a new test agent (in-memory, no DB required)",
