@@ -1,6 +1,6 @@
 import { Contract, Interface, Log, AbstractProvider } from "ethers"
 import { initDB } from "../db"
-import { BlockchainService } from "./blockchain"
+import { getBlockchainService, BlockchainService } from "./blockchain"
 
 const POLL_INTERVAL_MS = 60000
 const MAX_BLOCK_RANGE = 10
@@ -26,7 +26,7 @@ export class EventSyncService {
     passCount: number
 
     constructor(){
-        this.blockchain = new BlockchainService()
+        this.blockchain = getBlockchainService()
         this.provider = this.blockchain.provider
         this.timer = null
         this.passCount = 0
@@ -44,6 +44,13 @@ export class EventSyncService {
                 console.error("Event sync failed:", error.message)
             })
         }, POLL_INTERVAL_MS)
+    }
+
+    stop(){
+        if(this.timer){
+            clearInterval(this.timer)
+            this.timer = null
+        }
     }
 
     async syncOnce(){

@@ -1,292 +1,218 @@
-# AGENTIX — The Private Agent Authorization Rail
+# AGENTIX — Trust Infrastructure for Autonomous AI Agents
 
-**Built to give autonomous agents constrained, revocable, on-chain access without exposing raw credentials**
+**The OAuth + Okta + Auth0 for AI agents. Issue private credentials, verify with ZK, delegate capabilities, create on-chain sessions, and execute through ERC-4337 smart wallets.**
 
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
 ![Sepolia](https://img.shields.io/badge/Network-Sepolia-purple)
 ![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-lightgrey)
 ![Groth16](https://img.shields.io/badge/ZK-Groth16-white)
+![MCP](https://img.shields.io/badge/MCP-v1.29-blue)
 ![License](https://img.shields.io/badge/License-BUSL--1.1-orange)
+
+---
+
+## Run in 10 Seconds
+
+```bash
+# Clone and start the MCP server (PostgreSQL + Redis required)
+npx @agentix/mcp
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/your-org/agentix
+cd agentix
+npm install
+npm run dev
+```
+
+The MCP server starts on **port 3001**. Connect any MCP-compatible client (Claude Desktop, Cursor, VS Code, custom) and get 30 agent management tools.
 
 ---
 
 ## Live Deployment (Sepolia)
 
-| Contract | Address |
-|----------|---------|
-| Verifier | [`0x9536...6B46`](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) |
-| CredentialRegistry | [`0x77ca...0dc`](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) |
-| SessionManager | [`0x3044...1259`](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) |
-| AgentWalletFactory | [`0xFaDA...824`](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) |
-| AgentWallet Implementation | [`0x03F7...9fe`](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) |
-| EntryPoint | [`0x4337...F108`](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) |
-
----
-
-## Frontend Pages
-
-| Route | Description |
-|-------|-------------|
-| `/` | Landing page with protocol overview |
-| `/dashboard` | Organization workspace showing contract stack, agents, treasury |
-| `/agents` | Agent inventory for the active organization |
-| `/agents/[id]` | Per-agent detail: credential, wallet, session, funding, user-ops |
-| `/ai-agents` | Provider-first AI agent connect flow |
-| `/external-agents` | External agent integrations, security audits, whitelists, credentials |
-| `/events` | Indexed on-chain activity feed |
-| `/credentials` | Credential issuance and management |
-| `/sessions` | Session overview and lifecycle |
-| `/audit` | Audit trail and compliance logs |
-| `/docs` | Protocol documentation |
-| `/sdk` | Self-hosted SDK path and integration guide |
-| `/login` | Wallet-based authentication |
-
----
-
-## Quick Start (30 seconds)
-
-```bash
-# install all workspace dependencies
-npm install
-
-# copy environment files
-copy backend\.env.example backend\.env
-copy frontend\.env.example frontend\.env.local
-
-# start both services
-npm run dev
-```
-
-Then open:
-
-- **Frontend**: `http://localhost:3000`
-- **Backend API**: `http://localhost:3001`
-
-> Full setup guide with database, Redis, and contract deployment: see [docs/SETUP.md](./docs/SETUP.md).
-
----
-
-## The Vision
-
-Agentix is a **private authorization rail** for the agent economy.
-
-It gives organizations a way to:
-
-- create agent identities under an organization workspace
-- issue private credentials without publishing plaintext allowlists
-- deploy organization-scoped contract stacks (deterministic wallets per agent)
-- fund agent wallets without handing unrestricted treasury access to model providers
-- create bounded sessions with expiry, spend limits, and transaction caps
-- revoke future session access without revealing the agent secret
-- operate ERC-4337-ready wallets through a managed operator UI or a self-hosted SDK
-
-**Default operator flow:** _Connect. Credential. Wallet. Session. Execute._
-
-1. The org owner connects a wallet
-2. The org creates an agent
-3. The org issues a credential commitment (updated in the Merkle tree)
-4. The org deploys a wallet and funds it
-5. The backend or SDK proves credential validity in zero knowledge
-6. The session manager opens a bounded session (ZK-proof or lightweight)
-7. The wallet executes only within that session boundary
+| Contract | Address | Role |
+|----------|---------|------|
+| **Verifier** | [`0x9536...6B46`](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) | Groth16 proof verification |
+| **CredentialRegistry** | [`0x77ca...0dc`](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) | Credential Merkle roots |
+| **SessionManager** | [`0x3044...1259`](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) | ZK + lightweight sessions |
+| **AgentWalletFactory** | [`0xFaDA...824`](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) | Deterministic wallet deploy |
+| **AgentWallet Impl** | [`0x03F7...9fe`](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) | ERC-4337 smart account |
+| **EntryPoint** | [`0x4337...F108`](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | ERC-4337 singleton |
+| **CapabilityRegistry** | [`0x57eE...9b2`](https://sepolia.etherscan.io/address/0x57eEc0D86b79c4107fE57f5A2092794EF073B9b2) | Capability definitions & grants |
+| **DelegationManager** | [`0x6AF9...989`](https://sepolia.etherscan.io/address/0x6AF9cccd6BC58ea4379725311784F8ba67528989) | Trust delegation chains |
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────── ┐
-│                               AGENTIX PROTOCOL                                  │
-├─────────────────────────────────────────────────────────────────────────────── ─┤
-│                                                                                 │
-│   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 5 — Interface & Consumption                                   │      │
-│   │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │      │
-│   │  │ Next.js Operator│  │  Self-Hosted SDK │  │  External Agent     │  │      │
-│   │  │ Platform (UI)   │  │  (TypeScript)    │  │  Runtime Connectors │  │      │
-│   │  └─────────────────┘  └──────────────────┘  └─────────────────────┘  │      │
-│   └──────────────────────────────────────────────────────────────────────┘      │
-│                                      │                                          │
-│   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 4 — Backend Control Plane                                     │      │
-│   │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │      │
-│   │  │ Express/Hono API│  │ Platform Service │  │  Event Indexer      │  │      │
-│   │  │  (REST Routes)  │  │  (Orchestration) │  │  (Chain Polling)    │  │      │
-│   │  └─────────────────┘  └──────────────────┘  └─────────────────────┘  │      │
-│   └──────────────────────────────────────────────────────────────────────┘      │
-│                                      │                                          │
-│   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 3 — Proof & State Services                                    │      │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐   │      │
-│   │  │  Merkle Tree │  │ Revocation   │  │  Groth16   │  │  4337     │   │      │
-│   │  │  (Poseidon)  │  │ Tree (Sparse)│  │  Prover    │  │  Bundler  │   │      │
-│   │  └──────────────┘  └──────────────┘  └────────────┘  └───────────┘   │      │
-│   └──────────────────────────────────────────────────────────────────────┘      │
-│                                      │                                          │
-│   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 2 — Protocol Contracts (Sepolia)                              │      │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌────────────┐  │      │
-│   │  │CredentialReg │  │SessionManager│  │AgentWallet │  │AgentWallet │  │      │
-│   │  │ (roots)      │  │ (ZK + Light) │  │Factory     │  │ (ERC-4337) │  │      │
-│   │  └──────────────┘  └──────────────┘  └────────────┘  └────────────┘  │      │
-│   └──────────────────────────────────────────────────────────────────────┘      │
-│                                      │                                          │
-│   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 1 — Trust Anchors                                             │      │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐      │      │
-│   │  │  Groth16     │  │  ERC-4337    │  │  Organization Owner    │      │      │
-│   │  │  Verifier    │  │  EntryPoint  │  │  Wallet (EOA)          │      │      │
-│   │  └──────────────┘  └──────────────┘  └────────────────────────┘      │      │
-│   └──────────────────────────────────────────────────────────────────────┘      │
-│                                                                                 │
-└──────────────────────────────────────────────────────────────────────────────── ┘
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                              AGENTIX TRUST INFRASTRUCTURE                              │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│   ┌────────────────────────────────────────────────────────────────────────────┐      │
+│   │  Layer 5 — Consumption                                                        │      │
+│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │      │
+│   │  │  MCP      │  │  REST    │  │  SDK     │  │  Operator │  │  3rd-Party   │  │      │
+│   │  │  Client   │  │  Client  │  │  Client  │  │  UI       │  │  Verifier    │  │      │
+│   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────────┘  │      │
+│   └────────────────────────────────────────────────────────────────────────────┘      │
+│                                        │                                              │
+│   ┌────────────────────────────────────────────────────────────────────────────┐      │
+│   │  Layer 4 — Backend Control Plane (Express/Hono + PostgreSQL)                  │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌──────────────────┐  │      │
+│   │  │  MCP Server  │  │  REST API    │  │  Platform  │  │  Event Indexer   │  │      │
+│   │  │  (30 tools)  │  │  40+ routes  │  │  Service   │  │  (Chain Polling) │  │      │
+│   │  └──────────────┘  └──────────────┘  └────────────┘  └──────────────────┘  │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌──────────────────┐  │      │
+│   │  │  Capability  │  │  Delegation  │  │  Chain     │  │  Audit Service   │  │      │
+│   │  │  Registry    │  │  Service     │  │  Adapter   │  │  (Governance)    │  │      │
+│   │  └──────────────┘  └──────────────┘  └────────────┘  └──────────────────┘  │      │
+│   └────────────────────────────────────────────────────────────────────────────┘      │
+│                                        │                                              │
+│   ┌────────────────────────────────────────────────────────────────────────────┐      │
+│   │  Layer 3 — Proof & State Services                                           │      │
+│   │  ┌────────────┐  ┌────────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐  │      │
+│   │  │  Merkle    │  │  Revocation│  │  Groth16 │  │  4337    │  │  Agent  │  │      │
+│   │  │  Tree      │  │  SMT       │  │  Prover  │  │  Bundler │  │  Tools  │  │      │
+│   │  └────────────┘  └────────────┘  └──────────┘  └──────────┘  └─────────┘  │      │
+│   └────────────────────────────────────────────────────────────────────────────┘      │
+│                                        │                                              │
+│   ┌────────────────────────────────────────────────────────────────────────────┐      │
+│   │  Layer 2 — Protocol Contracts (Sepolia)                                       │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │      │
+│   │  │CredentialReg │  │SessionManager│  │CapabilityReg │  │ DelegationMgr    │  │      │
+│   │  │ (roots)      │  │ (ZK + Light) │  │ (catalog)    │  │ (chains)         │  │      │
+│   │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────┘  │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐              │      │
+│   │  │AgentWallet   │  │AgentWallet   │  │ Groth16 Verifier     │              │      │
+│   │  │Factory       │  │ (ERC-4337)   │  │ (ZK verification)    │              │      │
+│   │  └──────────────┘  └──────────────┘  └──────────────────────┘              │      │
+│   └────────────────────────────────────────────────────────────────────────────┘      │
+│                                        │                                              │
+│   ┌────────────────────────────────────────────────────────────────────────────┐      │
+│   │  Layer 1 — Trust Anchors                                                   │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────────┐    │      │
+│   │  │  Ethereum    │  │  ERC-4337    │  │  Organization Owner Wallet     │    │      │
+│   │  │  (Sepolia)   │  │  EntryPoint  │  │  (EOA signature authority)     │    │      │
+│   │  └──────────────┘  └──────────────┘  └───────────────────────────────┘    │      │
+│   └────────────────────────────────────────────────────────────────────────────┘      │
+│                                                                                        │
+└──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Execution Flow
+---
 
-```
-Org Owner Wallet                       Agentix Backend                    Ethereum (Sepolia)
-      │                                      │                                   │
-      │  1. Connect + Create Org             │                                   │
-      │─────────────────────────────────────►│                                   │
-      │  2. Sign action: Register Agent      │                                   │
-      │─────────────────────────────────────►│                                   │
-      │                                      │  3. Insert credential commitment  │
-      │                                      │     into Poseidon Merkle tree     │
-      │                                      │──────────────────────────────────►│
-      │                                      │     setActiveRoot()               │
-      │                                      │                                   │
-      │  4. Sign action: Deploy Wallet       |                                   │
-      │─────────────────────────────────────►│  5. createAccount()               │
-      │                                      │──────────────────────────────────►│
-      │                                      │     AgentWallet deployed          │
-      │                                      │                                   │
-      │  6. Sign action: Fund Wallet         │                                   │
-      │─────────────────────────────────────►│  7. transfer()                    │
-      │                                      │──────────────────────────────────►│
-      │                                      │                                   │
-      │  8. Sign action: Create Session      │                                   │
-      │─────────────────────────────────────►│  9. Build proof bundle            │
-      │                                      │  10. createSession(proof, signals)│
-      │                                      │──────────────────────────────────►│
-      │                                      │     SessionCreated event          │
-      │                                      │                                   │
-      │  11. Sign UserOp                     │                                   │
-      │─────────────────────────────────────►│  12. handleOps() via Bundler      │
-      │                                      │──────────────────────────────────►│
-      │                                      │     EntryPoint.validateUserOp()   │
-      │                                      │     AgentWallet.execute()         │
-      │_____________________________________ |___________________________________|                                    │                                   │
-```
+## MCP Server — 30 Tools
 
-### Session Types
+The MCP server is the primary interface for AI agents. It speaks the [Model Context Protocol](https://modelcontextprotocol.io) and works with any MCP-compatible client.
 
-| Type | Creation | Verification | Gas Cost | Use Case |
-|------|----------|--------------|----------|----------|
-| **ZK-Proof Session** | `createSession(proof, signals)` | Groth16 on-chain verification | ~300k gas | Privacy-preserving agents, third-party agents |
-| **Lightweight Session** | `createLightweightSession(sig, params)` | EIP-191 signature verification | ~80k gas | Trusted agents, direct operator control |
+### Agent Lifecycle (6 tools)
+
+| Tool | Description |
+|------|-------------|
+| `register_agent` | Register a new external AI agent (OpenClaude, LangChain, Claude Code, CrewAI, LlamaIndex, AutoGen, SmolAgents, custom) |
+| `update_agent` | Update agent name, endpoint, API keys, active status |
+| `revoke_agent` | Revoke agent credentials and deactivate |
+| `list_agents` | List agents with status filter and pagination |
+| `get_agent_state` | Full agent state: status, credentials, sessions, whitelist, stats |
+| `get_permissions` | Get permission bitmask and capabilities |
+
+### Execution & Proofs (5 tools)
+
+| Tool | Description |
+|------|-------------|
+| `execute_action` | Execute action on agent runtime (read/write file, command, query, API call, sign tx, deploy contract) |
+| `generate_proof` | Generate ZK authorization proof for an action |
+| `verify_proof` | Verify a ZK proof against on-chain state |
+| `create_session` | Generate session authorization proof for on-chain session creation |
+| `get_execution_stats` | Execution statistics: total, success, failure counts |
+
+### Credential Vault (4 tools)
+
+| Tool | Description |
+|------|-------------|
+| `add_credential` | Store encrypted credential (API keys, secrets) |
+| `list_credentials` | List vault credentials (values masked) |
+| `delete_credential` | Delete a vault credential |
+| `list_executions` | Execution logs with action filter and pagination |
+
+### Contract Whitelist (2 tools)
+
+| Tool | Description |
+|------|-------------|
+| `add_whitelist` | Add contract address to agent whitelist |
+| `list_whitelist` | List whitelisted contracts |
+
+### Agent Operations (2 tools)
+
+| Tool | Description |
+|------|-------------|
+| `heartbeat` | Send heartbeat to update agent status and last seen |
+| `get_agent_state` | Full agent state (duplicated for convenience) |
+
+### Capability Registry (6 tools)
+
+| Tool | Description |
+|------|-------------|
+| `create_capability` | Define a capability (15 action types, constraints: maxValue, allowedTargets, chains, quotas) |
+| `list_capabilities` | List all capability definitions for org |
+| `grant_capability` | Grant a capability to an agent with optional constraint overrides |
+| `revoke_grant` | Revoke a capability grant |
+| `check_capability` | Check if agent has a capability (evaluates all constraints) |
+| `list_agent_grants` | List all grants for an agent |
+
+### Delegation (4 tools)
+
+| Tool | Description |
+|------|-------------|
+| `create_delegation` | Create trust delegation (supports chaining with depth tracking) |
+| `revoke_delegation` | Revoke delegation (cascades to child delegations) |
+| `check_delegation` | Check if delegate has permission via delegation |
+| `get_delegation_chain` | Trace full delegation chain back to originator |
+
+### Chain Discovery (2 tools)
+
+| Tool | Description |
+|------|-------------|
+| `get_chains` | List all available chains with health status and contract addresses |
+| `get_chain_contracts` | Get deployed contract addresses for a specific chain |
 
 ---
 
 ## Smart Contracts
 
 ### CredentialRegistry.sol
-Stores the active Merkle root and revoked sparse-Merkle root. Every credential issuance or revocation updates these roots. The registry is the single source of truth for agent authorization state.
+Stores the active Merkle root and revoked sparse-Merkle root. Every credential issuance or revocation updates these roots. The single source of truth for agent authorization state. Credentials contain identity + expiry only — no embedded capabilities.
 
 ### SessionManager.sol
-Validates Groth16 proofs (ZK sessions) and EIP-191 signatures (lightweight sessions). Creates replay-safe, bounded sessions with `maxValue`, `maxTxCount`, and `expiresAt` constraints. Emits `SessionCreated` events indexed by the backend.
+Validates Groth16 proofs (ZK sessions) and EIP-191 signatures (lightweight sessions). Creates replay-safe, bounded sessions with `maxValue`, daily spend/tx limits, and `expiresAt` constraints. Two session types:
+- **ZK-Proof Session** (~300k gas) — Privacy-preserving, requires Groth16 proof
+- **Lightweight Session** (~80k gas) — EIP-191 signature, daily spend/tx limits
+
+### CapabilityRegistry.sol (NEW)
+A separate on-chain catalog for agent capabilities. Capabilities are defined with an action, effect (allow/deny/audit), and constraint set. Grants link capabilities to agent addresses. This separation ensures **credential stability**: changing capabilities never invalidates credentials. Key functions:
+- `registerCapability()` / `revokeCapability()`
+- `grantCapability()` / `revokeGrant()`
+- `verifyCapability(agent, capabilityId, grantId)` — for third-party verifiers
+
+### DelegationManager.sol (NEW)
+Enables trust delegation chains between agents. A delegator grants a delegate a scope of authority, who can further delegate (up to a configurable depth). Revocation cascades to all children. Key functions:
+- `createDelegation()` with scope hash, expiry, max depth, and parent chain
+- `revokeDelegation()` with cascade revoke
+- `verifyDelegationChain(delegationId, delegate, scopeHash, expectedOriginator)` — full chain walk
 
 ### AgentWalletFactory.sol
-Deterministic deployment of ERC-4337 smart accounts using CREATE2. Each agent gets a predictable wallet address derived from the organization salt and agent ID.
+Deterministic deployment of ERC-4337 smart accounts using CREATE2. Each agent gets a predictable wallet address derived from organization salt and agent ID.
 
 ### AgentWallet.sol
-ERC-4337-compatible smart account. Validates UserOperations against either active sessions or the owner address. Supports `execute()` and `executeBatch()` for composing multiple actions in a single UserOp.
+ERC-4337-compatible smart account. Validates UserOperations against active sessions or owner address. Supports `execute()` and `executeBatch()`.
 
 ### Verifier.sol
-Auto-generated Groth16 verifier from the Circom circuit. Used by SessionManager to verify zero-knowledge proofs during session creation.
-
----
-
-## Backend
-
-### API Routes
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| — | **Organizations** | |
-| POST | `/v1/orgs` | Create organization |
-| GET | `/v1/orgs` | List organizations |
-| POST | `/v1/orgs/:id/deploy` | Deploy contract stack for org |
-| POST | `/v1/orgs/:id/fund` | Fund org treasury |
-| — | **Agents** | |
-| POST | `/v1/agents` | Register agent |
-| GET | `/v1/agents` | List agents |
-| POST | `/v1/agents/:id/credential` | Issue credential commitment |
-| POST | `/v1/agents/:id/wallet` | Deploy deterministic wallet |
-| POST | `/v1/agents/:id/session` | Create session (ZK or lightweight) |
-| POST | `/v1/agents/:id/fund` | Fund agent wallet |
-| POST | `/v1/agents/:id/revoke` | Revoke agent credentials |
-| — | **Wallets** | |
-| POST | `/v1/wallets/:addr/userop/prepare` | Prepare UserOperation |
-| POST | `/v1/wallets/:addr/userop/submit` | Submit UserOperation to bundler |
-| GET | `/v1/wallets/userops/:hash` | Get UserOperation receipt |
-| — | **Proofs** | |
-| GET | `/v1/proofs/:agentId` | Get Merkle proof for agent credential |
-| — | **Events** | |
-| GET | `/v1/events` | Indexed on-chain events |
-| — | **External Agents** | |
-| GET | `/v1/external-agents` | List connected agent runtimes |
-| POST | `/v1/external-agents` | Connect external agent runtime |
-| POST | `/v1/external-agents/:id/poll` | Poll for pending actions |
-| — | **AI** | |
-| GET | `/v1/ai/agents` | AI agent capabilities and status |
-| — | **Audit** | |
-| GET | `/v1/audit/logs` | Audit trail |
-| — | **Auth** | |
-| POST | `/v1/auth/login` | Wallet-based login |
-| POST | `/v1/auth/logout` | End session |
-| GET | `/v1/auth/me` | Current user info |
-| — | **System** | |
-| GET | `/health` | Health check |
-
-### Key Services
-
-| Service | Responsibility |
-|---------|----------------|
-| `platform.ts` | Core orchestration — ties all actions together |
-| `actionAuth.ts` | EIP-191 wallet signature verification for all critical operations |
-| `merkle.ts` | Poseidon-based Merkle tree for credential commitments |
-| `revocationTree.ts` | Sparse Merkle tree for revocation state |
-| `prover.ts` | Groth16 proof bundle generation and witness construction |
-| `blockchain.ts` | Contract interaction layer (reads, writes, event parsing) |
-| `bundler.ts` | ERC-4337 UserOperation prepare/submit/receipt flow |
-| `eventSync.ts` | Polls for on-chain events and persists to database |
-| `sessionKey.ts` | Encrypted session key management for autonomous agent execution |
-| `anomalyDetection.ts` | Detects anomalous agent behavior patterns |
-| `capabilityPolicy.ts` | Manages agent capability policies independently of credentials |
-| `audit.ts` | Structured audit trail logging |
-| `agentTools.ts` | Blockchain tools available to agents |
-
-### Middleware
-
-| Middleware | Purpose |
-|------------|---------|
-| `auth.ts` | JWT + wallet session authentication |
-| `security.ts` | CORS, rate limiting, Helmet headers |
-| `rateLimiter.ts` | Per-endpoint rate limiting |
-| `validate.ts` | Request body validation with Zod schemas |
-
----
-
-## ZK Circuit
-
-The circuit at `circuits/credential.circom` implements a credential membership + non-revocation proof:
-
-- **Public inputs**: Merkle root, revocation root, session parameters
-- **Private inputs**: Credential secret, Merkle path, revocation path
-- **Outputs**: Proof that the prover knows a secret whose commitment is in the active tree AND not in the revoked tree
-
-Compiled artifacts (`credential.wasm`, `credential_final.zkey`, `verification_key.json`) are in `circuits/build/`.
+Auto-generated Groth16 verifier from the Circom circuit. Used by SessionManager to verify ZK proofs during session creation.
 
 ---
 
@@ -298,150 +224,46 @@ The self-hosted TypeScript SDK (`sdk/`) enables agent orchestration outside the 
 |--------|---------|
 | `AgentClient.ts` | Org, agent, credential, wallet operations |
 | `SessionManager.ts` | Proof generation and session creation |
+| `verifier.ts` (NEW) | **External trust verification** — verify credentials, capabilities, delegations, and session authorization on-chain without backend access |
 | `types.ts` | Shared type definitions |
-| `examples/create-session.ts` | Full session creation example |
-| `examples/perform-action.ts` | Execute on-chain action via session |
 
----
+### AgentVerifier (SDK)
 
-## Project Structure
+```typescript
+import { AgentVerifier } from "@agentix/sdk"
 
+const verifier = new AgentVerifier({
+  chainId: 11155111,
+  rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY",
+  credentialRegistry: "0x77ca...0dc",
+  sessionManager: "0x3044...1259",
+  capabilityRegistry: "0x57eE...9b2",
+  delegationManager: "0x6AF9...989",
+})
+
+await verifier.init()
+
+// Verify a ZK credential proof
+const result = await verifier.verifyCredentialProof(proof, publicSignals, {
+  verifierAddress: "0x9536...6B46",
+})
+
+// Verify an agent capability
+const capResult = await verifier.verifyCapability({
+  agent: "0xAgentAddress",
+  action: "payments.send",
+  capabilityId: "0xCapId",
+  grantId: "0xGrantId",
+})
+
+// Verify a delegation chain
+const delResult = await verifier.verifyDelegation({
+  delegationId: "0xDelId",
+  delegate: "0xDelegate",
+  scopeHash: "0xScopeHash",
+  expectedOriginator: "0xOriginator",
+})
 ```
-agentix/
-├── package.json                    # Workspace root (bun workspaces)
-├── docker-compose.yml              # Development: PostgreSQL + Redis
-├── docker-compose.prod.yml         # Production compose
-├── .env.example                    # Root env template
-│
-├── backend/                        # Express/Hono API server
-│   ├── src/
-│   │   ├── index.ts                # Server entry, Hono app
-│   │   ├── db.ts                   # PostgreSQL + Drizzle schema
-│   │   ├── migrations.ts           # Versioned migrations
-│   │   ├── routes/                 # API route handlers
-│   │   ├── services/               # Business logic layer
-│   │   ├── middleware/             # Auth, security, rate-limit
-│   │   ├── types/                  # TypeScript types
-│   │   ├── utils/                  # Validators, errors, env, logger
-│   │   └── validation/             # Zod schemas
-│   └── tests/                      # Backend tests
-│
-├── frontend/                       # Next.js 14 operator UI
-│   ├── app/                        # App router pages
-│   │   ├── page.tsx                # Landing
-│   │   ├── dashboard/              # Org workspace
-│   │   ├── agents/                 # Agent management
-│   │   ├── credentials/            # Credential issuance
-│   │   ├── sessions/               # Session overview
-│   │   ├── events/                 # Event timeline
-│   │   ├── audit/                  # Audit trail
-│   │   ├── login/                  # Wallet auth
-│   │   └── api/                    # API proxy routes
-│   ├── components/                 # React components
-│   │   ├── wallet/                 # Wallet connection
-│   │   ├── platform/              # Platform action panels
-│   │   ├── agents/                # Agent components
-│   │   ├── execute/               # Execution panels
-│   │   ├── audit/                 # Audit components
-│   │   ├── effects/               # 3D effects (Three.js)
-│   │   ├── landing/               # Landing page sections
-│   │   ├── common/                # Shared components
-│   │   └── ui/                    # shadcn/ui primitives
-│   ├── hooks/                      # Custom React hooks
-│   ├── lib/                        # API client, types, utils
-│   └── public/                     # Static assets, provider logos
-│
-├── contracts/                      # Solidity smart contracts
-│   ├── src/
-│   │   ├── AgentWallet.sol         # ERC-4337 smart account
-│   │   ├── AgentWalletFactory.sol  # CREATE2 deterministic deploy
-│   │   ├── SessionManager.sol      # ZK + Lightweight sessions
-│   │   ├── CredentialRegistry.sol  # Active + revoked roots
-│   │   └── Verifier.sol            # Groth16 verifier
-│   ├── test/                       # Hardhat contract tests
-│   └── scripts/                    # Deploy & verify scripts
-│
-├── circuits/                       # Circom ZK circuits
-│   ├── credential.circom           # Membership + non-revocation
-│   ├── test/                       # Circuit tests
-│   └── build/                      # .wasm, .zkey, verification_key
-│
-├── sdk/                            # Self-hosted TypeScript SDK
-│   ├── src/                        # Client, session manager, types
-│   └── examples/                   # Usage examples
-│
-├── runtime-local/                  # Local agent runtime server
-│
-├── docs/                           # Documentation
-│   ├── API.md                      # Full API reference
-│   ├── ARCHITECTURE.md             # Architecture deep-dive
-│   ├── SETUP.md                    # Setup & deployment
-│   └── ENTERPRISE_ARCHITECTURE_REVIEW.md
-│
-└── scripts/                        # Dev helper scripts
-```
-
----
-
-## Development
-
-```bash
-# Start everything (backend + frontend)
-npm run dev
-
-# Start individually
-npm run dev:backend     # Port 3001
-npm run dev:frontend    # Port 3000
-
-# Compile contracts
-cd contracts && npx hardhat compile
-
-# Run contract tests
-npm run test:contracts
-
-# Run SDK example
-npm run example:create-session
-```
-
-### Prerequisites
-
-- **Node.js** 18+ (or Bun)
-- **PostgreSQL** 14+ — via Docker: `docker run -e POSTGRES_USER=agentix -e POSTGRES_PASSWORD=agentix-secret -e POSTGRES_DB=agentix -p 5432:5432 postgres:16`
-- **Redis** 7+ (optional, for async proof queue) — via Docker: `docker run -p 6379:6379 redis:7`
-- **Hardhat** or **Foundry** for contract development
-
-### Environment
-
-| Variable | Where | Description |
-|----------|-------|-------------|
-| `DATABASE_URL` | `backend/.env` | PostgreSQL connection string |
-| `RPC_URL` | `backend/.env` | Ethereum RPC (Sepolia Alchemy) |
-| `PRIVATE_KEY` | `backend/.env` | Backend signer wallet key |
-| `BUNDLER_URL` | `backend/.env` | ERC-4337 bundler endpoint |
-| `REDIS_URL` | `backend/.env` | Redis for BullMQ queues |
-| `ENCRYPTION_KEY` | `backend/.env` | AES-256-GCM key (64 hex chars) |
-| `AGENT_CREDENTIALS_API_URL` | `frontend/.env.local` | Backend API URL |
-
----
-
-## Deployment Model
-
-### Frontend
-- Deploy `frontend/` to **Vercel**
-- Set env: `AGENT_CREDENTIALS_API_URL`, `NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL`
-
-### Backend
-- Deploy `backend/` as a long-running Node service
-- **Railway** provides the simplest deployment path
-- Requires:
-  - Persistent PostgreSQL (Railway managed, AWS RDS, or Supabase)
-  - Persistent Redis for proof queue (optional, disable with `ENABLE_PROOF_QUEUE=false`)
-  - Alchemy RPC + Bundler URL
-  - Backend wallet private key funded with Sepolia ETH
-
-### Important
-- The **frontend** is serverless-friendly (Vercel-native).
-- The **backend** is **not** Vercel-native — it needs persistent state, event indexing, and chain orchestration.
 
 ---
 
@@ -450,41 +272,145 @@ npm run example:create-session
 | Principle | Implementation |
 |-----------|----------------|
 | **No raw secrets on-chain** | ZK proofs verify credential membership without revealing the secret |
+| **Credentials ≠ Capabilities** | CapabilityRegistry is separate from CredentialRegistry — changing permissions never invalidates credentials |
 | **Owner signature required** | Every critical action requires an EIP-191 wallet signature |
-| **Session boundaries** | Per-session `maxValue`, `maxTxCount`, `expiresAt` enforced in contracts |
+| **Session boundaries** | Per-session `maxValue`, daily spend/tx limits, `expiresAt` enforced in contracts |
 | **Credential revocation** | Sparse Merkle tree prevents future session creation |
-| **Capability isolation** | Policy stored separately from credentials (defence in depth) |
+| **Delegation depth limits** | Configurable max chain depth (default 5, max 10) prevents unbounded delegation |
+| **Cascade revocation** | Revoking a parent delegation automatically revokes all children |
 | **Nonce protection** | Every signed action has a unique nonce — replay attacks prevented |
 | **Encrypted session keys** | Agent session keys encrypted at rest with AES-256-GCM |
-| **Audit trail** | Every operator action logged with wallet address and timestamp |
+| **Chain abstraction** | No chain-specific code — add any EVM chain via env config |
+| **Audit trail** | Every action logged with wallet address, timestamp, event category, severity |
 
 ---
 
-## Documentation
+## Environment Variables
 
-- **[docs/SETUP.md](./docs/SETUP.md)** — Full setup guide: dependencies, environment, contract deployment
-- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Deeper architecture and design rationale
-- **[docs/API.md](./docs/API.md)** — Complete REST API reference
-- **[docs/ENTERPRISE_ARCHITECTURE_REVIEW.md](./docs/ENTERPRISE_ARCHITECTURE_REVIEW.md)** — Production-readiness assessment
-- **[sdk/README.md](./sdk/README.md)** — SDK usage guide and examples
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `RPC_URL` | Ethereum RPC (Sepolia) |
+| `PRIVATE_KEY` | Backend signer wallet key (Sepolia ETH required) |
+| `BUNDLER_URL` | ERC-4337 bundler endpoint |
+| `REDIS_URL` | Redis for BullMQ queues (optional) |
+| `ENCRYPTION_KEY` | AES-256-GCM key (64 hex chars) |
+| `SESSION_ENCRYPTION_KEY` | Session key encryption key (64 hex chars) |
+| `VERIFIER_ADDRESS` | Groth16 verifier contract |
+| `CREDENTIAL_REGISTRY_ADDRESS` | Credential registry contract |
+| `SESSION_MANAGER_ADDRESS` | Session manager contract |
+| `AGENT_WALLET_FACTORY_ADDRESS` | Wallet factory contract |
+| `AGENT_WALLET_IMPLEMENTATION_ADDRESS` | Wallet implementation contract |
+| `ENTRY_POINT_ADDRESS` | ERC-4337 EntryPoint |
+| `CAPABILITY_REGISTRY_ADDRESS` | Capability registry contract |
+| `DELEGATION_MANAGER_ADDRESS` | Delegation manager contract |
+| `CHAIN_ID` | Network chain ID (default: 11155111) |
+| `CORS_ORIGIN` | Allowed CORS origins |
+
+---
+
+## Project Structure
+
+```
+agentix/
+├── package.json                       # Workspace root
+├── docker-compose.yml                 # Dev: PostgreSQL + Redis
+├── backend/                           # Express/Hono API + MCP Server
+│   ├── src/
+│   │   ├── index.ts                   # Server entry point
+│   │   ├── db.ts                      # PostgreSQL pool + migrations
+│   │   ├── migrations.ts             # 21 versioned migrations
+│   │   ├── mcp/
+│   │   │   ├── server.ts             # MCP server — 30 tool handlers
+│   │   │   └── types.ts              # MCP tool schemas + definitions
+│   │   ├── routes/                    # REST API routes
+│   │   ├── services/
+│   │   │   ├── platform.ts           # Core orchestration
+│   │   │   ├── chainAdapter.ts       # Multi-chain abstraction
+│   │   │   ├── capabilityRegistry.ts # Capability catalog + grants
+│   │   │   ├── delegation.ts         # Delegation chain logic
+│   │   │   ├── externalAgent.ts      # External agent management
+│   │   │   ├── audit.ts             # Governance audit trail
+│   │   │   └── ...                   # merkle, prover, bundler, etc.
+│   │   ├── types/
+│   │   │   └── externalAgent.ts      # External agent type definitions
+│   │   └── middleware/               # Auth, security, rate limiting
+│   └── .env.example
+├── contracts/                         # Solidity smart contracts
+│   ├── src/
+│   │   ├── CredentialRegistry.sol
+│   │   ├── SessionManager.sol
+│   │   ├── CapabilityRegistry.sol    # NEW — capability catalog
+│   │   ├── DelegationManager.sol     # NEW — trust delegation
+│   │   ├── AgentWallet.sol
+│   │   ├── AgentWalletFactory.sol
+│   │   └── Verifier.sol
+│   ├── test/
+│   └── scripts/
+├── circuits/                          # Circom ZK circuit
+├── sdk/                               # TypeScript SDK
+│   └── src/
+│       ├── AgentClient.ts
+│       ├── SessionManager.ts
+│       ├── verifier.ts               # NEW — external trust verification
+│       └── types.ts
+├── frontend/                          # Next.js 14 operator UI
+└── docs/
+```
+
+---
+
+## Development Commands
+
+```bash
+# Start everything (backend + frontend)
+npm run dev
+
+# Start backend only (port 3001)
+npm run dev:backend
+
+# Start frontend only (port 3000)
+npm run dev:frontend
+
+# Compile contracts
+cd contracts && npx hardhat compile
+
+# Run contract tests
+npm run test:contracts
+
+# Deploy contracts to Sepolia
+cd contracts && npx hardhat run scripts/deploy.ts --network sepolia
+cd contracts && npx hardhat run scripts/deploy-capability-delegation.ts --network sepolia
+
+# Build all workspaces
+npm run build
+```
+
+---
+
+## Deployment Model
+
+### One-Command MCP Server
+```bash
+# Prerequisites: PostgreSQL + Redis running, .env configured
+npm run dev:backend
+# MCP available at http://localhost:3001/mcp
+```
+
+### Frontend
+- Deploy `frontend/` to **Vercel**
+- Set env: `AGENT_CREDENTIALS_API_URL`, `NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL`
+
+### Backend
+- Deploy `backend/` as a long-running Node service
+- **Railway** / **Fly.io** provide the simplest deployment path
+- Requires: PostgreSQL, Redis (optional), Alchemy RPC + Bundler, funded wallet
 
 ---
 
 ## License
 
-AGENTIX is source-available under the **Business Source License 1.1 (BUSL-1.1)**.
-
-You may:
-- View the source
-- Fork the repository
-- Experiment locally
-- Use the protocol for research and non-commercial purposes
-
-You may not:
-- Commercially deploy the protocol without permission
-- Create competing hosted services
-
-The license automatically converts to **Apache 2.0** on January 1, 2030.
+BUSL-1.1 — Converts to Apache 2.0 on January 1, 2030.
 
 ---
 

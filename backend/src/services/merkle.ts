@@ -25,7 +25,7 @@ export class IncrementalMerkleTree {
         }
     ) {
         this.depth = depth
-        this.zero = 0n
+        this.zero = BigInt(0)
         this.nodesTable = options?.nodesTable ?? "merkle_tree"
         this.orgId = options?.orgId ?? 0
         this.indexQuery =
@@ -148,7 +148,7 @@ export class IncrementalMerkleTree {
             this.orgId
         )
 
-        let root = 0n
+        let root = BigInt(0)
         for (const credential of credentials) {
             root = await this.insertAt(
                 db,
@@ -181,7 +181,7 @@ export class IncrementalMerkleTree {
             this.depth
         )
 
-        const root = row ? BigInt(row.hash) : 0n
+        const root = row ? BigInt(row.hash) : BigInt(0)
 
         // Cache the result
         const leafCount = await this.getLeafCount(db)

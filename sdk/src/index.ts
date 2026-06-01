@@ -1,3 +1,5 @@
 export { AgentClient } from "./AgentClient"
 export { SessionManager } from "./SessionManager"
+export { AgentVerifier } from "./verifier"
+export type { VerificationResult, ChainConfig, CapabilityCheck, DelegationVerification } from "./verifier"
 export * from "./types"

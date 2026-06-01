@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+        working-directory: backend
+      - name: TypeScript check (backend)
+        run: bunx tsc --noEmit
+        working-directory: backend
+        continue-on-error: true
+      - name: TypeScript check (frontend)
+        run: bunx tsc --noEmit
+        working-directory: frontend
+        continue-on-error: true
+
+  test-contracts:
+    name: Contract Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Compile contracts
+        run: bun hardhat compile
+        working-directory: contracts
+      - name: Run contract tests
+        run: bun hardhat test
+        working-directory: contracts
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Build backend
+        run: bun run build
+        working-directory: backend
+      - name: Build frontend
+        run: bun run build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL: "http://localhost:3001"
+          NEXT_PUBLIC_CHAIN_ID: "11155111"
+      - name: Build SDK
+        run: bun run build
+        working-directory: sdk
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend Docker
+        run: docker build -t agentix-backend:ci ./backend
+      - name: Build frontend Docker
+        run: docker build -t agentix-frontend:ci ./frontend

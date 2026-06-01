@@ -1,4 +1,4 @@
-import crypto from "crypto"
+import * as crypto from "crypto"
 import { initDB } from "../db"
 import {
     ExternalAgent,
@@ -16,6 +16,7 @@ import {
 } from "../types/externalAgent"
 import { AppError } from "../utils/errors"
 import { IncrementalMerkleTree } from "./merkle"
+import { SparseRevocationTree } from "./revocationTree"
 import { poseidonHash } from "../utils/crypto"
 
 // Permission bitmasks for agent actions
@@ -863,6 +864,8 @@ export class ExternalAgentService {
             throw new AppError(400, `Agent is not available (status: ${agent.status})`)
         }
 
+        const effectiveTimeout = Math.min(Math.max(request.timeout || 30000, 1000), 30 * 60 * 1000)
+
         // Build the execution URL
         const executeUrl = this.executeEndpoint(agent.endpoint)
 
@@ -886,7 +889,7 @@ export class ExternalAgentService {
             params: request.params,
             nonce: requestId,
             requestedAt: request.requestedAt,
-            timeout: request.timeout || 30000
+            timeout: effectiveTimeout
         }
 
         if (proof) {
@@ -902,7 +905,7 @@ export class ExternalAgentService {
                 method: "POST",
                 headers,
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(request.timeout || 30000)
+                signal: AbortSignal.timeout(effectiveTimeout)
             })
 
             const responseTime = Date.now() - startTime
@@ -1083,7 +1086,8 @@ export class ExternalAgentService {
 
     /**
      * Generate an authorization proof for an agent action
-     * This creates a ZK proof that the agent is authorized to perform the action
+     * Builds real Merkle proofs from the credential tree + revocation tree;
+     * optionally runs the full Groth16 prover if circuit files are present.
      */
     async generateAuthorizationProof(
         agentId: number,
@@ -1097,9 +1101,9 @@ export class ExternalAgentService {
     }> {
         const db = await initDB()
 
-        // Get the agent and its linked credential
         const agent = await db.get(
-            `SELECT ea.*, c.permissions, c.expiry as credential_expiry, c.merkle_index
+            `SELECT ea.*, c.permissions, c.expiry as credential_expiry, c.leaf_index,
+                    c.secret_hash, c.commitment
              FROM external_agents ea
              LEFT JOIN credentials c ON ea.linked_agent_id = c.agent_id
              WHERE ea.id = ? AND ea.org_id = ?`,
@@ -1111,7 +1115,6 @@ export class ExternalAgentService {
             throw new AppError(404, "Agent not found")
         }
 
-        // Check if agent has the required permission
         const requiredPermission = ACTION_PERMISSIONS[action] || 0
         const agentPermissions = agent.permissions || AGENT_PERMISSIONS.ALL
 
@@ -1119,50 +1122,126 @@ export class ExternalAgentService {
             throw new AppError(403, `Agent does not have permission for action: ${action}`)
         }
 
-        // Check credential expiry
         if (agent.credential_expiry && agent.credential_expiry < Math.floor(Date.now() / 1000)) {
             throw new AppError(403, "Agent credential has expired")
         }
 
-        // Get merkle proof for the credential
-        const tree = new IncrementalMerkleTree(20, { orgId })
-        const merkleIndex = agent.merkle_index ?? 0
-        const merkleProof = await tree.generateProof(db, merkleIndex)
-        const merkleRoot = await tree.getRoot(db)
+        // Merkle proof from active credential tree
+        const activeTree = new IncrementalMerkleTree(20, { orgId })
+        const activeProof = await activeTree.generateProof(db, agent.leaf_index ?? 0)
+        const activeRoot = await activeTree.getRoot(db)
 
-        // Generate nullifier (unique per request to prevent replay)
+        // Revocation proof — prove credential's secret is NOT revoked
+        const secretHash = BigInt(agent.secret_hash ?? 0)
+        const revokedProof = await new SparseRevocationTree(orgId).generateProof(db, secretHash)
+
+        // Unique nullifier
         const nullifier = poseidonHash([
             BigInt(agentId),
             BigInt(Math.floor(Date.now() / 1000)),
             BigInt(crypto.randomInt(1, 1000000))
         ])
 
-        // Build the execution proof
         const expiresAt = Math.floor(Date.now() / 1000) + expirySeconds
 
-        // Create the proof object (simplified - in production this would use actual ZK circuit)
-        const proof: ExecutionProof = {
-            nullifier: nullifier.toString(),
-            root: merkleRoot.toString(),
-            revokedRoot: "0", // Would be computed from revocation tree
-            proof: {
-                a: ["0", "0"],
-                b: [["0", "0"], ["0", "0"]],
-                c: ["0", "0"]
-            },
-            publicSignals: [
-                nullifier.toString(),
-                merkleRoot.toString(),
-                "0", // revokedRoot
-                agentPermissions.toString(),
-                expiresAt.toString()
-            ]
-        }
+        // Try to generate a real Groth16 proof; fall back to Merkle-only on missing circuits
+        const proof: ExecutionProof = await this._tryFullProof(
+            agent, orgId, activeRoot, activeProof, revokedProof,
+            nullifier, agentPermissions, expiresAt
+        )
 
         return {
             proof,
             permissionBitmask: agentPermissions,
             expiresAt
+        }
+    }
+
+    /**
+     * Attempt full Groth16 proof; fall back to Merkle-data-only proof when circuits are absent.
+     */
+    private async _tryFullProof(
+        agent: any,
+        orgId: number,
+        activeRoot: bigint,
+        activeProof: { pathElements: string[]; pathIndices: number[] },
+        revokedProof: {
+            siblings: string[]; oldKey: string; oldValue: string; isOld0: number
+            root: string
+        },
+        nullifier: bigint,
+        permissions: number,
+        expiresAt: number
+    ): Promise<ExecutionProof> {
+        const fs = await import("fs")
+        const path = await import("path")
+
+        const wasmPath = path.resolve(
+            __dirname, "../../../circuits/build/credential_js/credential.wasm"
+        )
+        const zkeyPath = (() => {
+            const dir = path.resolve(__dirname, "../../../circuits/build")
+            if (!fs.existsSync(dir)) return ""
+            const files = fs.readdirSync(dir)
+            const z = files.find((f: string) => f.endsWith(".zkey"))
+            return z ? path.join(dir, z) : ""
+        })()
+
+        if (!fs.existsSync(wasmPath) || !zkeyPath) {
+            // No circuit files — return Merkle-data-only proof
+            return {
+                nullifier: nullifier.toString(),
+                root: activeRoot.toString(),
+                revokedRoot: revokedProof.root,
+                proof: { a: ["0", "0"], b: [["0", "0"], ["0", "0"]], c: ["0", "0"] },
+                publicSignals: [
+                    nullifier.toString(),
+                    activeRoot.toString(),
+                    revokedProof.root,
+                    permissions.toString(),
+                    expiresAt.toString()
+                ]
+            }
+        }
+
+        // Build full Groth16 input
+        const input = {
+            agentId: agent.linked_agent_id?.toString() ?? "0",
+            orgId: orgId.toString(),
+            permissions: agent.permissions?.toString() ?? "0",
+            expiry: agent.credential_expiry?.toString() ?? "0",
+            secret: agent.managed_secret ?? "0",
+            sessionNonce: Math.floor(Date.now() / 1000).toString(),
+            activePathElements: activeProof.pathElements,
+            activePathIndices: activeProof.pathIndices,
+            revokedSiblings: revokedProof.siblings,
+            revokedOldKey: revokedProof.oldKey,
+            revokedOldValue: revokedProof.oldValue,
+            revokedIsOld0: revokedProof.isOld0,
+            activeRoot: activeRoot.toString(),
+            revokedRoot: revokedProof.root,
+            maxValue: permissions.toString(),
+            sessionExpiry: expiresAt.toString()
+        }
+
+        let { groth16 } = await import("snarkjs")
+        const { proof: rawProof, publicSignals } = await groth16.fullProve(
+            input, wasmPath, zkeyPath
+        )
+
+        return {
+            nullifier: nullifier.toString(),
+            root: activeRoot.toString(),
+            revokedRoot: revokedProof.root,
+            proof: {
+                a: [rawProof.pi_a[0]?.toString() ?? "0", rawProof.pi_a[1]?.toString() ?? "0"],
+                b: [
+                    [rawProof.pi_b[0][1]?.toString() ?? "0", rawProof.pi_b[0][0]?.toString() ?? "0"],
+                    [rawProof.pi_b[1][1]?.toString() ?? "0", rawProof.pi_b[1][0]?.toString() ?? "0"]
+                ],
+                c: [rawProof.pi_c[0]?.toString() ?? "0", rawProof.pi_c[1]?.toString() ?? "0"]
+            },
+            publicSignals: publicSignals.map((s: any) => s.toString())
         }
     }
 

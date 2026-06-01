@@ -1,0 +1,578 @@
+import { InMemoryStore } from "./store.js"
+import { checkCircuits, generateProof, getProverStatus } from "./circuits.js"
+import { ethers } from "ethers"
+import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js"
+
+const store = new InMemoryStore()
+
+const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
+const RPC_URL = process.env.RPC_URL || "https://eth-sepolia.g.alchemy.com/v2/demo"
+
+const CONTRACT_ADDRESSES = {
+  verifier: process.env.VERIFIER_ADDRESS || "0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46",
+  credentialRegistry: process.env.CREDENTIAL_REGISTRY_ADDRESS || "0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc",
+  sessionManager: process.env.SESSION_MANAGER_ADDRESS || "0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259",
+  capabilityRegistry: process.env.CAPABILITY_REGISTRY_ADDRESS || "0x57eEc0D86b79c4107fE57f5A2092794EF073B9b2",
+  delegationManager: process.env.DELEGATION_MANAGER_ADDRESS || "0x6AF9cccd6BC58ea4379725311784F8ba67528989",
+  agentWalletFactory: process.env.AGENT_WALLET_FACTORY_ADDRESS || "0xFaDAe432B8821C4B0690fd80f923F43fd85b4824",
+  entryPoint: process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+}
+
+let provider: ethers.JsonRpcProvider | null = null
+function getProvider(): ethers.JsonRpcProvider {
+  if (!provider) {
+    provider = new ethers.JsonRpcProvider(RPC_URL, CHAIN_ID, { staticNetwork: true })
+  }
+  return provider
+}
+
+type ToolHandler = (args: any) => Promise<{
+  content: Array<{ type: "text"; text: string }>
+  isError?: boolean
+}>
+
+const handlers: Record<string, ToolHandler> = {}
+
+// ─── Agent Registration ───────────────────────────────────────
+
+handlers.register_agent = async (args) => {
+  const { orgId, agentType, name } = args
+  const agent = store.createAgent({ orgId, agentType, name })
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, agent }, null, 2) }],
+  }
+}
+
+handlers.list_agents = async (args) => {
+  const { orgId } = args
+  const agents = store.listAgents(orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ agents }, null, 2) }],
+  }
+}
+
+handlers.get_agent_state = async (args) => {
+  const { agentId, orgId } = args
+  const agent = store.getAgent(agentId, orgId)
+  if (!agent) return { content: [{ type: "text", text: JSON.stringify({ error: "Agent not found" }) }], isError: true }
+  return {
+    content: [{ type: "text", text: JSON.stringify({ agent }, null, 2) }],
+  }
+}
+
+handlers.revoke_agent = async (args) => {
+  const { agentId, orgId } = args
+  store.deleteAgent(agentId, orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true }) }],
+  }
+}
+
+// ─── Capability Registry ──────────────────────────────────────
+
+handlers.create_capability = async (args) => {
+  const { orgId, action, effect, constraints, resourcePattern, expiresAt } = args
+  const cap = store.createCapability({ orgId, action, effect, constraints, resourcePattern, expiresAt })
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, capability: cap }, null, 2) }],
+  }
+}
+
+handlers.list_capabilities = async (args) => {
+  const { orgId } = args
+  const capabilities = store.listCapabilities(orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ capabilities }, null, 2) }],
+  }
+}
+
+handlers.grant_capability = async (args) => {
+  const { orgId, grantorAgentId, granteeAgentId, capabilityId, constraints, expiresAt } = args
+  const grant = store.grantCapability({ orgId, grantorAgentId, granteeAgentId, capabilityId, constraints, expiresAt })
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, grant }, null, 2) }],
+  }
+}
+
+handlers.revoke_grant = async (args) => {
+  const { orgId, grantId } = args
+  store.revokeGrant(grantId, orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true }) }],
+  }
+}
+
+handlers.check_capability = async (args) => {
+  const { agentId, orgId, action } = args
+  const result = store.checkCapability(agentId, orgId, action)
+  return {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+  }
+}
+
+handlers.list_agent_grants = async (args) => {
+  const { agentId, orgId } = args
+  const grants = store.getGrantsForAgent(agentId, orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ grants }, null, 2) }],
+  }
+}
+
+// ─── Delegation ───────────────────────────────────────────────
+
+handlers.create_delegation = async (args) => {
+  const { orgId, delegatorAgentId, delegateAgentId, scope, expiresAt, maxDepth, label } = args
+  const delegation = store.createDelegation({ orgId, delegatorAgentId, delegateAgentId, scope, expiresAt, maxDepth, label })
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, delegation }, null, 2) }],
+  }
+}
+
+handlers.revoke_delegation = async (args) => {
+  const { orgId, delegationId } = args
+  store.revokeDelegation(delegationId, orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true }) }],
+  }
+}
+
+handlers.check_delegation = async (args) => {
+  const { delegateAgentId, orgId, requiredAction } = args
+  const result = store.checkDelegation(delegateAgentId, orgId, requiredAction)
+  return {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+  }
+}
+
+handlers.get_delegation_chain = async (args) => {
+  const { delegateAgentId, orgId } = args
+  const chain = store.getDelegationChain(delegateAgentId, orgId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ chain }, null, 2) }],
+  }
+}
+
+// ─── Chain Discovery ──────────────────────────────────────────
+
+handlers.get_chains = async () => {
+  let healthy = false
+  try {
+    const p = getProvider()
+    await p.getBlockNumber()
+    healthy = true
+  } catch {}
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        chains: [{
+          chainId: CHAIN_ID,
+          name: process.env.NETWORK_NAME || "sepolia",
+          rpcUrl: RPC_URL,
+          contractAddresses: CONTRACT_ADDRESSES,
+          healthy,
+        }],
+      }, null, 2),
+    }],
+  }
+}
+
+handlers.get_chain_contracts = async () => {
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        chainId: CHAIN_ID,
+        name: process.env.NETWORK_NAME || "sepolia",
+        contracts: CONTRACT_ADDRESSES,
+      }, null, 2),
+    }],
+  }
+}
+
+// ─── Proof Generation ─────────────────────────────────────────
+
+handlers.generate_proof = async (args) => {
+  const { agentId, orgId, action, expirySeconds } = args
+
+  const agent = store.getAgent(agentId, orgId)
+  if (!agent) {
+    return { content: [{ type: "text", text: JSON.stringify({ error: "Agent not found" }) }], isError: true }
+  }
+
+  const { wasm, zkey } = checkCircuits()
+  if (!wasm || !zkey) {
+    // Circuit files missing — return simulated proof
+    const nullifier = ethers.keccak256(ethers.toUtf8Bytes(`${agentId}:${orgId}:${Date.now()}`))
+    const expiresAt = Math.floor(Date.now() / 1000) + (expirySeconds || 3600)
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          proof: {
+            nullifier,
+            root: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            revokedRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            proof: { a: ["0", "0"], b: [["0", "0"], ["0", "0"]], c: ["0", "0"] },
+            publicSignals: [nullifier, "0", "0", "255", expiresAt.toString()],
+          },
+          permissionBitmask: 255,
+          expiresAt,
+          note: "Simulated proof — install circuit files for real ZK proofs",
+          circuitStatus: getProverStatus(),
+        }, null, 2),
+      }],
+    }
+  }
+
+  // Real Groth16 proof with circuit
+  const permissions = 255
+  const expiresAt = Math.floor(Date.now() / 1000) + (expirySeconds || 3600)
+
+  const input = {
+    agentId: String(agentId),
+    orgId: String(orgId),
+    permissions: String(permissions),
+    expiry: String(expiresAt),
+    secret: String(agentId), // ephemeral — use client-generated secret in production
+    sessionNonce: String(Math.floor(Date.now() / 1000)),
+    activePathElements: Array(20).fill("0"),
+    activePathIndices: Array(20).fill("0"),
+    revokedSiblings: Array(20).fill("0"),
+    revokedOldKey: "0",
+    revokedOldValue: "0",
+    revokedIsOld0: 1,
+    activeRoot: "0",
+    revokedRoot: "0",
+    maxValue: String(permissions),
+    sessionExpiry: String(expiresAt),
+  }
+
+  const result = await generateProof(input)
+  const proof = result.proof
+  const publicSignals = result.publicSignals
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        success: true,
+        proof: {
+          proof: {
+            a: [proof.pi_a[0]?.toString() ?? "0", proof.pi_a[1]?.toString() ?? "0"],
+            b: [[proof.pi_b[0][1]?.toString() ?? "0", proof.pi_b[0][0]?.toString() ?? "0"],
+                [proof.pi_b[1][1]?.toString() ?? "0", proof.pi_b[1][0]?.toString() ?? "0"]],
+            c: [proof.pi_c[0]?.toString() ?? "0", proof.pi_c[1]?.toString() ?? "0"],
+          },
+          publicSignals,
+        },
+        permissionBitmask: permissions,
+        expiresAt,
+      }, null, 2),
+    }],
+  }
+}
+
+handlers.verify_proof = async (args) => {
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        valid: true,
+        note: "On-chain verification requires the proof to be submitted to SessionManager.verifyProof(). In test mode, trust is assumed.",
+      }, null, 2),
+    }],
+  }
+}
+
+// ─── Heartbeat ────────────────────────────────────────────────
+
+handlers.heartbeat = async (args) => {
+  const { agentId } = args
+  store.heartbeat(agentId)
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, receivedAt: Math.floor(Date.now() / 1000) }, null, 2) }],
+  }
+}
+
+// ─── Tool Definitions ─────────────────────────────────────────
+
+const TOOL_DEFS = [
+  {
+    name: "register_agent",
+    description: "Register a new test agent (in-memory, no DB required)",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number", description: "Organization ID" },
+        agentType: { type: "string", enum: ["openclaude", "langchain", "claude_code", "custom", "crewai", "llama_index", "autogen", "smolagents"], description: "Agent type" },
+        name: { type: "string", description: "Agent name" },
+      },
+      required: ["orgId", "agentType", "name"],
+    },
+  },
+  {
+    name: "list_agents",
+    description: "List all agents for an organization",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number", description: "Organization ID" },
+      },
+      required: ["orgId"],
+    },
+  },
+  {
+    name: "get_agent_state",
+    description: "Get agent state",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+      },
+      required: ["agentId", "orgId"],
+    },
+  },
+  {
+    name: "revoke_agent",
+    description: "Delete agent from test store",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+      },
+      required: ["agentId", "orgId"],
+    },
+  },
+  {
+    name: "create_capability",
+    description: "Create a capability definition",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+        action: { type: "string" },
+        effect: { type: "string", enum: ["allow", "deny", "audit"] },
+        constraints: { type: "object" },
+        resourcePattern: { type: "string" },
+        expiresAt: { type: "number" },
+      },
+      required: ["orgId", "action"],
+    },
+  },
+  {
+    name: "list_capabilities",
+    description: "List capability definitions",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+      },
+      required: ["orgId"],
+    },
+  },
+  {
+    name: "grant_capability",
+    description: "Grant a capability to an agent",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+        grantorAgentId: { type: "number" },
+        granteeAgentId: { type: "number" },
+        capabilityId: { type: "number" },
+        constraints: { type: "object" },
+        expiresAt: { type: "number" },
+      },
+      required: ["orgId", "grantorAgentId", "granteeAgentId", "capabilityId"],
+    },
+  },
+  {
+    name: "revoke_grant",
+    description: "Revoke a capability grant",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+        grantId: { type: "number" },
+      },
+      required: ["orgId", "grantId"],
+    },
+  },
+  {
+    name: "check_capability",
+    description: "Check if an agent has a capability",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+        action: { type: "string" },
+      },
+      required: ["agentId", "orgId", "action"],
+    },
+  },
+  {
+    name: "list_agent_grants",
+    description: "List grants for an agent",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+      },
+      required: ["agentId", "orgId"],
+    },
+  },
+  {
+    name: "create_delegation",
+    description: "Create a delegation",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+        delegatorAgentId: { type: "number" },
+        delegateAgentId: { type: "number" },
+        scope: { type: "object" },
+        expiresAt: { type: "number" },
+        maxDepth: { type: "number" },
+        label: { type: "string" },
+      },
+      required: ["orgId", "delegatorAgentId", "delegateAgentId", "scope"],
+    },
+  },
+  {
+    name: "revoke_delegation",
+    description: "Revoke a delegation",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orgId: { type: "number" },
+        delegationId: { type: "number" },
+      },
+      required: ["orgId", "delegationId"],
+    },
+  },
+  {
+    name: "check_delegation",
+    description: "Check delegation permission",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        delegateAgentId: { type: "number" },
+        orgId: { type: "number" },
+        requiredAction: { type: "string" },
+      },
+      required: ["delegateAgentId", "orgId", "requiredAction"],
+    },
+  },
+  {
+    name: "get_delegation_chain",
+    description: "Trace delegation chain",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        delegateAgentId: { type: "number" },
+        orgId: { type: "number" },
+      },
+      required: ["delegateAgentId", "orgId"],
+    },
+  },
+  {
+    name: "get_chains",
+    description: "List blockchain chains and contract addresses",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "get_chain_contracts",
+    description: "Get deployed contract addresses for the configured chain",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "generate_proof",
+    description: "Generate a ZK proof (snarkjs-based, testnet). Falls back to simulated proof if circuit files missing.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+        action: { type: "string" },
+        expirySeconds: { type: "number" },
+      },
+      required: ["agentId", "orgId", "action"],
+    },
+  },
+  {
+    name: "verify_proof",
+    description: "Verify a ZK proof (test-mode: returns valid by default)",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        proof: { type: "object" },
+        action: { type: "string" },
+      },
+      required: ["proof", "action"],
+    },
+  },
+  {
+    name: "heartbeat",
+    description: "Update agent heartbeat timestamp",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: { type: "number" },
+        orgId: { type: "number" },
+      },
+      required: ["agentId", "orgId"],
+    },
+  },
+]
+
+export function createMCPServer(): Server {
+  const serverInfo = {
+    name: "agentix-mcp-test",
+    version: process.env.npm_package_version || "0.1.0",
+  }
+
+  const server = new Server(serverInfo, {
+    capabilities: { tools: {} },
+  })
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOL_DEFS,
+  }))
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params
+    const handler = handlers[name]
+    if (!handler) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
+        isError: true,
+      }
+    }
+    try {
+      return await handler(args || {})
+    } catch (err: any) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: err.message }) }],
+        isError: true,
+      }
+    }
+  })
+
+  return server
+}
