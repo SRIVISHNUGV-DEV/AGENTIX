@@ -95,32 +95,32 @@ It gives organizations a way to:
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                               AGENTIX PROTOCOL                                   │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
+┌──────────────────────────────────────────────────────────────────────────────── ┐
+│                               AGENTIX PROTOCOL                                  │
+├─────────────────────────────────────────────────────────────────────────────── ─┤
+│                                                                                 │
 │   ┌──────────────────────────────────────────────────────────────────────┐      │
-│   │  Layer 5 — Interface & Consumption                                    │      │
+│   │  Layer 5 — Interface & Consumption                                   │      │
 │   │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │      │
-│   │  │  Next.js Operator│  │  Self-Hosted SDK  │  │  External Agent     │  │      │
-│   │  │  Platform (UI)   │  │  (TypeScript)     │  │  Runtime Connectors │  │      │
+│   │  │ Next.js Operator│  │  Self-Hosted SDK │  │  External Agent     │  │      │
+│   │  │ Platform (UI)   │  │  (TypeScript)    │  │  Runtime Connectors │  │      │
 │   │  └─────────────────┘  └──────────────────┘  └─────────────────────┘  │      │
 │   └──────────────────────────────────────────────────────────────────────┘      │
 │                                      │                                          │
 │   ┌──────────────────────────────────────────────────────────────────────┐      │
 │   │  Layer 4 — Backend Control Plane                                     │      │
 │   │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │      │
-│   │  │  Express/Hono API│  │  Platform Service │  │  Event Indexer      │  │      │
-│   │  │  (REST Routes)   │  │  (Orchestration)  │  │  (Chain Polling)    │  │      │
+│   │  │ Express/Hono API│  │ Platform Service │  │  Event Indexer      │  │      │
+│   │  │  (REST Routes)  │  │  (Orchestration) │  │  (Chain Polling)    │  │      │
 │   │  └─────────────────┘  └──────────────────┘  └─────────────────────┘  │      │
 │   └──────────────────────────────────────────────────────────────────────┘      │
 │                                      │                                          │
 │   ┌──────────────────────────────────────────────────────────────────────┐      │
 │   │  Layer 3 — Proof & State Services                                    │      │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐  │      │
-│   │  │  Merkle Tree  │  │  Revocation   │  │  Groth16   │  │  4337     │  │      │
-│   │  │  (Poseidon)   │  │  Tree (Sparse)│  │  Prover    │  │  Bundler   │  │      │
-│   │  └──────────────┘  └──────────────┘  └────────────┘  └───────────┘  │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐   │      │
+│   │  │  Merkle Tree │  │ Revocation   │  │  Groth16   │  │  4337     │   │      │
+│   │  │  (Poseidon)  │  │ Tree (Sparse)│  │  Prover    │  │  Bundler  │   │      │
+│   │  └──────────────┘  └──────────────┘  └────────────┘  └───────────┘   │      │
 │   └──────────────────────────────────────────────────────────────────────┘      │
 │                                      │                                          │
 │   ┌──────────────────────────────────────────────────────────────────────┐      │
@@ -133,13 +133,13 @@ It gives organizations a way to:
 │                                      │                                          │
 │   ┌──────────────────────────────────────────────────────────────────────┐      │
 │   │  Layer 1 — Trust Anchors                                             │      │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐     │      │
-│   │  │  Groth16     │  │  ERC-4337    │  │  Organization Owner    │     │      │
-│   │  │  Verifier    │  │  EntryPoint  │  │  Wallet (EOA)          │     │      │
-│   │  └──────────────┘  └──────────────┘  └────────────────────────┘     │      │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐      │      │
+│   │  │  Groth16     │  │  ERC-4337    │  │  Organization Owner    │      │      │
+│   │  │  Verifier    │  │  EntryPoint  │  │  Wallet (EOA)          │      │      │
+│   │  └──────────────┘  └──────────────┘  └────────────────────────┘      │      │
 │   └──────────────────────────────────────────────────────────────────────┘      │
-│                                                                                  │
-└────────────────────────────────────────────────────────────────────────────────┘
+│                                                                                 │
+└──────────────────────────────────────────────────────────────────────────────── ┘
 ```
 
 ### Execution Flow
@@ -147,36 +147,36 @@ It gives organizations a way to:
 ```
 Org Owner Wallet                       Agentix Backend                    Ethereum (Sepolia)
       │                                      │                                   │
-      │  1. Connect + Create Org              │                                   │
+      │  1. Connect + Create Org             │                                   │
       │─────────────────────────────────────►│                                   │
-      │  2. Sign action: Register Agent       │                                   │
+      │  2. Sign action: Register Agent      │                                   │
       │─────────────────────────────────────►│                                   │
-      │                                      │  3. Insert credential commitment   │
-      │                                      │     into Poseidon Merkle tree      │
+      │                                      │  3. Insert credential commitment  │
+      │                                      │     into Poseidon Merkle tree     │
       │                                      │──────────────────────────────────►│
-      │                                      │     setActiveRoot()                │
+      │                                      │     setActiveRoot()               │
       │                                      │                                   │
-      │  4. Sign action: Deploy Wallet        │                                   │
-      │─────────────────────────────────────►│  5. createAccount()                │
+      │  4. Sign action: Deploy Wallet       |                                   │
+      │─────────────────────────────────────►│  5. createAccount()               │
       │                                      │──────────────────────────────────►│
-      │                                      │     AgentWallet deployed           │
+      │                                      │     AgentWallet deployed          │
       │                                      │                                   │
-      │  6. Sign action: Fund Wallet          │                                   │
-      │─────────────────────────────────────►│  7. transfer()                     │
+      │  6. Sign action: Fund Wallet         │                                   │
+      │─────────────────────────────────────►│  7. transfer()                    │
       │                                      │──────────────────────────────────►│
       │                                      │                                   │
-      │  8. Sign action: Create Session       │                                   │
-      │─────────────────────────────────────►│  9. Build proof bundle             │
-      │                                      │  10. createSession(proof, signals) │
+      │  8. Sign action: Create Session      │                                   │
+      │─────────────────────────────────────►│  9. Build proof bundle            │
+      │                                      │  10. createSession(proof, signals)│
       │                                      │──────────────────────────────────►│
-      │                                      │     SessionCreated event           │
+      │                                      │     SessionCreated event          │
       │                                      │                                   │
-      │  11. Sign UserOp                      │                                   │
-      │─────────────────────────────────────►│  12. handleOps() via Bundler       │
+      │  11. Sign UserOp                     │                                   │
+      │─────────────────────────────────────►│  12. handleOps() via Bundler      │
       │                                      │──────────────────────────────────►│
-      │                                      │     EntryPoint.validateUserOp()    │
-      │                                      │     AgentWallet.execute()          │
-      │                                      │                                   │
+      │                                      │     EntryPoint.validateUserOp()   │
+      │                                      │     AgentWallet.execute()         │
+      │_____________________________________ |___________________________________|                                    │                                   │
 ```
 
 ### Session Types
