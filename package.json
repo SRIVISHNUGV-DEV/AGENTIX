@@ -12,16 +12,23 @@
   ],
   "scripts": {
     "install:all": "cd backend && npm install && cd .. && cd frontend && npm install && cd .. && cd sdk && npm install && cd .. && cd contracts && npm install && cd .. && cd circuits && npm install",
-    "build": "cd backend && npm run build && cd .. && cd sdk && npm run build && cd .. && cd contracts && npx hardhat compile",
+    "build": "npm run build:backend && npm run build:sdk && npm run build:frontend && npm run build:contracts",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "build:sdk": "cd sdk && npm run build",
+    "build:contracts": "cd contracts && npx hardhat compile",
+    "build:mcp-test": "cd mcp-test && npm run build",
+    "test": "npm run test:contracts && npm run test:backend && npm run test:mcp-test",
+    "test:contracts": "cd contracts && npx hardhat test",
+    "test:backend": "cd backend && bun test --serial",
+    "test:mcp-test": "cd mcp-test && bun test --serial",
     "dev": "powershell -ExecutionPolicy Bypass -File \"./scripts/start-dev.ps1\"",
     "dev:backend": "cd backend && npx tsx src/index.ts",
     "dev:frontend": "cd frontend && npm run dev",
+    "dev:mcp-test": "cd mcp-test && npx tsx src/index.ts --http --port 3100",
     "start:mcp": "node scripts/mcp-start.js",
     "start:mcp:dev": "node --watch scripts/mcp-start.js",
-    "example:create-session": "cd sdk && npx tsx examples/create-session.ts",
-    "test:contracts": "cd contracts && npx hardhat test",
-    "dev:mcp-test": "cd mcp-test && npx tsx src/index.ts --http --port 3100",
     "start:mcp-test": "cd mcp-test && node dist/index.js --http",
-    "build:mcp-test": "cd mcp-test && npm run build"
+    "example:create-session": "cd sdk && npx tsx examples/create-session.ts"
   }
 }

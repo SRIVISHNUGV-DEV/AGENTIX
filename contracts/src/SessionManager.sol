@@ -316,11 +316,11 @@ contract SessionManager is ReentrancyGuard {
         require(s.sessionKey != address(0), "Session not found");
         require(!s.revoked, "Already revoked");
 
-        // Verify caller is wallet owner (through wallet contract)
-        address walletOwner = IAgentWallet(msg.sender).owner();
+        // Verify caller is wallet owner or session key
+        // Check session key first to avoid abi.decode revert on EOA caller
         require(
-            walletOwner == msg.sender ||
-            s.sessionKey == msg.sender,
+            s.sessionKey == msg.sender ||
+            IAgentWallet(msg.sender).owner() == msg.sender,
             "Not authorized to revoke"
         );
 

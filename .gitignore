@@ -11,6 +11,8 @@ out/
 .env
 .env.local
 .env.*.local
+runtime-local/.env
+runtime-local/node_modules/
 
 # IDE
 .idea/

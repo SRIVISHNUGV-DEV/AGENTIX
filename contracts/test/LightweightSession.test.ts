@@ -15,16 +15,18 @@ describe("LightweightSession", function () {
 
   const DAILY_SPEND_LIMIT = ethers.parseEther("1.0");
   const DAILY_TX_LIMIT = 10n;
-  const EXPIRY = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 days
+  const EXPIRY = BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60); // 30 days
 
   // Helper to create session
-  async function createSession(sessionId: string, walletOwner: SignerWithAddress, sessionKeyAddr: string, spendLimit: bigint = DAILY_SPEND_LIMIT, txLimit: bigint = DAILY_TX_LIMIT, expiry: number = EXPIRY) {
+  async function createSession(sessionId: string, walletOwner: SignerWithAddress, sessionKeyAddr: string, spendLimit: bigint = DAILY_SPEND_LIMIT, txLimit: bigint = DAILY_TX_LIMIT, expiry: bigint = EXPIRY) {
     const sessionIdBytes32 = ethers.id(sessionId);
 
-    // Create message hash
-    const messageHash = ethers.solidityPackedKeccak256(
-      ["bytes32", "address", "uint256", "uint256", "uint64"],
-      [sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry]
+    // Create message hash (must match contract's keccak256(abi.encode(...)))
+    const messageHash = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ["bytes32", "address", "uint256", "uint256", "uint64"],
+        [sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry]
+      )
     );
 
     // Sign with wallet owner's EIP-191
@@ -103,10 +105,12 @@ describe("LightweightSession", function () {
       // Get wallet owner (set when wallet was created)
       const walletOwner = await wallet.owner();
 
-      // Create message hash
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["bytes32", "address", "uint256", "uint256", "uint64"],
-        [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+      // Create message hash (must match contract's keccak256(abi.encode(...)))
+      const messageHash = ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ["bytes32", "address", "uint256", "uint256", "uint64"],
+          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+        )
       );
 
       // Sign with wallet's actual owner (should be 'owner' signer)
@@ -148,9 +152,11 @@ describe("LightweightSession", function () {
       const sessionKey = await sessionKeySigner.getAddress();
 
       // Sign with wrong signer
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["bytes32", "address", "uint256", "uint256", "uint64"],
-        [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+      const messageHash = ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ["bytes32", "address", "uint256", "uint256", "uint64"],
+          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+        )
       );
 
       const signature = await other.signMessage(ethers.getBytes(messageHash));
@@ -181,9 +187,11 @@ describe("LightweightSession", function () {
       await createSession("test-session-3", owner, sessionKey);
 
       // Try to create duplicate
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["bytes32", "address", "uint256", "uint256", "uint64"],
-        [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+      const messageHash = ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ["bytes32", "address", "uint256", "uint256", "uint64"],
+          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+        )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
 
@@ -302,27 +310,21 @@ describe("LightweightSession", function () {
       const sessionKey = await sessionKeySigner.getAddress();
       const sessionId = await createSession("test-session-7", owner, sessionKey);
 
-      const walletAddress = await wallet.getAddress();
-      await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
-      const walletSigner = await ethers.getSigner(walletAddress);
-
-      // Revoke
-      await sessionManager.connect(walletSigner).revokeLightweightSession(sessionId);
+      // Revoke from session key (only session key or wallet owner can revoke)
+      await sessionManager.connect(sessionKeySigner).revokeLightweightSession(sessionId);
 
       // Check revoked
       const session = await sessionManager.getLightSession(sessionId);
       expect(session.revoked).to.be.true;
 
-      // Validation should fail
+      // Validation should fail when called from any account
       await expect(
-        sessionManager.connect(walletSigner).validateLightweightSession(
+        sessionManager.validateLightweightSession(
           sessionId,
           sessionKey,
           ethers.parseEther("0.1")
         )
       ).to.be.revertedWith("Session revoked");
-
-      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddress]);
     });
   });
 
@@ -364,7 +366,7 @@ describe("LightweightSession", function () {
 
   describe("sessionExpiry", function () {
     it("should reject expired session", async function () {
-      const shortExpiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+      const shortExpiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 3600n; // 1 hour from now
       const sessionKey = await sessionKeySigner.getAddress();
       const sessionId = await createSession("test-session-9", owner, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, shortExpiry);
 

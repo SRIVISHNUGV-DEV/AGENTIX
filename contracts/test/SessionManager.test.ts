@@ -12,37 +12,45 @@ describe("SessionManager", function () {
   let operator: SignerWithAddress;
   let unauthorized: SignerWithAddress;
 
-  const PROOF_VALID = true;
-
   beforeEach(async function () {
     [owner, agent, operator, unauthorized] = await ethers.getSigners();
 
-    // Deploy CredentialRegistry
     const CredentialRegistryFactory = await ethers.getContractFactory("CredentialRegistry");
     credentialRegistry = await CredentialRegistryFactory.deploy();
 
-    // Deploy MockVerifier
     const MockVerifierFactory = await ethers.getContractFactory("MockVerifier");
     mockVerifier = await MockVerifierFactory.deploy();
 
-    // Deploy SessionManager
     const SessionManagerFactory = await ethers.getContractFactory("SessionManager");
     sessionManager = await SessionManagerFactory.deploy(
-      await credentialRegistry.getAddress(),
-      await mockVerifier.getAddress()
+      await mockVerifier.getAddress(),
+      await credentialRegistry.getAddress()
     );
 
-    // Add operator as issuer
-    await credentialRegistry.addIssuer(await operator.getAddress());
+    // Register SessionManager as allowed caller for markNullifierUsed
+    await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
   });
 
-  describe("Deployment", function () {
-    it("Should set correct owner", async function () {
-      expect(await sessionManager.owner()).to.equal(await owner.getAddress());
-    });
+  async function makeCreateParams(agentAddr: string, nullifierSeed?: string) {
+    const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session-" + Math.random()));
+    const nullifier = ethers.keccak256(ethers.toUtf8Bytes(nullifierSeed || "test-nullifier-" + Math.random()));
+    const maxValue = 1000000n;
+    const block = await ethers.provider.getBlock("latest");
+    const expiry: bigint = BigInt(block!.timestamp) + 7200n;
+    const activeRoot = await credentialRegistry.activeRoot();
+    const revokedSecretRoot = await credentialRegistry.revokedSecretRoot();
+    const publicSignals: [bigint, bigint, bigint, bigint, bigint] = [
+      BigInt(nullifier), BigInt(activeRoot), BigInt(revokedSecretRoot), maxValue, expiry
+    ];
+    const a: [bigint, bigint] = [0n, 0n];
+    const b: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
+    const c: [bigint, bigint] = [0n, 0n];
+    return { sessionId, nullifier, maxValue, expiry, publicSignals, a, b, c };
+  }
 
+  describe("Deployment", function () {
     it("Should set correct credential registry", async function () {
-      expect(await sessionManager.credentialRegistry()).to.equal(await credentialRegistry.getAddress());
+      expect(await sessionManager.registry()).to.equal(await credentialRegistry.getAddress());
     });
 
     it("Should set correct verifier", async function () {
@@ -53,212 +61,128 @@ describe("SessionManager", function () {
   describe("Session Creation", function () {
     it("Should create session with valid proof", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
-      // Set mock verifier to return true
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
 
-      // Create session
       await expect(
         sessionManager.connect(operator).createSession(
-          agentAddr,
-          operatorAddr,
-          sessionId,
-          nullifier,
-          Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-          [0n, 1n, 2n, 3n], // proof signals
-          [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n] // proof bytes
+          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.a, p.b, p.c, p.publicSignals
         )
       ).to.emit(sessionManager, "SessionCreated");
     });
 
     it("Should reject session with invalid proof", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
-      // Set mock verifier to return false
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(false);
 
       await expect(
         sessionManager.connect(operator).createSession(
-          agentAddr,
-          operatorAddr,
-          sessionId,
-          nullifier,
-          Math.floor(Date.now() / 1000) + 3600,
-          [0n, 1n, 2n, 3n],
-          [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.a, p.b, p.c, p.publicSignals
         )
-      ).to.be.reverted;
-    });
-
-    it("Should reject unauthorized operator", async function () {
-      const agentAddr = await agent.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
-      await mockVerifier.setResult(true);
-
-      await expect(
-        sessionManager.connect(unauthorized).createSession(
-          agentAddr,
-          await unauthorized.getAddress(),
-          sessionId,
-          nullifier,
-          Math.floor(Date.now() / 1000) + 3600,
-          [0n, 1n, 2n, 3n],
-          [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
-        )
-      ).to.be.reverted;
+      ).to.be.revertedWith("Invalid proof");
     });
   });
 
   describe("Session Validation", function () {
     it("Should validate active session", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
+
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId,
-        nullifier,
-        Math.floor(Date.now() / 1000) + 3600,
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
-      // Check session is active
-      expect(await sessionManager.isSessionActive(sessionId)).to.be.true;
+      const valid = await sessionManager.validateSession.staticCall(p.sessionId, agentAddr, 1n);
+      expect(valid).to.be.true;
     });
 
     it("Should reject expired session", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
+
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId,
-        nullifier,
-        Math.floor(Date.now() / 1000) - 1, // Already expired
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
-      expect(await sessionManager.isSessionActive(sessionId)).to.be.false;
+      await ethers.provider.send("evm_increaseTime", [7200]);
+      await ethers.provider.send("evm_mine", []);
+
+      await expect(
+        sessionManager.validateSession(p.sessionId, agentAddr, 1n)
+      ).to.be.revertedWith("Session Expired");
     });
   });
 
-  describe("Session Termination", function () {
-    it("Should allow operator to terminate session", async function () {
+  describe("Session Revocation", function () {
+    it("Should allow session key to revoke session", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
+
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId,
-        nullifier,
-        Math.floor(Date.now() / 1000) + 3600,
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
-      await sessionManager.connect(operator).terminateSession(sessionId);
-      expect(await sessionManager.isSessionActive(sessionId)).to.be.false;
+      await sessionManager.connect(agent).revokeSession(p.sessionId);
+      const session = await sessionManager.sessions(p.sessionId);
+      expect(session.revoked).to.be.true;
     });
 
-    it("Should prevent unauthorized termination", async function () {
+    it("Should prevent unauthorized revocation", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
+
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId,
-        nullifier,
-        Math.floor(Date.now() / 1000) + 3600,
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
       await expect(
-        sessionManager.connect(unauthorized).terminateSession(sessionId)
-      ).to.be.reverted;
+        sessionManager.connect(unauthorized).revokeSession(p.sessionId)
+      ).to.be.revertedWith("Only session key");
     });
   });
 
-  describe("Nullifier Protection (Replay Attack Prevention)", function () {
+  describe("Nullifier Protection", function () {
     it("Should prevent nullifier reuse", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId1 = ethers.keccak256(ethers.toUtf8Bytes("session-1"));
-      const sessionId2 = ethers.keccak256(ethers.toUtf8Bytes("session-2"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("same-nullifier"));
-
+      const p = await makeCreateParams(agentAddr, "reuse-nullifier");
       await mockVerifier.setResult(true);
 
-      // Create first session
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId1,
-        nullifier,
-        Math.floor(Date.now() / 1000) + 3600,
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
-      // Attempt to reuse nullifier
+      const sessionId2 = ethers.keccak256(ethers.toUtf8Bytes("other-session"));
       await expect(
         sessionManager.connect(operator).createSession(
-          agentAddr,
-          operatorAddr,
-          sessionId2,
-          nullifier,
-          Math.floor(Date.now() / 1000) + 3600,
-          [0n, 1n, 2n, 3n],
-          [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+          sessionId2, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.a, p.b, p.c, p.publicSignals
         )
-      ).to.be.reverted;
+      ).to.be.revertedWith("Nullifier used");
     });
 
     it("Should mark nullifier as used in credential registry", async function () {
       const agentAddr = await agent.getAddress();
-      const operatorAddr = await operator.getAddress();
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("test-nullifier"));
-
+      const p = await makeCreateParams(agentAddr);
       await mockVerifier.setResult(true);
+
       await sessionManager.connect(operator).createSession(
-        agentAddr,
-        operatorAddr,
-        sessionId,
-        nullifier,
-        Math.floor(Date.now() / 1000) + 3600,
-        [0n, 1n, 2n, 3n],
-        [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]
+        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.a, p.b, p.c, p.publicSignals
       );
 
-      // Check nullifier is marked used
-      expect(await credentialRegistry.usedNullifiers(nullifier)).to.be.true;
+      expect(await credentialRegistry.isNullifierUsed(p.nullifier)).to.be.true;
     });
   });
 });

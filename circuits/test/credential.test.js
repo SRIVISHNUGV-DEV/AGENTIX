@@ -1,10 +1,10 @@
 const fs = require("fs");
-const { buildPoseidon } = require("circomlibjs");
-const { newMemEmptyTrie } = require("circomlibjs");
+const { buildPoseidon, newMemEmptyTrie } = require("circomlibjs");
 
 async function main() {
 
   const poseidon = await buildPoseidon();
+  const F = poseidon.F;
 
   const agentId = 1n;
   const orgId = 1n;
@@ -17,13 +17,9 @@ async function main() {
   const depth = 20;
 
   // commitment = Poseidon(agentId, orgId, permissions, expiry, secret)
-  const commitment = BigInt(
-    poseidon([agentId, orgId, permissions, expiry, secret]).toString()
-  );
+  const commitment = BigInt(F.toString(poseidon([agentId, orgId, permissions, expiry, secret])));
 
-  const secretHash = BigInt(
-    poseidon([secret, 0n]).toString()
-  );
+  const secretHash = BigInt(F.toString(poseidon([secret, 0n])));
   const revocationKey = secretHash % (1n << BigInt(depth));
 
   // Build simple tree with zero siblings
@@ -39,7 +35,7 @@ async function main() {
     pathElements.push("0");
     pathIndices.push(0);
 
-    current = BigInt(poseidon([current, sibling]).toString());
+    current = BigInt(F.toString(poseidon([current, sibling])));
   }
 
   const root = current;
