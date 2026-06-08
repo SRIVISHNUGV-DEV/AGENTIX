@@ -20,7 +20,7 @@ function RegisterAgentForm() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  const { isConnected, isSepolia, account } = useWallet()
+  const { isConnected, isBaseSepolia, account } = useWallet()
   const { post } = useWalletAction()
 
   // Get orgId from URL params
@@ -31,8 +31,8 @@ function RegisterAgentForm() {
     setError(null)
     setSuccessMessage(null)
 
-    if (!isConnected || !isSepolia) {
-      setError("Connect your wallet on Sepolia to create an agent")
+    if (!isConnected || !isBaseSepolia) {
+      setError("Connect your wallet on Base Sepolia to create an agent")
       return
     }
 
@@ -64,7 +64,7 @@ function RegisterAgentForm() {
     }
   }
 
-  const disabled = isPending || !agentName.trim() || !isConnected || !isSepolia
+  const disabled = isPending || !agentName.trim() || !isConnected || !isBaseSepolia
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -89,10 +89,10 @@ function RegisterAgentForm() {
             </div>
           </div>
 
-          {!isConnected || !isSepolia ? (
+          {!isConnected || !isBaseSepolia ? (
             <div className="mt-6 flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
               <AlertCircle className="h-4 w-4" />
-              Connect your wallet on Sepolia to create an agent
+              Connect your wallet on Base Sepolia to create an agent
             </div>
           ) : null}
 

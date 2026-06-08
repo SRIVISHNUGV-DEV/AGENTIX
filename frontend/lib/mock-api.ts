@@ -260,7 +260,7 @@ function mapWallet(wallet: BackendWallet): Wallet {
     factorySalt: wallet.factory_salt,
     walletKind: wallet.wallet_kind ?? "erc4337",
     chain: "ethereum",
-    balance: "Sepolia",
+    balance: "Base Sepolia",
     createdAt: unixToIso(wallet.created_at),
     lastUsed: null,
   }

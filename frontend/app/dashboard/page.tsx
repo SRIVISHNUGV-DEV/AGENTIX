@@ -145,7 +145,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-zinc-500">Verifier</span>
                     <a
-                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.verifierAddress}`}
+                      href={`https://sepolia.basescan.org/address/${workspace.contracts.verifierAddress}`}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
@@ -158,7 +158,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-zinc-500">Registry</span>
                     <a
-                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.credentialRegistryAddress}`}
+                      href={`https://sepolia.basescan.org/address/${workspace.contracts.credentialRegistryAddress}`}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
@@ -171,7 +171,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-zinc-500">Session manager</span>
                     <a
-                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.sessionManagerAddress}`}
+                      href={`https://sepolia.basescan.org/address/${workspace.contracts.sessionManagerAddress}`}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"
@@ -184,7 +184,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-zinc-500">Wallet Factory</span>
                     <a
-                      href={`https://sepolia.etherscan.io/address/${workspace.contracts.agentWalletFactoryAddress}`}
+                      href={`https://sepolia.basescan.org/address/${workspace.contracts.agentWalletFactoryAddress}`}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-xs text-zinc-300 hover:text-white hover:underline transition-colors"

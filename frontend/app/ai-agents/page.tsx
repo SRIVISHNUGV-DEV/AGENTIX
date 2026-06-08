@@ -121,7 +121,7 @@ function StatusPill({ connected }: { connected: boolean }) {
 }
 
 export default function AIAgentsPage() {
-  const { isConnected, isSepolia } = useWallet()
+  const { isConnected, isBaseSepolia } = useWallet()
   const [orgId, setOrgId] = useState<number | null>(null)
   const [agentTypes, setAgentTypes] = useState<AgentTypeInfo[]>([])
   const [fleet, setFleet] = useState<ExternalAgent[]>([])
@@ -258,14 +258,14 @@ export default function AIAgentsPage() {
     }
   }
 
-  if (!isConnected || !isSepolia) {
+  if (!isConnected || !isBaseSepolia) {
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-100">
         <Header />
         <main className="mx-auto max-w-6xl px-6 py-20 text-center">
           <h1 className="text-2xl font-semibold">Connect your wallet</h1>
           <p className="mt-4 text-zinc-500 max-w-md mx-auto">
-            Connect on Sepolia first. Provider-connect, credential issuance, wallet deployment, and session creation
+            Connect on Base Sepolia first. Provider-connect, credential issuance, wallet deployment, and session creation
             are all bound to the active organization workspace.
           </p>
         </main>

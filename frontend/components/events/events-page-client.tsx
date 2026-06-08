@@ -194,7 +194,7 @@ export function EventsPageClient({
                     </div>
                   </div>
                   <a
-                    href={`https://sepolia.etherscan.io/tx/${event.txHash}`}
+                    href={`https://sepolia.basescan.org/tx/${event.txHash}`}
                     target="_blank"
                     rel="noreferrer"
                     className="font-mono text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1"

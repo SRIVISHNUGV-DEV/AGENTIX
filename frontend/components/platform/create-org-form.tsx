@@ -27,10 +27,10 @@ export function CreateOrgForm({ trigger }: CreateOrgFormProps) {
   const [name, setName] = useState('')
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null)
 
-  const { isConnected, isSepolia, account } = useWallet()
+  const { isConnected, isBaseSepolia, account } = useWallet()
   const { post } = useWalletAction()
 
-  const disabled = isPending || !isConnected || !isSepolia || !name.trim()
+  const disabled = isPending || !isConnected || !isBaseSepolia || !name.trim()
 
   const handleCreate = async () => {
     if (!account) {
@@ -71,7 +71,7 @@ export function CreateOrgForm({ trigger }: CreateOrgFormProps) {
       <DialogTrigger asChild>
         {trigger ?? (
           <Button
-            disabled={!isConnected || !isSepolia}
+            disabled={!isConnected || !isBaseSepolia}
             className="rounded-2xl bg-primary px-6 py-4 text-primary-foreground hover:bg-primary/90"
           >
             Create Organization
@@ -105,9 +105,9 @@ export function CreateOrgForm({ trigger }: CreateOrgFormProps) {
             </div>
           </div>
 
-          {!isConnected || !isSepolia ? (
+          {!isConnected || !isBaseSepolia ? (
             <div className="rounded-lg border border-amber-800/50 bg-amber-900/20 px-3 py-2 text-sm text-amber-200">
-              Connect your wallet on Sepolia to create an organization.
+              Connect your wallet on Base Sepolia to create an organization.
             </div>
           ) : null}
 

@@ -17,7 +17,7 @@ export type WalletActionOptions = {
  * Validates wallet connection, generates EIP-191 signature, and injects into request.
  */
 export function useWalletAction() {
-  const { isConnected, isSepolia, signPlatformAction, account } = useWallet()
+  const { isConnected, isBaseSepolia, signPlatformAction, account } = useWallet()
 
   /**
    * Execute a wallet-authenticated API call.
@@ -38,8 +38,8 @@ export function useWalletAction() {
     }
 
     // Validate correct network
-    if (!isSepolia) {
-      return { success: false, error: 'Please switch to Sepolia network' }
+    if (!isBaseSepolia) {
+      return { success: false, error: 'Please switch to Base Sepolia network' }
     }
 
     try {
@@ -113,7 +113,7 @@ export function useWalletAction() {
 
   return {
     isConnected,
-    isSepolia,
+    isBaseSepolia,
     account,
     executeAction,
     post,

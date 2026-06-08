@@ -62,8 +62,8 @@ export function AgentDetailActions({
 
   const [result, setResult] = useState<{ text: string; txHash?: string } | null>(null)
 
-  const { account, signPlatformAction, isConnected, isSepolia } = useWallet()
-  const disabled = !isConnected || !isSepolia
+  const { account, signPlatformAction, isConnected, isBaseSepolia } = useWallet()
+  const disabled = !isConnected || !isBaseSepolia
   const effectiveOwnerAddress = ownerAddress || account || ''
 
   const expiryDate = new Date(Number(expiry) * 1000)
@@ -465,14 +465,14 @@ export function AgentDetailActions({
         </Dialog>
       </div>
 
-      {!isConnected || !isSepolia ? (
+      {!isConnected || !isBaseSepolia ? (
         <div className="rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground/60">
-          Connect the organization owner wallet on Sepolia. Every action here asks for a fresh
+          Connect the organization owner wallet on Base Sepolia. Every action here asks for a fresh
           signature before the backend submits an on-chain transaction.
         </div>
       ) : null}
 
-      {isConnected && isSepolia ? (
+      {isConnected && isBaseSepolia ? (
         <div className="rounded-2xl border border-white/10 bg-card/80 px-4 py-4 text-sm text-foreground/68 backdrop-blur-xl">
           <div className="micro-label">Execution model</div>
           <div className="mt-2 grid gap-2 md:grid-cols-4">

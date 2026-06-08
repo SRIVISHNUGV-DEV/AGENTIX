@@ -61,7 +61,7 @@ export default function LoginPage() {
             <div className="mt-6 text-center">
               <h2 className="text-xl font-medium">Connect Wallet</h2>
               <p className="mt-2 text-sm text-zinc-500">
-                Use Sepolia testnet to interact with the protocol.
+                Use Base Sepolia testnet to interact with the protocol.
               </p>
             </div>
 
@@ -88,7 +88,7 @@ export default function LoginPage() {
       {/* Footer */}
       <footer className="border-t border-zinc-800 mt-20">
         <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-zinc-500 text-center">
-          Agentix Protocol • Sepolia Testnet • Zero-Knowledge Credentials
+          Agentix Protocol • Base Sepolia Testnet • Zero-Knowledge Credentials
         </div>
       </footer>
     </div>

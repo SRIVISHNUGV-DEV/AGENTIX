@@ -27,9 +27,9 @@ export function WorkspaceControls({
   const [orgName, setOrgName] = useState('')
   const [agentName, setAgentName] = useState('')
   const [message, setMessage] = useState<string | null>(null)
-  const { isConnected, isSepolia } = useWallet()
+  const { isConnected, isBaseSepolia } = useWallet()
   const { post } = useWalletAction()
-  const disabled = isPending || !isConnected || !isSepolia
+  const disabled = isPending || !isConnected || !isBaseSepolia
 
   const refresh = () => {
     startTransition(() => {
@@ -175,9 +175,9 @@ export function WorkspaceControls({
         </Button>
       </div>
 
-      {!isConnected || !isSepolia ? (
+      {!isConnected || !isBaseSepolia ? (
         <div className="lg:col-span-3 rounded-2xl border border-white/10 bg-card/80 px-4 py-3 text-sm text-foreground/60 backdrop-blur-xl">
-          Connect a wallet on Sepolia to create organizations and submit signed platform actions.
+          Connect a wallet on Base Sepolia to create organizations and submit signed platform actions.
         </div>
       ) : null}
 

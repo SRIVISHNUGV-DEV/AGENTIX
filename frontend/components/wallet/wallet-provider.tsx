@@ -43,12 +43,12 @@ type WalletContextValue = {
   account: string | null
   chainId: number | null
   isConnected: boolean
-  isSepolia: boolean
+  isBaseSepolia: boolean
   isConnecting: boolean
   error: string | null
   connect: () => Promise<void>
   disconnect: () => void
-  switchToSepolia: () => Promise<void>
+  switchToBaseSepolia: () => Promise<void>
   signMessage: (message: string) => Promise<string>
   signPlatformAction: (input: { action: string; orgId: number; target: string }) => Promise<{
     walletAddress: string
@@ -189,7 +189,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setError(null)
   }
 
-  const switchToSepolia = async () => {
+  const switchToBaseSepolia = async () => {
     try {
       setError(null)
       const provider = getProvider()
@@ -199,7 +199,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       setChainId(CHAIN_ID)
     } catch (walletError: any) {
-      setError(walletError?.message ?? 'Failed to switch to Sepolia')
+      setError(walletError?.message ?? 'Failed to switch to Base Sepolia')
     }
   }
 
@@ -263,12 +263,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       account,
       chainId,
       isConnected: Boolean(account),
-      isSepolia: chainId === CHAIN_ID,
+      isBaseSepolia: chainId === CHAIN_ID,
       isConnecting,
       error,
       connect,
       disconnect,
-      switchToSepolia,
+      switchToBaseSepolia,
       signMessage,
       signPlatformAction,
     }),

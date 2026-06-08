@@ -98,7 +98,7 @@ export function ConnectRuntimeModal({
   agentName,
   onConnected,
 }: ConnectRuntimeModalProps) {
-  const { account, isConnected, isSepolia, signPlatformAction } = useWallet()
+  const { account, isConnected, isBaseSepolia, signPlatformAction } = useWallet()
 
   const [agentTypes, setAgentTypes] = useState<AgentTypeInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -147,8 +147,8 @@ export function ConnectRuntimeModal({
       if (!isConnected) {
         throw new Error('Please connect your wallet first')
       }
-      if (!isSepolia) {
-        throw new Error('Please switch to Sepolia network')
+      if (!isBaseSepolia) {
+        throw new Error('Please switch to Base Sepolia network')
       }
 
       // Step 2: Create signature for linking
@@ -279,7 +279,7 @@ export function ConnectRuntimeModal({
                 Back
               </Button>
               <Button
-                disabled={submitting || !runtimeName.trim() || !isConnected || !isSepolia}
+                disabled={submitting || !runtimeName.trim() || !isConnected || !isBaseSepolia}
                 onClick={handleConnect}
                 className="bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
               >

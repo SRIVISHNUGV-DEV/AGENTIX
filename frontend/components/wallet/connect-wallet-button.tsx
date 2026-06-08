@@ -13,11 +13,11 @@ export function ConnectWalletButton() {
     account,
     isConnected,
     isConnecting,
-    isSepolia,
+    isBaseSepolia,
     error,
     connect,
     disconnect,
-    switchToSepolia,
+    switchToBaseSepolia,
   } = useWallet()
 
   if (!isConnected) {
@@ -52,14 +52,14 @@ export function ConnectWalletButton() {
 
   return (
     <div className="flex items-center gap-3">
-      {!isSepolia ? (
+      {!isBaseSepolia ? (
         <Button
           variant="outline"
           className="rounded-full border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-          onClick={switchToSepolia}
+          onClick={switchToBaseSepolia}
         >
           <AlertTriangle className="mr-2 h-3 w-3" />
-          Switch to Sepolia
+          Switch to Base Sepolia
         </Button>
       ) : (
         <div className="flex items-center gap-2 rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs text-green-400">

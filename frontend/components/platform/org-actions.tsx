@@ -40,8 +40,8 @@ export function OrgActions({ orgId }: OrgActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [amountEth, setAmountEth] = useState('0.01')
   const [result, setResult] = useState<ActionResult | null>(null)
-  const { signPlatformAction, isConnected, isSepolia } = useWallet()
-  const disabled = isPending || !isConnected || !isSepolia
+  const { signPlatformAction, isConnected, isBaseSepolia } = useWallet()
+  const disabled = isPending || !isConnected || !isBaseSepolia
 
   const runAction = async (
     method: 'POST' | 'DELETE',
@@ -167,9 +167,9 @@ export function OrgActions({ orgId }: OrgActionsProps) {
         </Button>
       </div>
 
-      {!isConnected || !isSepolia ? (
+      {!isConnected || !isBaseSepolia ? (
         <div className="rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground/60">
-          Connect the owner wallet on Sepolia. Every on-chain action requires a fresh wallet signature.
+          Connect the owner wallet on Base Sepolia. Every on-chain action requires a fresh wallet signature.
         </div>
       ) : null}
       {result ? (

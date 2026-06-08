@@ -1,7 +1,7 @@
 export function getTxExplorerUrl(txHash: string) {
-  return `https://sepolia.etherscan.io/tx/${txHash}`
+  return `https://sepolia.basescan.org/tx/${txHash}`
 }
 
 export function getAddressExplorerUrl(address: string) {
-  return `https://sepolia.etherscan.io/address/${address}`
+  return `https://sepolia.basescan.org/address/${address}`
 }

@@ -34,7 +34,7 @@ export function DepositGasPanel({ walletAddress, orgId }: DepositGasPanelProps) 
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const { post, isConnected, isSepolia } = useWalletAction()
+  const { post, isConnected, isBaseSepolia } = useWalletAction()
 
   // Fetch current entrypoint balance
   const fetchBalance = useCallback(async () => {
@@ -71,8 +71,8 @@ export function DepositGasPanel({ walletAddress, orgId }: DepositGasPanelProps) 
       return
     }
 
-    if (!isSepolia) {
-      setError("Please switch to Sepolia network")
+    if (!isBaseSepolia) {
+      setError("Please switch to Base Sepolia network")
       return
     }
 
@@ -192,7 +192,7 @@ export function DepositGasPanel({ walletAddress, orgId }: DepositGasPanelProps) 
         </div>
         <Button
           onClick={handleDeposit}
-          disabled={isLoading || !isConnected || !isSepolia}
+          disabled={isLoading || !isConnected || !isBaseSepolia}
           className="bg-white text-black hover:bg-zinc-200 min-w-[120px]"
         >
           {isLoading ? (
@@ -223,10 +223,10 @@ export function DepositGasPanel({ walletAddress, orgId }: DepositGasPanelProps) 
       </div>
 
       {/* Network Warning */}
-      {!isSepolia && isConnected && (
+      {!isBaseSepolia && isConnected && (
         <div className="mt-4 p-3 rounded bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-sm text-amber-400">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          Switch to Sepolia network to deposit
+          Switch to Base Sepolia network to deposit
         </div>
       )}
     </div>

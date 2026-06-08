@@ -33,8 +33,8 @@ export function WalletUserOpPanel({ walletAddress, orgId }: WalletUserOpPanelPro
     userOpHash?: string
     transactionHash?: string
   } | null>(null)
-  const { isConnected, isSepolia, signPlatformAction, signMessage } = useWallet()
-  const disabled = isPending || !isConnected || !isSepolia
+  const { isConnected, isBaseSepolia, signPlatformAction, signMessage } = useWallet()
+  const disabled = isPending || !isConnected || !isBaseSepolia
 
   const execute = async () => {
     try {
@@ -149,9 +149,9 @@ export function WalletUserOpPanel({ walletAddress, orgId }: WalletUserOpPanelPro
         </Button>
       </div>
 
-      {!isConnected || !isSepolia ? (
+      {!isConnected || !isBaseSepolia ? (
         <div className="mt-4 rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm text-foreground/60">
-          Connect the owner wallet on Sepolia. This flow signs both the platform authorization and the ERC-4337 userOp hash.
+          Connect the owner wallet on Base Sepolia. This flow signs both the platform authorization and the ERC-4337 userOp hash.
         </div>
       ) : null}
 

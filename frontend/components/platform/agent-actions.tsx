@@ -40,8 +40,8 @@ export function AgentActions({
   const [message, setMessage] = useState<ActionResult | null>(null)
   const [showRevokeModal, setShowRevokeModal] = useState(false)
   const [revokeConfirmText, setRevokeConfirmText] = useState('')
-  const { account, signPlatformAction, isConnected, isSepolia } = useWallet()
-  const disabled = isPending || !isConnected || !isSepolia
+  const { account, signPlatformAction, isConnected, isBaseSepolia } = useWallet()
+  const disabled = isPending || !isConnected || !isBaseSepolia
 
   const expiryDate = useMemo(() => {
     const asNumber = Number(expiry)
@@ -190,9 +190,9 @@ export function AgentActions({
       >
         Revoke credential
       </Button>
-      {!isConnected || !isSepolia ? (
+      {!isConnected || !isBaseSepolia ? (
         <div className="rounded-2xl border border-white/10 bg-card px-4 py-3 text-sm text-foreground/60">
-          Connect the org owner wallet on Sepolia. Every action here asks for a fresh signature before the backend submits an on-chain transaction.
+          Connect the org owner wallet on Base Sepolia. Every action here asks for a fresh signature before the backend submits an on-chain transaction.
         </div>
       ) : null}
 

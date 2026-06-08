@@ -25,7 +25,7 @@ export function WhitelistPanel({ walletAddress, orgId }: WhitelistPanelProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const { post, del, isConnected, isSepolia } = useWalletAction()
+  const { post, del, isConnected, isBaseSepolia } = useWalletAction()
 
   const fetchWhitelist = useCallback(async () => {
     setIsLoading(true)
@@ -82,8 +82,8 @@ export function WhitelistPanel({ walletAddress, orgId }: WhitelistPanelProps) {
       return
     }
 
-    if (!isSepolia) {
-      setError("Please switch to Sepolia network")
+    if (!isBaseSepolia) {
+      setError("Please switch to Base Sepolia network")
       return
     }
 
@@ -136,8 +136,8 @@ export function WhitelistPanel({ walletAddress, orgId }: WhitelistPanelProps) {
       return
     }
 
-    if (!isSepolia) {
-      setError("Please switch to Sepolia network")
+    if (!isBaseSepolia) {
+      setError("Please switch to Base Sepolia network")
       return
     }
 
