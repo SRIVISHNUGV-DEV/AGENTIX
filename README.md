@@ -3,7 +3,7 @@
 **The OAuth + Okta + Auth0 for AI agents. Issue private credentials, verify with ZK, delegate capabilities, create on-chain sessions, and execute through ERC-4337 smart wallets.**
 
 ![AGENTIX](https://img.shields.io/badge/AGENTIX-Agent%20Authorization-black)
-![Sepolia](https://img.shields.io/badge/Network-Sepolia-purple)
+![Base Sepolia](https://img.shields.io/badge/Network-Base_Sepolia-purple)
 ![ERC-4337](https://img.shields.io/badge/ERC--4337-Ready-lightgrey)
 ![Groth16](https://img.shields.io/badge/ZK-Groth16-white)
 ![MCP](https://img.shields.io/badge/MCP-v1.29-blue)
@@ -31,18 +31,18 @@ The MCP server starts on **port 3001**. Connect any MCP-compatible client (Claud
 
 ---
 
-## Live Deployment (Sepolia)
+## Live Deployment (Base Sepolia)
 
 | Contract | Address | Role |
 |----------|---------|------|
-| **Verifier** | [`0x9536...6B46`](https://sepolia.etherscan.io/address/0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46) | Groth16 proof verification |
-| **CredentialRegistry** | [`0x77ca...0dc`](https://sepolia.etherscan.io/address/0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc) | Credential Merkle roots |
-| **SessionManager** | [`0x3044...1259`](https://sepolia.etherscan.io/address/0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259) | ZK + lightweight sessions |
-| **AgentWalletFactory** | [`0xFaDA...824`](https://sepolia.etherscan.io/address/0xFaDAe432B8821C4B0690fd80f923F43fd85b4824) | Deterministic wallet deploy |
-| **AgentWallet Impl** | [`0x03F7...9fe`](https://sepolia.etherscan.io/address/0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe) | ERC-4337 smart account |
-| **EntryPoint** | [`0x4337...F108`](https://sepolia.etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | ERC-4337 singleton |
-| **CapabilityRegistry** | [`0x57eE...9b2`](https://sepolia.etherscan.io/address/0x57eEc0D86b79c4107fE57f5A2092794EF073B9b2) | Capability definitions & grants |
-| **DelegationManager** | [`0x6AF9...989`](https://sepolia.etherscan.io/address/0x6AF9cccd6BC58ea4379725311784F8ba67528989) | Trust delegation chains |
+| **Verifier** | [`0xa9ED...AC48`](https://sepolia.basescan.org/address/0xa9ED81d44847729a7C8D33907BaDFb767ac9AC48) | Groth16 proof verification |
+| **CredentialRegistry** | [`0xb184...4F95`](https://sepolia.basescan.org/address/0xb1841A44b57904849898EaA956b1C01a182e4F95) | Credential Merkle roots |
+| **SessionManager** | [`0x58E1...Ee7a`](https://sepolia.basescan.org/address/0x58E1D578ecd41e0D2639BA1C3C8E4795A8F6Ee7a) | ZK + lightweight sessions |
+| **AgentWalletFactory** | [`0x7689...138b`](https://sepolia.basescan.org/address/0x7689B8C445fAd670b03A0f68A912f5e93131138b) | Deterministic wallet deploy |
+| **AgentWallet Impl** | [`0xa282...f5c0`](https://sepolia.basescan.org/address/0xa282F01c520bD73eF7100eA0436539988a36f5c0) | ERC-4337 smart account |
+| **EntryPoint** | [`0x4337...F108`](https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | ERC-4337 singleton |
+| **CapabilityRegistry** | [`0x7Ebb...5Bb9`](https://sepolia.basescan.org/address/0x7Ebb4E2574613D73a1DC112E129f2c3b20b75Bb9) | Capability definitions & grants |
+| **DelegationManager** | [`0xc752...95d7`](https://sepolia.basescan.org/address/0xc7522D29E63f2a2cdEdeC405093920D2FC3B95d7) | Trust delegation chains |
 
 ---
 
@@ -82,7 +82,7 @@ The MCP server starts on **port 3001**. Connect any MCP-compatible client (Claud
 │   └────────────────────────────────────────────────────────────────────────────┘     │
 │                                        │                                             │
 │   ┌────────────────────────────────────────────────────────────────────────────┐     │
-│   │  Layer 2 — Protocol Contracts (Sepolia)                                    │     │
+│   │  Layer 2 — Protocol Contracts (Base Sepolia)                               │     │
 │   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐│     │
 │   │  │CredentialReg │  │SessionManager│  │CapabilityReg │  │ DelegationMgr    ││     │
 │   │  │ (roots)      │  │ (ZK + Light) │  │ (catalog)    │  │ (chains)         ││     │
@@ -233,19 +233,19 @@ The self-hosted TypeScript SDK (`sdk/`) enables agent orchestration outside the 
 import { AgentVerifier } from "@agentix/sdk"
 
 const verifier = new AgentVerifier({
-  chainId: 11155111,
-  rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY",
-  credentialRegistry: "0x77ca...0dc",
-  sessionManager: "0x3044...1259",
-  capabilityRegistry: "0x57eE...9b2",
-  delegationManager: "0x6AF9...989",
+  chainId: 84532,
+  rpcUrl: "https://base-sepolia.g.alchemy.com/v2/YOUR_KEY",
+  credentialRegistry: "0xb184...4F95",
+  sessionManager: "0x58E1...Ee7a",
+  capabilityRegistry: "0x7Ebb...5Bb9",
+  delegationManager: "0xc752...95d7",
 })
 
 await verifier.init()
 
 // Verify a ZK credential proof
 const result = await verifier.verifyCredentialProof(proof, publicSignals, {
-  verifierAddress: "0x9536...6B46",
+  verifierAddress: "0xa9ED...AC48",
 })
 
 // Verify an agent capability
@@ -290,8 +290,8 @@ const delResult = await verifier.verifyDelegation({
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `RPC_URL` | Ethereum RPC (Sepolia) |
-| `PRIVATE_KEY` | Backend signer wallet key (Sepolia ETH required) |
+| `RPC_URL` | Base Sepolia RPC (Alchemy/Infura) |
+| `PRIVATE_KEY` | Backend signer wallet key (Base Sepolia ETH required) |
 | `BUNDLER_URL` | ERC-4337 bundler endpoint |
 | `REDIS_URL` | Redis for BullMQ queues (optional) |
 | `ENCRYPTION_KEY` | AES-256-GCM key (64 hex chars) |
@@ -304,7 +304,7 @@ const delResult = await verifier.verifyDelegation({
 | `ENTRY_POINT_ADDRESS` | ERC-4337 EntryPoint |
 | `CAPABILITY_REGISTRY_ADDRESS` | Capability registry contract |
 | `DELEGATION_MANAGER_ADDRESS` | Delegation manager contract |
-| `CHAIN_ID` | Network chain ID (default: 11155111) |
+| `CHAIN_ID` | Network chain ID (default: 84532) |
 | `CORS_ORIGIN` | Allowed CORS origins |
 
 ---
@@ -378,9 +378,11 @@ cd contracts && npx hardhat compile
 # Run contract tests
 npm run test:contracts
 
-# Deploy contracts to Sepolia
-cd contracts && npx hardhat run scripts/deploy.ts --network sepolia
-cd contracts && npx hardhat run scripts/deploy-capability-delegation.ts --network sepolia
+# Deploy all contracts to Base Sepolia
+cd contracts && npx hardhat run scripts/deploy-all.ts --network baseSepolia
+
+# Verify all contracts on Base Sepolia
+cd contracts && npx hardhat verify --network baseSepolia <address> [constructor args]
 
 # Build all workspaces
 npm run build

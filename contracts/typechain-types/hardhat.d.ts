@@ -14,6 +14,10 @@ import * as Contracts from ".";
 declare module "hardhat/types/runtime" {
   interface HardhatEthersHelpers extends HardhatEthersHelpersBase {
     getContractFactory(
+      name: "Pausable",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Pausable__factory>;
+    getContractFactory(
       name: "AgentWallet",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.AgentWallet__factory>;
@@ -34,9 +38,21 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IAgentWallet__factory>;
     getContractFactory(
+      name: "CapabilityRegistry",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.CapabilityRegistry__factory>;
+    getContractFactory(
       name: "CredentialRegistry",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.CredentialRegistry__factory>;
+    getContractFactory(
+      name: "Groth16Verifier",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Groth16Verifier__factory>;
+    getContractFactory(
+      name: "DelegationManager",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.DelegationManager__factory>;
     getContractFactory(
       name: "MockVerifier",
       signerOrOptions?: ethers.Signer | FactoryOptions
@@ -63,6 +79,11 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.Groth16Verifier__factory>;
 
     getContractAt(
+      name: "Pausable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Pausable>;
+    getContractAt(
       name: "AgentWallet",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -88,10 +109,25 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IAgentWallet>;
     getContractAt(
+      name: "CapabilityRegistry",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.CapabilityRegistry>;
+    getContractAt(
       name: "CredentialRegistry",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.CredentialRegistry>;
+    getContractAt(
+      name: "Groth16Verifier",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Groth16Verifier>;
+    getContractAt(
+      name: "DelegationManager",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.DelegationManager>;
     getContractAt(
       name: "MockVerifier",
       address: string | ethers.Addressable,
@@ -124,6 +160,10 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.Groth16Verifier>;
 
     deployContract(
+      name: "Pausable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Pausable>;
+    deployContract(
       name: "AgentWallet",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AgentWallet>;
@@ -144,9 +184,21 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IAgentWallet>;
     deployContract(
+      name: "CapabilityRegistry",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.CapabilityRegistry>;
+    deployContract(
       name: "CredentialRegistry",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.CredentialRegistry>;
+    deployContract(
+      name: "Groth16Verifier",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Groth16Verifier>;
+    deployContract(
+      name: "DelegationManager",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.DelegationManager>;
     deployContract(
       name: "MockVerifier",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -173,6 +225,11 @@ declare module "hardhat/types/runtime" {
     ): Promise<Contracts.Groth16Verifier>;
 
     deployContract(
+      name: "Pausable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Pausable>;
+    deployContract(
       name: "AgentWallet",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -198,10 +255,25 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IAgentWallet>;
     deployContract(
+      name: "CapabilityRegistry",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.CapabilityRegistry>;
+    deployContract(
       name: "CredentialRegistry",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.CredentialRegistry>;
+    deployContract(
+      name: "Groth16Verifier",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Groth16Verifier>;
+    deployContract(
+      name: "DelegationManager",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.DelegationManager>;
     deployContract(
       name: "MockVerifier",
       args: any[],

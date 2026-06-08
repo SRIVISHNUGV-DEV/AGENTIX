@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentix": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\mcp-test\\src\\index.ts"
+      ]
+    }
+  }
+}

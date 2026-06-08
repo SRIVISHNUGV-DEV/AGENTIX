@@ -212,11 +212,11 @@ agentix/
 
 | Contract | Address |
 |----------|---------|
-| Verifier | `0x9536B6350c39475AE6191f2c1A8CDFdbd8586B46` |
-| CredentialRegistry | `0x77caeF0dD1F00cf36D2870E7Fb43112adB8fB0dc` |
-| SessionManager | `0x30442c4F4E7098c4698276BBc8D3F79C7Fc41259` |
-| AgentWalletFactory | `0xFaDAe432B8821C4B0690fd80f923F43fd85b4824` |
-| AgentWallet Impl | `0x03F7Fc29cEFAC155419761Ac61705B84b71f29fe` |
+| Verifier | `0xa9ED81d44847729a7C8D33907BaDFb767ac9AC48` |
+| CredentialRegistry | `0xb1841A44b57904849898EaA956b1C01a182e4F95` |
+| SessionManager | `0x58E1D578ecd41e0D2639BA1C3C8E4795A8F6Ee7a` |
+| AgentWalletFactory | `0x7689B8C445fAd670b03A0f68A912f5e93131138b` |
+| AgentWallet Impl | `0xa282F01c520bD73eF7100eA0436539988a36f5c0` |
 | EntryPoint | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` |
 
 ---

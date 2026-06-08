@@ -5,7 +5,9 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost"
+    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:baseSepolia": "hardhat run scripts/deploy-all.ts --network baseSepolia",
+    "verify:baseSepolia": "hardhat run scripts/verify-all.ts --network baseSepolia"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.6",

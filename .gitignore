@@ -46,6 +46,8 @@ typechain-types/
 # Secrets
 *.pem
 *.key
+.npmrc
+**/.npmrc
 
 # Claude memory
 .claude/

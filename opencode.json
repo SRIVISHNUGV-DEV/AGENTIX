@@ -1,0 +1,19 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "agentix": {
+      "type": "local",
+      "command": [
+        "npx",
+        "tsx",
+        "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\mcp-test\\src\\index.ts"
+      ],
+      "enabled": true,
+      "environment": {
+        "RPC_URL": "https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}",
+        "CHAIN_ID": "84532",
+        "NETWORK_NAME": "Base sepolia"
+      }
+    }
+  }
+}

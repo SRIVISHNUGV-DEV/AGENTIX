@@ -29,6 +29,7 @@
     "start:mcp": "node scripts/mcp-start.js",
     "start:mcp:dev": "node --watch scripts/mcp-start.js",
     "start:mcp-test": "cd mcp-test && node dist/index.js --http",
+    "setup": "node setup.mjs",
     "example:create-session": "cd sdk && npx tsx examples/create-session.ts"
   }
 }

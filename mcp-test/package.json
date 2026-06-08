@@ -1,23 +1,30 @@
 {
   "name": "agentix-mcp-test",
-  "version": "0.1.0",
-  "private": false,
+  "version": "0.2.0",
+  "description": "Standalone MCP server for the Agentix platform — agent lifecycle, capabilities, delegations, chain discovery, and ZK proofs. Auto-detects and connects to Claude Code, Cursor, Windsurf, VS Code, JetBrains, and more.",
   "type": "module",
   "bin": {
-    "agentix-mcp-test": "./dist/index.js"
+    "amt": "dist/index.js",
+    "agentix-mcp-test": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "bun test --serial",
+    "postinstall": "node dist/postinstall.js",
     "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ethers": "^6.13.4",
-    "snarkjs": "^0.7.5",
     "zod": "^3.25.76"
+  },
+  "optionalDependencies": {
+    "snarkjs": "^0.7.5"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
@@ -25,8 +32,32 @@
     "typescript": "^5.8.2"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "circuits/",
+    "README.md",
+    ".env.example"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/agent-credential.git"
+  },
+  "homepage": "https://github.com/anomalyco/agent-credential#readme",
+  "bugs": {
+    "url": "https://github.com/anomalyco/agent-credential/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agentix",
+    "agent",
+    "testnet",
+    "zk",
+    "zero-knowledge",
+    "blockchain",
+    "ethereum",
+    "sepolia"
+  ],
+  "license": "MIT",
   "publishConfig": {
     "access": "public"
   }

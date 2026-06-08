@@ -1,23 +1,11 @@
 #!/usr/bin/env node
 
-/**
- * agentix-mcp-test — standalone testnet MCP server
- *
- * Usage:
- *   agentix-mcp-test                          # stdio transport (for Claude Desktop)
- *   agentix-mcp-test --http                   # HTTP transport on port 3100
- *   agentix-mcp-test --http --port 8080       # custom port
- *
- * Env vars:
- *   CHAIN_ID, RPC_URL, NETWORK_NAME          — testnet config (default: Sepolia)
- *   VERIFIER_ADDRESS, ...                    — contract addresses
- *   PORT                                      — HTTP port (default: 3100)
- */
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createMCPServer, TOOL_DEFS } from "./server.js"
 import { getProverStatus } from "./circuits.js"
+import { HTTP_PORT, PACKAGE_NAME, PACKAGE_VERSION, CLI_NAME } from "./config.js"
+import { addCommand, removeCommand, statusCommand, helpCommand } from "./cli.js"
 
 let connected = false
 
@@ -26,41 +14,94 @@ function showConnectionBanner(mode: string) {
   connected = true
   const status = getProverStatus()
   console.error("")
-  console.error("╔══════════════════════════════════════════════════════╗")
-  console.error("║        AGENTIX MCP TEST SERVER — CONNECTED         ║")
-  console.error("╠══════════════════════════════════════════════════════╣")
-  console.error(`║  Mode:  ${mode.padEnd(39)}║`)
-  console.error(`║  Transport:  ${(mode === "HTTP" ? "Streamable HTTP" : "Stdio").padEnd(34)}║`)
-  console.error(`║  Prover:  ${(status.available ? "Groth16 (snarkjs) ✓" : "Simulated (circuit files missing) ⚡").padEnd(34)}║`)
-  console.error(`║  Tools:  ${TOOL_DEFS.length.toString().padEnd(38)}║`)
-  console.error(`║  Clients:  ${"All MCP-compatible (Claude, Cursor, VS Code, etc.)".padEnd(15)}║`)
-  console.error("╚══════════════════════════════════════════════════════╝")
+  console.error("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557")
+  console.error(`\u2551  ${PACKAGE_NAME} v${PACKAGE_VERSION} ${" ".repeat(30 - PACKAGE_NAME.length - PACKAGE_VERSION.length)}\u2551`)
+  console.error("\u2551  CONNECTED" + " ".repeat(42) + "\u2551")
+  console.error(`\u2551  Mode: ${mode.padEnd(45)}\u2551`)
+  console.error(`\u2551  Transport: ${(mode === "HTTP" ? "Streamable HTTP" : "Stdio").padEnd(39)}\u2551`)
+  console.error(`\u2551  Prover: ${(status.available ? "Groth16 (snarkjs)" : "Simulated").padEnd(40)}\u2551`)
+  console.error(`\u2551  Tools: ${String(TOOL_DEFS.length).padEnd(43)}\u2551`)
+  console.error("\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d")
   console.error("")
 }
 
-const args = process.argv.slice(2)
-const useHttp = args.includes("--http")
-const port = (() => {
-  const idx = args.indexOf("--port")
-  return idx >= 0 && idx + 1 < args.length ? parseInt(args[idx + 1], 10) : 3100
-})()
+function showBanner() {
+  console.error("")
+  console.error("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557")
+  console.error(`\u2551  ${PACKAGE_NAME} v${PACKAGE_VERSION}${" ".repeat(31 - String(PACKAGE_VERSION).length)}\u2551`)
+  console.error("\u2551" + " ".repeat(55) + "\u2551")
+  console.error("\u2551  Compatible with: Claude Desktop, Claude Code, OpenCode," + " ".repeat(6) + "\u2551")
+  console.error("\u2551  Cursor, VS Code, Windsurf, JetBrains, Cline" + " ".repeat(18) + "\u2551")
+  console.error("\u2551" + " ".repeat(55) + "\u2551")
+  console.error(`\u2551  ${C.cyan}${CLI_NAME} add${C.reset} ${C.dim}- auto-install for all clients${C.reset}${" ".repeat(5)}\u2551`.replace(/\x1b\[\d+m/g, ""))
+  console.error("\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d")
+  console.error("")
+}
+
+const C = {
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+}
 
 async function main() {
+  const args = process.argv.slice(2)
+  const command = args[0]
+
+  if (command === "add" || command === "install") {
+    const target = args[1]
+    addCommand(target)
+    return
+  }
+
+  if (command === "remove" || command === "uninstall") {
+    removeCommand()
+    return
+  }
+
+  if (command === "status" || command === "check") {
+    statusCommand()
+    return
+  }
+
+  if (command === "help" || command === "--help" || command === "-h") {
+    helpCommand()
+    return
+  }
+
+  if (command === "server" || command === "start") {
+    const remaining = args.slice(1)
+    await startServer(remaining)
+    return
+  }
+
+  await startServer(args)
+}
+
+async function startServer(args: string[]) {
+  const useHttp = args.includes("--http")
+  const port = (() => {
+    const idx = args.indexOf("--port")
+    return idx >= 0 && idx + 1 < args.length ? parseInt(args[idx + 1], 10) : HTTP_PORT
+  })()
+
   const status = getProverStatus()
-  console.error(`[agentix-mcp-test] Circuit status: WASM=${status.wasmPath} ${status.wasmPath ? "✓" : "✗"}, Zkey=${status.zkeyPath ? "✓" : "✗"}`)
-  console.error(`[agentix-mcp-test] Prover available: ${status.available}`)
+  console.error(`[${CLI_NAME}] Prover: ${status.available ? "Groth16 (snarkjs)" : "Simulated"}${status.wasmPath !== "(not found)" ? " (" + status.wasmPath + ")" : ""}`)
 
   const server = createMCPServer()
 
   if (useHttp) {
     const isBun = typeof (globalThis as any).Bun !== "undefined"
     await (isBun ? serveHttpWithBun(server, port) : serveHttpWithNode(server, port))
-
-    console.error(`[agentix-mcp-test] HTTP server listening on port ${port}`)
-    console.error(`[agentix-mcp-test] Connect your MCP client to http://localhost:${port}/mcp`)
-    console.error(`[agentix-mcp-test] Waiting for client connection...`)
+    console.error(`[${CLI_NAME}] HTTP server on port ${port}`)
+    console.error(`[${CLI_NAME}] Endpoint: http://localhost:${port}/mcp`)
   } else {
-    // Stdio transport (for Claude Desktop, Cline, etc.)
+    showBanner()
     const transport = new StdioServerTransport()
     await server.connect(transport)
     showConnectionBanner("Stdio")
@@ -73,22 +114,15 @@ async function serveHttpWithNode(server: Server, port: number) {
     await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js")
 
   let firstRequest = true
-
   const httpServer = http.createServer(async (req: any, res: any) => {
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
       res.end(JSON.stringify({ status: "ok", prover: getProverStatus() }))
       return
     }
-
-    if (firstRequest) {
-      firstRequest = false
-      showConnectionBanner("HTTP")
-    }
-
+    if (firstRequest) { firstRequest = false; showConnectionBanner("HTTP") }
     const transport = new WebStandardStreamableHTTPServerTransport()
     await server.connect(transport)
-
     const bodyBuffer = req.method !== "GET" && req.method !== "HEAD"
       ? await new Promise<Buffer>((resolve) => {
           const chunks: Buffer[] = []
@@ -96,7 +130,6 @@ async function serveHttpWithNode(server: Server, port: number) {
           req.on("end", () => resolve(Buffer.concat(chunks)))
         })
       : null
-
     const mockReq = new Request(`http://localhost${req.url}`, {
       method: req.method,
       headers: Object.entries(req.headers).reduce((acc, [k, v]) => {
@@ -105,22 +138,17 @@ async function serveHttpWithNode(server: Server, port: number) {
       }, {} as Record<string, string>),
       body: bodyBuffer?.toString() || undefined,
     })
-
     const response = await transport.handleRequest(mockReq)
     res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
     res.end(await response.text())
   })
-
   httpServer.listen(port)
-  return httpServer
 }
 
 async function serveHttpWithBun(server: Server, port: number) {
   const { WebStandardStreamableHTTPServerTransport } =
     await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js")
-
   let firstRequest = true
-
   ;(globalThis as any).Bun.serve({
     port,
     async fetch(req: Request) {
@@ -129,12 +157,7 @@ async function serveHttpWithBun(server: Server, port: number) {
           headers: { "Content-Type": "application/json" },
         })
       }
-
-      if (firstRequest) {
-        firstRequest = false
-        showConnectionBanner("HTTP")
-      }
-
+      if (firstRequest) { firstRequest = false; showConnectionBanner("HTTP") }
       const transport = new WebStandardStreamableHTTPServerTransport()
       await server.connect(transport)
       return transport.handleRequest(req)
@@ -143,6 +166,6 @@ async function serveHttpWithBun(server: Server, port: number) {
 }
 
 main().catch((err) => {
-  console.error("[agentix-mcp-test] Fatal:", err)
+  console.error(`[${CLI_NAME}] Fatal:`, err)
   process.exit(1)
 })
