@@ -92,7 +92,7 @@ var OPENAI_MODEL = process.env.OPENAI_MODEL || 'zai.glm-5';
 // Blockchain Configuration
 var RPC_URL = process.env.RPC_URL || '';
 var PRIVATE_KEY = process.env.PRIVATE_KEY || '';
-var CHAIN_ID = Number(process.env.CHAIN_ID || '11155111');
+var CHAIN_ID = Number(process.env.CHAIN_ID || '84532');
 // Initialize provider and wallet
 var provider = null;
 var signerWallet = null;

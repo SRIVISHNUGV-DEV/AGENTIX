@@ -9,8 +9,8 @@ import {
 
 const store = new InMemoryStore()
 
-const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
-const RPC_URL = process.env.RPC_URL || "https://eth-sepolia.g.alchemy.com/v2/demo"
+const CHAIN_ID = Number(process.env.CHAIN_ID || "84532")
+const RPC_URL = process.env.RPC_URL || "https://base-sepolia.g.alchemy.com/v2/demo"
 
 const CONTRACT_ADDRESSES = {
   verifier: process.env.VERIFIER_ADDRESS || "0xa9ED81d44847729a7C8D33907BaDFb767ac9AC48",

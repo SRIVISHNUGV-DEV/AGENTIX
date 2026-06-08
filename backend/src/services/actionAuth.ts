@@ -1,7 +1,7 @@
 import { verifyMessage } from "ethers"
 import { AppError } from "../utils/errors"
 
-const SIGNED_ACTION_CHAIN_ID = 11155111
+const SIGNED_ACTION_CHAIN_ID = 84532
 const MAX_SIGNATURE_AGE_SECONDS = 5 * 60
 
 type SignedActionPayload = {

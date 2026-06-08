@@ -15,7 +15,7 @@ const normalizeAddress = (addr: string): string => {
 
 const RPC_URLS = parseUrlList(process.env.RPC_URLS || process.env.RPC_URL || "http://127.0.0.1:8545")
 const PRIVATE_KEY = process.env.PRIVATE_KEY || ""
-const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
+const CHAIN_ID = Number(process.env.CHAIN_ID || "84532")
 const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia"
 
 const DEFAULT_SESSION_MANAGER_ADDRESS = normalizeAddress(process.env.SESSION_MANAGER_ADDRESS || "")

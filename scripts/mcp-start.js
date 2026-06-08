@@ -89,7 +89,7 @@ function printBanner() {
   `
   console.error(banner)
   console.error(`  Database:   ${(process.env.DATABASE_URL || process.env.POSTGRES_URL || "").split("@")[1] || "not set"}`)
-  console.error(`  Chain:      Sepolia (${process.env.CHAIN_ID || "11155111"})`)
+  console.error(`  Chain:      Base Sepolia (${process.env.CHAIN_ID || "84532"})`)
   console.error(`  MCP:        http://localhost:${process.env.PORT || "3001"}/mcp`)
   console.error(`  Health:     http://localhost:${process.env.PORT || "3001"}/health`)
   console.error(`  Tools:      http://localhost:${process.env.PORT || "3001"}/tools`)

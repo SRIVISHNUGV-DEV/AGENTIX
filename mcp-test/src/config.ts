@@ -27,9 +27,9 @@ function loadDotenv(): void {
 
 loadDotenv()
 
-export const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
+export const CHAIN_ID = Number(process.env.CHAIN_ID || "84532")
 export const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia"
-export const RPC_URL = process.env.RPC_URL || "https://eth-sepolia.g.alchemy.com/v2/demo"
+export const RPC_URL = process.env.RPC_URL || "https://base-sepolia.g.alchemy.com/v2/demo"
 export const HTTP_PORT = parseInt(process.env.PORT || process.env.MCP_HTTP_PORT || "3100", 10)
 export const PACKAGE_NAME = process.env.npm_package_name || "agentix-mcp-test"
 export const PACKAGE_VERSION = process.env.npm_package_version || "0.2.0"

@@ -67,10 +67,10 @@ async function main() {
   console.log(chalk.bold("  Step 1: Blockchain Configuration"))
   console.log(chalk.gray("  ─────────────────────────────────────────"))
 
-  const rpcUrl = await prompt("Alchemy/Infura Sepolia RPC URL", { default: "https://eth-sepolia.g.alchemy.com/v2/" })
+  const rpcUrl = await prompt("Alchemy/Infura Base Sepolia RPC URL", { default: "https://base-sepolia.g.alchemy.com/v2/" })
   const privateKey = await prompt("Backend wallet private key (0x...)")
   const bundlerUrl = await prompt("Bundler URL (same as RPC if using Alchemy)", { default: rpcUrl })
-  const chainId = await prompt("Chain ID", { default: "11155111" })
+  const chainId = await prompt("Chain ID", { default: "84532" })
   const networkName = await prompt("Network name", { default: "sepolia" })
   console.log()
 

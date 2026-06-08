@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { ContractFactory, JsonRpcProvider, Wallet } = require("ethers");
-const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111");
+const CHAIN_ID = Number(process.env.CHAIN_ID || "84532");
 const NETWORK_NAME = process.env.NETWORK_NAME || "sepolia";
 const ENTRY_POINT_ADDRESS =
   process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";

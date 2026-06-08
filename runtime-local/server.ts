@@ -40,7 +40,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'zai.glm-5'
 // Blockchain Configuration
 const RPC_URL = process.env.RPC_URL || ''
 const PRIVATE_KEY = process.env.PRIVATE_KEY || ''
-const CHAIN_ID = Number(process.env.CHAIN_ID || '11155111')
+const CHAIN_ID = Number(process.env.CHAIN_ID || '84532')
 
 // Initialize provider and wallet
 let provider: ethers.JsonRpcProvider | null = null

@@ -1,4 +1,4 @@
-const SEPOLIA_CHAIN_ID = 11155111
+const CHAIN_ID = 84532
 
 export type SignedActionInput = {
   action: string
@@ -18,6 +18,6 @@ export function buildSignedActionMessage(input: SignedActionInput) {
     `Wallet: ${input.walletAddress.toLowerCase()}`,
     `Nonce: ${input.nonce}`,
     `RequestedAt: ${input.requestedAt}`,
-    `ChainId: ${SEPOLIA_CHAIN_ID}`,
+    `ChainId: ${CHAIN_ID}`,
   ].join('\n')
 }

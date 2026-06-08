@@ -69,7 +69,7 @@ export class ChainAdapter {
   }
 
   private loadFromEnvironment() {
-    const chainId = Number(process.env.CHAIN_ID || "11155111")
+    const chainId = Number(process.env.CHAIN_ID || "84532")
     const name = process.env.NETWORK_NAME || "sepolia"
     const rpcUrls = parseUrlList(process.env.RPC_URLS || process.env.RPC_URL || "http://127.0.0.1:8545")
     const privateKey = process.env.PRIVATE_KEY || ""

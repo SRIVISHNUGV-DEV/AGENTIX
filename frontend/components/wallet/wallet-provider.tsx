@@ -37,7 +37,7 @@ declare global {
   }
 }
 
-const SEPOLIA_CHAIN_ID = 11155111
+const CHAIN_ID = 84532
 
 type WalletContextValue = {
   account: string | null
@@ -195,9 +195,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const provider = getProvider()
       await provider.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0xaa36a7' }],
+        params: [{ chainId: '0x14a34' }],
       })
-      setChainId(SEPOLIA_CHAIN_ID)
+      setChainId(CHAIN_ID)
     } catch (walletError: any) {
       setError(walletError?.message ?? 'Failed to switch to Sepolia')
     }
@@ -263,7 +263,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       account,
       chainId,
       isConnected: Boolean(account),
-      isSepolia: chainId === SEPOLIA_CHAIN_ID,
+      isSepolia: chainId === CHAIN_ID,
       isConnecting,
       error,
       connect,

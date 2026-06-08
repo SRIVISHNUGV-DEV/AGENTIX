@@ -26,7 +26,7 @@ import path from "path"
 config({ path: path.join(__dirname, "../backend/.env") })
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:3001"
-const CHAIN_ID = Number(process.env.CHAIN_ID || "11155111")
+const CHAIN_ID = Number(process.env.CHAIN_ID || "84532")
 
 // Test result tracking
 interface TestResult {

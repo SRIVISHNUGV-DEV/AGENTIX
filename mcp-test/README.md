@@ -67,20 +67,20 @@ amt --http --port 8080
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHAIN_ID` | `11155111` | Ethereum chain ID (Sepolia) |
+| `CHAIN_ID` | `84532` | Ethereum chain ID (Base Sepolia) |
 | `NETWORK_NAME` | `sepolia` | Network label |
-| `RPC_URL` | `https://eth-sepolia.g.alchemy.com/v2/demo` | JSON-RPC endpoint |
-| `VERIFIER_ADDRESS` | *(hardcoded Sepolia)* | Verifier contract |
-| `CREDENTIAL_REGISTRY_ADDRESS` | *(hardcoded Sepolia)* | Credential registry |
-| `SESSION_MANAGER_ADDRESS` | *(hardcoded Sepolia)* | Session manager |
-| `CAPABILITY_REGISTRY_ADDRESS` | *(hardcoded Sepolia)* | Capability registry |
-| `DELEGATION_MANAGER_ADDRESS` | *(hardcoded Sepolia)* | Delegation manager |
-| `AGENT_WALLET_FACTORY_ADDRESS` | *(hardcoded Sepolia)* | Agent wallet factory |
-| `ENTRY_POINT_ADDRESS` | *(hardcoded Sepolia)* | ERC-4337 entry point |
+| `RPC_URL` | `https://base-sepolia.g.alchemy.com/v2/demo` | JSON-RPC endpoint |
+| `VERIFIER_ADDRESS` | *(hardcoded Base Sepolia)* | Verifier contract |
+| `CREDENTIAL_REGISTRY_ADDRESS` | *(hardcoded Base Sepolia)* | Credential registry |
+| `SESSION_MANAGER_ADDRESS` | *(hardcoded Base Sepolia)* | Session manager |
+| `CAPABILITY_REGISTRY_ADDRESS` | *(hardcoded Base Sepolia)* | Capability registry |
+| `DELEGATION_MANAGER_ADDRESS` | *(hardcoded Base Sepolia)* | Delegation manager |
+| `AGENT_WALLET_FACTORY_ADDRESS` | *(hardcoded Base Sepolia)* | Agent wallet factory |
+| `ENTRY_POINT_ADDRESS` | *(hardcoded Base Sepolia)* | ERC-4337 entry point |
 | `PORT` | `3100` | HTTP server port |
 | `CIRCUIT_DIR` | *(built-in)* | Override path to ZK circuit files |
 
-All contract addresses have hardcoded Sepolia defaults — you only need to set them if you deployed your own contracts.
+All contract addresses have hardcoded Base Sepolia defaults — you only need to set them if you deployed your own contracts.
 
 ## ZK Proofs
 

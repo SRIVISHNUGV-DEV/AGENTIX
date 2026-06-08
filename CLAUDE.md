@@ -19,7 +19,7 @@
 | Backend | Express.js + TypeScript | API server |
 | Database | PostgreSQL | Persistent state |
 | Queue | BullMQ + Redis | Async proof generation |
-| Blockchain | Solidity + Hardhat | Smart contracts on Sepolia |
+| Blockchain | Solidity + Hardhat | Smart contracts on Base Sepolia |
 | ZK Proofs | Circom + snarkjs | Groth16 proofs |
 | Account Abstraction | ERC-4337 | Smart contract wallets |
 
@@ -208,7 +208,7 @@ agentix/
 
 ---
 
-## Smart Contract Addresses (Sepolia)
+## Smart Contract Addresses (Base Sepolia)
 
 | Contract | Address |
 |----------|---------|
@@ -250,7 +250,7 @@ cd contracts && npx hardhat run scripts/deploy.ts --network sepolia
 ### Backend (.env)
 ```bash
 DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
-RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
 PRIVATE_KEY=0x...
 REDIS_URL=redis://localhost:6379
 PORT=3001
@@ -261,7 +261,7 @@ NODE_ENV=development
 ```bash
 NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3001
 AGENT_CREDENTIALS_API_URL=http://127.0.0.1:3001
-NEXT_PUBLIC_CHAIN_ID=11155111
+NEXT_PUBLIC_CHAIN_ID=84532
 ```
 
 ---
@@ -320,11 +320,11 @@ verifySignature(signature, expectedMessage, walletAddress);
 
 3. **Circuit files required**: Backend needs `circuits/build/credential.wasm` and `.zkey`.
 
-4. **Sepolia ETH required**: Need Sepolia ETH for contract interactions.
+4. **Base Sepolia ETH required**: Need Base Sepolia ETH for contract interactions.
 
 5. **Redis required**: BullMQ proof queue needs Redis running.
 
-6. **Wallet must be on Sepolia**: Signature verification checks chain ID 11155111.
+6. **Wallet must be on Base Sepolia**: Signature verification checks chain ID 84532.
 
 ---
 

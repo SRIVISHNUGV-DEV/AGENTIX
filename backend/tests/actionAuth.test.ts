@@ -24,7 +24,7 @@ describe("ActionAuth", () => {
     expect(message).toContain("CREATE_ORG")
     expect(message).toContain("test-nonce")
     expect(message).toContain("0x1234567890123456789012345678901234567890")
-    expect(message).toContain("ChainId: 11155111")
+    expect(message).toContain("ChainId: 84532")
   })
 
   it("should roundtrip sign and verify", async () => {
@@ -74,7 +74,7 @@ describe("ActionAuth", () => {
       requestedAt: 0,
     })
     expect(message).toContain("GRANT_CAPABILITY")
-    expect(message).toContain("ChainId: 11155111")
+    expect(message).toContain("ChainId: 84532")
   })
 })
 

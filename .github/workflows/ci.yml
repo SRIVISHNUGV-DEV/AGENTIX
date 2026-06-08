@@ -63,7 +63,7 @@ jobs:
         working-directory: frontend
         env:
           NEXT_PUBLIC_AGENT_CREDENTIALS_API_URL: "http://localhost:3001"
-          NEXT_PUBLIC_CHAIN_ID: "11155111"
+          NEXT_PUBLIC_CHAIN_ID: "84532"
       - name: Build SDK
         run: bun run build
         working-directory: sdk
