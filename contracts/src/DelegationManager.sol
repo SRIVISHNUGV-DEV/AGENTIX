@@ -29,6 +29,11 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         owner = msg.sender;
     }
 
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "Invalid owner");
+        owner = newOwner;
+    }
+
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 

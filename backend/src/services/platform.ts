@@ -1,185 +1,57 @@
-import crypto from "crypto"
-import fs from "fs"
-import path from "path"
 import { Wallet } from "ethers"
-import { groth16 } from "snarkjs"
-import { poseidonHash } from "../utils/crypto"
 import { IncrementalMerkleTree } from "./merkle"
 import { SparseRevocationTree, toRevocationKey } from "./revocationTree"
 import { BlockchainService, getBlockchainService } from "./blockchain"
-
-const CIRCUIT_WASM_PATH = path.resolve(
-    __dirname,
-    "../../../circuits/build/credential_js/credential.wasm"
-)
-
-// FLAW 4 FIX: Lazy circuit resolution handled in prover.ts
-// This file re-exports for compatibility
-const CIRCUIT_ZKEY_PATH = resolveZkeyPath()
-
-function resolveZkeyPath() {
-    const buildDir = path.resolve(__dirname, "../../../circuits/build")
-
-    if (!fs.existsSync(buildDir)) {
-        return null
-    }
-
-    const zkey = fs.readdirSync(buildDir).find((file) => file.endsWith(".zkey"))
-
-    if (!zkey) {
-        return null
-    }
-
-    return path.join(buildDir, zkey)
-}
 
 export class PlatformService {
     blockchain: BlockchainService
 
     constructor() {
-        // FLAW 10 FIX: Use singleton blockchain service
         this.blockchain = getBlockchainService()
     }
 
-    private normalizeScalars<T>(value: T): T {
-        if (typeof value === "bigint") {
-            return value.toString() as T
-        }
-
-        if (typeof value === "number") {
-            return Math.trunc(value).toString() as T
-        }
-
-        if (Array.isArray(value)) {
-            return value.map((item) => this.normalizeScalars(item)) as T
-        }
-
-        if (value && typeof value === "object") {
-            return Object.fromEntries(
-                Object.entries(value).map(([key, item]) => [key, this.normalizeScalars(item)])
-            ) as T
-        }
-
-        return value
-    }
-
     /**
-     * @deprecated FLAW 1 FIX: Secrets should be generated client-side.
-     * The backend should NEVER have access to the raw secret.
-     * Use frontend/lib/credential-client.ts to generate secrets on the client.
-     * This method is kept only for backward compatibility during migration.
+     * Issue credential from a client-generated commitment.
+     * The backend NEVER sees the raw secret — only the commitment (hash) and optional secretHash.
      */
-    private createManagedSecret() {
-        console.warn("[DEPRECATED] createManagedSecret: Secrets should be generated client-side")
-        return BigInt(`0x${crypto.randomBytes(31).toString("hex")}`)
-    }
-
-    private async getAgentWithSecret(db:any, agentId:number){
-        const agent = await db.get(
-            `
-            SELECT *
-            FROM agents
-            WHERE id = ?
-            `,
-            agentId
-        )
-
-        if(!agent){
-            throw new Error("agent not found")
-        }
-
-        if(!agent.managed_secret){
-            const secret = this.createManagedSecret().toString()
-            await db.run(
-                `
-                UPDATE agents
-                SET managed_secret = ?
-                WHERE id = ?
-                `,
-                secret,
-                agentId
-            )
-            agent.managed_secret = secret
-        }
-
-        return {
-            ...agent,
-            managedSecret: BigInt(agent.managed_secret)
-        }
-    }
-
-    private computeCommitment(agentId:number, orgId:number, permissions:number, expiry:number, secret:bigint){
-        return poseidonHash([
-            BigInt(agentId),
-            BigInt(orgId),
-            BigInt(permissions),
-            BigInt(expiry),
-            secret
-        ])
-    }
-
-    private computeSecretHash(secret:bigint){
-        return poseidonHash([secret, 0n])
-    }
-
-    async issueCredential(db:any, agentId:number, permissions:number, expiry:number){
-        const agent = await this.getAgentWithSecret(db, agentId)
+    async issueCredential(
+        db: any,
+        agentId: number,
+        orgId: number,
+        permissions: number,
+        expiry: number,
+        commitment: string,
+        secretHash?: string | null
+    ) {
         const existing = await db.get(
-            `
-            SELECT *
-            FROM credentials
-            WHERE agent_id = ?
-            `,
+            `SELECT id FROM credentials WHERE agent_id = ?`,
             agentId
         )
 
-        if(existing){
+        if (existing) {
             throw new Error("credential already exists for agent")
         }
 
-        const commitment = this.computeCommitment(
-            agentId,
-            agent.org_id,
-            permissions,
-            expiry,
-            agent.managedSecret
-        )
-        const secretHash = this.computeSecretHash(agent.managedSecret)
-        const tree = new IncrementalMerkleTree(20, { orgId: agent.org_id })
+        const tree = new IncrementalMerkleTree(20, { orgId })
         const leafIndex = await tree.getNextLeafIndex(db)
 
         await db.run(
-            `
-            INSERT INTO credentials
-            (agent_id,org_id,permissions,expiry,commitment,secret_hash,leaf_index)
-            VALUES (?,?,?,?,?,?,?)
-            `,
-            agentId,
-            agent.org_id,
-            permissions,
-            expiry,
-            commitment.toString(),
-            secretHash.toString(),
-            leafIndex
+            `INSERT INTO credentials (agent_id, org_id, permissions, expiry, commitment, secret_hash, leaf_index)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            agentId, orgId, permissions, expiry, commitment, secretHash ?? null, leafIndex
         )
 
-        await tree.insert(db, commitment, leafIndex)
+        await tree.insert(db, BigInt(commitment), leafIndex)
         await tree.rebuildFromCredentials(db)
         const root = await tree.getRoot(db)
         const rootHex = `0x${root.toString(16).padStart(64, "0")}`
-        const chain = await this.blockchain.updateActiveRootForOrg(db, agent.org_id, rootHex)
+        const chain = await this.blockchain.updateActiveRootForOrg(db, orgId, rootHex)
 
-        return {
-            success: true,
-            agentId,
-            orgId: agent.org_id,
-            rootHex,
-            chain
-        }
+        return { success: true, agentId, orgId, rootHex, chain }
     }
 
     async createWallet(db:any, agentId:number, ownerAddress?:string){
-        const agent = await this.getAgentWithSecret(db, agentId)
+        const agent = await db.get(`SELECT * FROM agents WHERE id = ?`, agentId)
         const ownerWallet = ownerAddress ? null : Wallet.createRandom()
         const owner = ownerAddress ?? ownerWallet!.address
         const wallet = await this.blockchain.createWalletForOrg(db, agent.org_id, owner)
@@ -226,167 +98,37 @@ export class PlatformService {
         }
     }
 
-    async revokeCredential(db:any, agentId:number){
-        const agent = await this.getAgentWithSecret(db, agentId)
-        const secretHash = this.computeSecretHash(agent.managedSecret)
+    async revokeCredential(db: any, agentId: number, secretHash: string) {
+        const agent = await db.get(`SELECT org_id FROM agents WHERE id = ?`, agentId)
+        if (!agent) throw new Error("agent not found")
+
         const revocationTree = new SparseRevocationTree(agent.org_id)
 
         const existing = await db.get(
-            `
-            SELECT id
-            FROM revoked_secrets
-            WHERE org_id = ? AND secret_hash = ?
-            `,
-            agent.org_id,
-            secretHash.toString()
+            `SELECT id FROM revoked_secrets WHERE org_id = ? AND secret_hash = ?`,
+            agent.org_id, secretHash
         )
+        if (existing) throw new Error("secret already revoked")
 
-        if(existing){
-            throw new Error("secret already revoked")
-        }
-
-        const smtKey = toRevocationKey(secretHash).toString()
+        const smtKey = toRevocationKey(BigInt(secretHash)).toString()
         const leafIndex = (
             await db.get(
-                `
-                SELECT COALESCE(MAX(leaf_index), -1) + 1 as c
-                FROM revoked_secrets
-                WHERE org_id = ?
-                `,
+                `SELECT COALESCE(MAX(leaf_index), -1) + 1 as c FROM revoked_secrets WHERE org_id = ?`,
                 agent.org_id
             )
         ).c
 
         await db.run(
-            `
-            INSERT INTO revoked_secrets
-            (agent_id,org_id,secret_hash,smt_key,revoked_value,leaf_index)
-            VALUES (?,?,?,?,?,?)
-            `,
-            agentId,
-            agent.org_id,
-            secretHash.toString(),
-            smtKey,
-            1,
-            leafIndex
+            `INSERT INTO revoked_secrets (agent_id, org_id, secret_hash, smt_key, revoked_value, leaf_index)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            agentId, agent.org_id, secretHash, smtKey, 1, leafIndex
         )
 
         const root = await revocationTree.getRoot(db)
         const rootHex = `0x${root.toString(16).padStart(64, "0")}`
         const chain = await this.blockchain.updateRevokedRootForOrg(db, agent.org_id, rootHex)
 
-        return {
-            success:true,
-            agentId,
-            orgId: agent.org_id,
-            rootHex,
-            chain
-        }
-    }
-
-    async createSession(db:any, agentId:number, overrides?:{ maxValue?:number; expiry?:number }){
-        const agent = await this.getAgentWithSecret(db, agentId)
-        const credential = await db.get(
-            `
-            SELECT *
-            FROM credentials
-            WHERE agent_id = ?
-            `,
-            agentId
-        )
-
-        if(!credential){
-            throw new Error("credential not found")
-        }
-
-        const tree = new IncrementalMerkleTree(20, { orgId: agent.org_id })
-        await tree.rebuildFromCredentials(db)
-        const activeProof = await tree.generateProof(db, credential.leaf_index)
-        const activeRoot = await tree.getRoot(db)
-        const revokedProof = await new SparseRevocationTree(agent.org_id).generateProof(
-            db,
-            BigInt(credential.secret_hash)
-        )
-
-        const sessionWallet = Wallet.createRandom()
-        const sessionId = `0x${crypto
-            .createHash("sha256")
-            .update(`${agentId}:${sessionWallet.address}:${Date.now()}`)
-            .digest("hex")}`
-        const maxValue = overrides?.maxValue ?? Number(credential.permissions)
-        const expiry = overrides?.expiry ?? Math.min(
-            Number(credential.expiry),
-            Math.floor(Date.now()/1000) + 7 * 24 * 60 * 60
-        )
-        const sessionNonce = Date.now()
-
-        const input = {
-            agentId: agentId.toString(),
-            orgId: agent.org_id.toString(),
-            permissions: credential.permissions.toString(),
-            expiry: credential.expiry.toString(),
-            secret: agent.managedSecret.toString(),
-            sessionNonce: sessionNonce.toString(),
-            activePathElements: activeProof.pathElements,
-            activePathIndices: activeProof.pathIndices,
-            revokedSiblings: revokedProof.siblings,
-            revokedOldKey: revokedProof.oldKey,
-            revokedOldValue: revokedProof.oldValue,
-            revokedIsOld0: revokedProof.isOld0,
-            activeRoot: activeRoot.toString(),
-            revokedRoot: revokedProof.root,
-            maxValue: maxValue.toString(),
-            sessionExpiry: expiry.toString()
-        }
-
-        const { proof, publicSignals } = await groth16.fullProve(
-            input,
-            CIRCUIT_WASM_PATH,
-            CIRCUIT_ZKEY_PATH
-        )
-
-        const normalizedProof = this.normalizeScalars(proof)
-        const normalizedPublicSignals = this.normalizeScalars(publicSignals)
-        const chain = await this.blockchain.submitSessionForOrg(
-            db,
-            agent.org_id,
-            sessionId,
-            sessionWallet.address,
-            maxValue,
-            expiry,
-            normalizedProof,
-            normalizedPublicSignals as any[]
-        )
-
-        await db.run(
-            `
-            INSERT INTO sessions
-            (agent_id,session_id,nullifier,proof,public_signals,tx_hash)
-            VALUES (?,?,?,?,?,?)
-            `,
-            agentId,
-            sessionId,
-            String((normalizedPublicSignals as any[])[0]),
-            JSON.stringify(normalizedProof),
-            JSON.stringify({
-                sessionId,
-                sessionKey: sessionWallet.address,
-                maxValue,
-                expiry,
-                publicSignals: normalizedPublicSignals
-            }),
-            chain.txHash
-        )
-
-        return {
-            success:true,
-            agentId,
-            orgId: agent.org_id,
-            txHash: chain.txHash,
-            sessionId,
-            sessionKey: sessionWallet.address,
-            contractAddress: chain.contractAddress
-        }
+        return { success: true, agentId, orgId: agent.org_id, rootHex, chain }
     }
 
     async fundAgent(db:any, agentId:number, amountEth:string){

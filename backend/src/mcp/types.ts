@@ -82,6 +82,7 @@ export const CreateSessionSchema = z.object({
   orgId: z.number().int().positive(),
   maxValue: z.string().optional(),
   expirySeconds: z.number().int().min(60).max(86400 * 30).optional(),
+  secret: z.string().optional(),
 })
 
 export const RevokeAgentSchema = z.object({
@@ -118,6 +119,7 @@ export const GenerateProofSchema = z.object({
   orgId: z.number().int().positive(),
   action: z.string(),
   expirySeconds: z.number().int().min(60).max(86400).optional(),
+  secret: z.string().optional(),
 })
 
 export const VerifyProofSchema = z.object({

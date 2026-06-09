@@ -79,7 +79,7 @@ router.get("/", async (req: Request, res: Response)=>{
     }
 })
 
-// Wallet-only auth: Issue credential
+// Wallet-only auth: Issue credential — client provides commitment (never the raw secret)
 router.post("/:agentId/credentials/issue", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
@@ -92,6 +92,10 @@ router.post("/:agentId/credentials/issue", async (req: Request, res: Response)=>
         ensureBodyObject(req.body)
         const permissions = requireInteger(req.body.permissions, "permissions", 0)
         const expiry = requireInteger(req.body.expiry, "expiry", 1)
+        const commitment = requireString(req.body.commitment, "commitment", { minLength: 1, maxLength: 256 })
+        const secretHash = req.body.secretHash === undefined || req.body.secretHash === null
+            ? null
+            : requireString(req.body.secretHash, "secretHash", { minLength: 1, maxLength: 256 })
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -100,14 +104,14 @@ router.post("/:agentId/credentials/issue", async (req: Request, res: Response)=>
             payload: req.body ?? {}
         })
 
-        const result = await platform.issueCredential(db, agentId, permissions, expiry)
+        const result = await platform.issueCredential(db, agentId, agent.org_id, permissions, expiry, commitment, secretHash)
         res.json(result)
     }catch(error){
         respondWithError(res, error, "agents.issueCredential")
     }
 })
 
-// Wallet-only auth: Create session
+// Wallet-only auth: Create session — client provides pre-generated proof
 router.post("/:agentId/sessions/create", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
@@ -118,8 +122,16 @@ router.post("/:agentId/sessions/create", async (req: Request, res: Response)=>{
         }
 
         ensureBodyObject(req.body)
-        const maxValue = optionalInteger(req.body.maxValue, "maxValue", 0)
-        const expiry = optionalInteger(req.body.expiry, "expiry", 1)
+        const sessionId = requireString(req.body.sessionId, "sessionId")
+        const sessionKey = requireString(req.body.sessionKey, "sessionKey")
+        const maxValue = requireInteger(req.body.maxValue, "maxValue", 0)
+        const expiry = requireInteger(req.body.expiry, "expiry", 1)
+        const proof = req.body.proof
+        const publicSignals = req.body.publicSignals
+
+        if (!proof || !publicSignals) {
+            return res.status(400).json({ error: "proof and publicSignals required" })
+        }
 
         await requireSignedAction(db, {
             orgId: agent.org_id,
@@ -128,14 +140,14 @@ router.post("/:agentId/sessions/create", async (req: Request, res: Response)=>{
             payload: req.body ?? {}
         })
 
-        const result = await platform.createSession(db, agentId, { maxValue, expiry })
+        const result = await blockchain.createSession(db, agent.org_id, sessionId, sessionKey, maxValue, expiry, proof, publicSignals)
         res.json(result)
     }catch(error){
         respondWithError(res, error, "agents.createSession")
     }
 })
 
-// Wallet-only auth: Revoke credential
+// Wallet-only auth: Revoke credential — client provides secretHash
 router.post("/:agentId/revoke", async (req: Request, res: Response)=>{
     try{
         const db = await initDB()
@@ -145,6 +157,9 @@ router.post("/:agentId/revoke", async (req: Request, res: Response)=>{
             return res.status(404).json({ error:"agent not found" })
         }
 
+        ensureBodyObject(req.body)
+        const secretHash = requireString(req.body.secretHash, "secretHash", { minLength: 1, maxLength: 256 })
+
         await requireSignedAction(db, {
             orgId: agent.org_id,
             action: "REVOKE_CREDENTIAL",
@@ -152,7 +167,7 @@ router.post("/:agentId/revoke", async (req: Request, res: Response)=>{
             payload: req.body ?? {}
         })
 
-        const result = await platform.revokeCredential(db, agentId)
+        const result = await platform.revokeCredential(db, agentId, secretHash)
         res.json(result)
     }catch(error){
         respondWithError(res, error, "agents.revoke")

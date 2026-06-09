@@ -568,6 +568,7 @@ router.post("/:agentId/proof", async (req: Request, res: Response) => {
     const orgId = requireInteger(req.body.orgId, "orgId", 1)
     const action = requireString(req.body.action, "action")
     const expirySeconds = req.body.expirySeconds || 3600
+    const secret = req.body.secret // client-provided secret (optional — can prove client-side via SDK)
 
     // Verify signature
     const db = await initDB()
@@ -578,12 +579,13 @@ router.post("/:agentId/proof", async (req: Request, res: Response) => {
       payload: req.body // Contains walletAddress, signature, nonce, requestedAt
     })
 
-    // Generate the proof
+    // Generate the proof — uses client-provided secret if given, otherwise client proves via SDK
     const result = await agentService.generateAuthorizationProof(
       agentId,
       orgId,
       action,
-      expirySeconds
+      expirySeconds,
+      secret
     )
 
     res.json({

@@ -1095,7 +1095,8 @@ export class ExternalAgentService {
         agentId: number,
         orgId: number,
         action: string,
-        expirySeconds: number = 3600
+        expirySeconds: number = 3600,
+        secret?: string // client-provided secret for optional server-side proving
     ): Promise<{
         proof: ExecutionProof
         permissionBitmask: number
@@ -1104,11 +1105,10 @@ export class ExternalAgentService {
         const db = await initDB()
 
         const agent = await db.get(
-            `SELECT ea.*, a.managed_secret,
+            `SELECT ea.*,
                     c.permissions, c.expiry as credential_expiry, c.leaf_index,
                     c.secret_hash, c.commitment
              FROM external_agents ea
-             LEFT JOIN agents a ON ea.linked_agent_id = a.id
              LEFT JOIN credentials c ON ea.linked_agent_id = c.agent_id
              WHERE ea.id = ? AND ea.org_id = ?`,
             agentId,
@@ -1148,10 +1148,10 @@ export class ExternalAgentService {
 
         const expiresAt = Math.floor(Date.now() / 1000) + expirySeconds
 
-        // Try to generate a real Groth16 proof; fall back to Merkle-only on missing circuits
+        // Generate proof — client provides secret for optional server-side proving
         const proof: ExecutionProof = await this._tryFullProof(
             agent, orgId, activeRoot, activeProof, revokedProof,
-            nullifier, agentPermissions, expiresAt
+            nullifier, agentPermissions, expiresAt, secret
         )
 
         return {
@@ -1176,8 +1176,13 @@ export class ExternalAgentService {
         },
         nullifier: bigint,
         permissions: number,
-        expiresAt: number
+        expiresAt: number,
+        secret?: string // client-provided; never fetched from DB
     ): Promise<ExecutionProof> {
+        if (!secret) {
+            throw new AppError(400, "Secret required for proof generation — generate proof client-side via SDK")
+        }
+
         const { getProverBackend } = await import("./fastProver")
 
         const backend = getProverBackend()
@@ -1187,7 +1192,7 @@ export class ExternalAgentService {
             orgId: orgId.toString(),
             permissions: agent.permissions?.toString() ?? "0",
             expiry: agent.credential_expiry?.toString() ?? "0",
-            secret: agent.managed_secret ?? "0",
+            secret,
             sessionNonce: Math.floor(Date.now() / 1000).toString(),
             activePathElements: activeProof.pathElements,
             activePathIndices: activeProof.pathIndices.map((i: number) => i.toString()),

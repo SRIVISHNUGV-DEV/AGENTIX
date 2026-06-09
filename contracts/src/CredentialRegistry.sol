@@ -64,6 +64,11 @@ contract CredentialRegistry is ReentrancyGuard {
                         ISSUER MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "Invalid owner");
+        owner = newOwner;
+    }
+
     function addIssuer(address issuer) external onlyOwner {
         issuers[issuer] = true;
     }

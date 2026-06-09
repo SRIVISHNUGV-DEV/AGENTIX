@@ -285,14 +285,15 @@ async function handleCreateSession(args: unknown): Promise<MCPToolResponse> {
     return createErrorResponse(`Invalid arguments: ${parsed.error.message}`)
   }
 
-  const { agentId, orgId, expirySeconds } = parsed.data
+  const { agentId, orgId, expirySeconds, secret } = parsed.data
 
   // Generate an authorization proof for session creation
   const proofResult = await agentService.generateAuthorizationProof(
     agentId,
     orgId,
     "create_session",
-    expirySeconds || 3600
+    expirySeconds || 3600,
+    secret
   )
 
   return createSuccessResponse({
@@ -423,13 +424,14 @@ async function handleGenerateProof(args: unknown): Promise<MCPToolResponse> {
     return createErrorResponse(`Invalid arguments: ${parsed.error.message}`)
   }
 
-  const { agentId, orgId, action, expirySeconds } = parsed.data
+  const { agentId, orgId, action, expirySeconds, secret } = parsed.data
 
   const result = await agentService.generateAuthorizationProof(
     agentId,
     orgId,
     action,
-    expirySeconds || 3600
+    expirySeconds || 3600,
+    secret
   )
 
   return createSuccessResponse({

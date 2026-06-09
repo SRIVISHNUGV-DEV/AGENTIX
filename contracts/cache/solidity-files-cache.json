@@ -277,8 +277,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\DelegationManager.sol": {
-      "lastModificationDate": 1780319581533,
-      "contentHash": "3a89304496f7745f8ac72ce057cea1bf",
+      "lastModificationDate": 1780984917356,
+      "contentHash": "7a6833739a47a0bb93db1c7b066f6779",
       "sourceName": "src/DelegationManager.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -393,8 +393,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CapabilityRegistry.sol": {
-      "lastModificationDate": 1780984126582,
-      "contentHash": "9eac1f26f0a7200b8f062b9cb0f72276",
+      "lastModificationDate": 1780984918327,
+      "contentHash": "658dd7646d3355a03fb338cda49a9fa1",
       "sourceName": "src/CapabilityRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -433,8 +433,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CredentialRegistry.sol": {
-      "lastModificationDate": 1780984123686,
-      "contentHash": "57b48714f37b74d5cad854d6981592e4",
+      "lastModificationDate": 1780984916167,
+      "contentHash": "05160785e58398de1198a17abc6ba89c",
       "sourceName": "src/CredentialRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
