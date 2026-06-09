@@ -8,7 +8,8 @@
     "sdk",
     "contracts",
     "circuits",
-    "mcp-test"
+    "mcp-test",
+    "cli"
   ],
   "scripts": {
     "install:all": "cd backend && npm install && cd .. && cd frontend && npm install && cd .. && cd sdk && npm install && cd .. && cd contracts && npm install && cd .. && cd circuits && npm install",
@@ -18,6 +19,7 @@
     "build:sdk": "cd sdk && npm run build",
     "build:contracts": "cd contracts && npx hardhat compile",
     "build:mcp-test": "cd mcp-test && npm run build",
+    "build:cli": "cd cli && npm run build",
     "test": "npm run test:contracts && npm run test:backend && npm run test:mcp-test",
     "test:contracts": "cd contracts && npx hardhat test",
     "test:backend": "cd backend && bun test --serial",
@@ -30,6 +32,9 @@
     "start:mcp:dev": "node --watch scripts/mcp-start.js",
     "start:mcp-test": "cd mcp-test && node dist/index.js --http",
     "setup": "node setup.mjs",
+    "atx": "cd cli && node dist/index.js",
+    "atx:dev": "cd cli && npx tsx src/index.ts",
+    "atx:build": "cd cli && npm run build",
     "example:create-session": "cd sdk && npx tsx examples/create-session.ts"
   }
 }
