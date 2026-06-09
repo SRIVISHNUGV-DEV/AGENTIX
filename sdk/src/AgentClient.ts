@@ -223,6 +223,24 @@ export class AgentClient {
         return res.data
     }
 
+    async fetchWellKnown(): Promise<import("./types").WellKnownConfig> {
+        const res = await axios.get(`${this.api}/.well-known/agentix`)
+        return res.data
+    }
+
+    async verifyAtEndpoint(params: {
+        proof: any
+        publicSignals: string[]
+        requestedScopes?: string[]
+    }): Promise<import("./types").VerifyResponse> {
+        const res = await axios.post(`${this.api}/verify`, {
+            proof: params.proof,
+            publicSignals: params.publicSignals,
+            requestedScopes: params.requestedScopes,
+        })
+        return res.data
+    }
+
     async queryAuditLogs(params?: {
         orgId?: number
         action?: string

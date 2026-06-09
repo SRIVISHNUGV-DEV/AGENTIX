@@ -93,3 +93,54 @@ export interface RemoteProofResponse {
   permissionBitmask: number
   expiresAt: number
 }
+
+export type ScopeCategory = "identity" | "authorization" | "attestation"
+
+export interface ScopeDefinition {
+  name: string
+  description: string
+  reveals: string[]
+  category: ScopeCategory
+}
+
+export interface WellKnownConfig {
+  issuer: string
+  version: string
+  description: string
+  docs_url: string
+  credential_registry: string | null
+  session_manager: string | null
+  circuits: Array<{
+    id: string
+    n_public: number
+    public_signals: Array<{ index: number; name: string; description: string }>
+    verification_key_url: string
+  }>
+  scopes: ScopeDefinition[]
+  endpoints: Record<string, string>
+  authentication: {
+    type: string
+    curve: string
+    proving_scheme: string
+  }
+  meta: {
+    generated_at: number
+    network: string
+    chain_id: number
+  }
+}
+
+export interface VerifyResponse {
+  valid: boolean
+  error?: string
+  proof?: {
+    nullifier: string
+    permissions: string
+    sessionExpiry: number
+    activeRoot: string
+    revokedRoot: string
+  }
+  publicSignals?: Record<string, string>
+  requestedScopes?: string[]
+  missingScopes?: string[]
+}

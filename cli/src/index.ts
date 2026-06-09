@@ -1,6 +1,6 @@
 import { program } from "commander"
 import { createClient } from "./client"
-import { loadConfig, saveConfig, storeAgentSecret } from "./config"
+import { loadConfig, saveConfig, storeAgentSecret, getAgentSecret } from "./config"
 import { AgentClient } from "@agentix/sdk"
 import axios from "axios"
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
@@ -489,6 +489,150 @@ program
         }
         log()
       }
+    } catch (e: any) {
+      err(e.message || String(e))
+    }
+  })
+
+// ── atx wellknown ──────────────────────────────────────────────────────
+program
+  .command("wellknown")
+  .description("Fetch the .well-known/agentix discovery document")
+  .action(async () => {
+    try {
+      const client = await createClient()
+      const config = await client.fetchWellKnown()
+      log()
+      log("  Agentix Protocol Discovery", C.bold)
+      log("  ──────────────────────────\n")
+      label("Issuer", config.issuer)
+      label("Version", config.version)
+      label("Network", `${config.meta.network} (chain ${config.meta.chain_id})`)
+      label("Verification Endpoint", config.endpoints.verification)
+      label("Docs", config.docs_url)
+      log()
+      log("  Supported Scopes:", C.bold)
+      for (const s of config.scopes) {
+        log(`    ${C.cyan}${s.name}${C.reset}`)
+        log(`      ${C.dim}${s.description}${C.reset}`)
+        log(`      ${C.dim}reveals: [${s.reveals.join(", ")}] (${s.category})${C.reset}`)
+      }
+      log()
+      log("  Circuits:", C.bold)
+      for (const c of config.circuits) {
+        log(`    ${C.green}${c.id}${C.reset} — ${c.n_public} public signals`)
+        for (const sig of c.public_signals) {
+          log(`      [${sig.index}] ${C.dim}${sig.name}${C.reset}: ${sig.description}`)
+        }
+      }
+      log()
+    } catch (e: any) {
+      err(e.message || String(e))
+    }
+  })
+
+// ── atx verify ─────────────────────────────────────────────────────────
+program
+  .command("verify")
+  .description("Verify a proof via the standard verification endpoint")
+  .requiredOption("-f, --file <path>", "Proof JSON file")
+  .option("-s, --scope <scopes...>", "Requested scopes to resolve")
+  .action(async (opts) => {
+    try {
+      if (!existsSync(opts.file)) { err(`File not found: ${opts.file}`); return }
+      const proofData = JSON.parse(readFileSync(opts.file, "utf-8"))
+      const client = await createClient()
+      log("\n  Verifying proof via standard endpoint...\n", C.cyan)
+      const result = await client.verifyAtEndpoint({
+        proof: proofData.proof || proofData,
+        publicSignals: proofData.publicSignals || [],
+        requestedScopes: opts.scope,
+      })
+      if (result.valid) {
+        ok("Proof is VALID ✓")
+        log()
+        label("Nullifier", result.proof?.nullifier?.slice(0, 20) + "...")
+        label("Permissions", result.proof?.permissions)
+        label("Session Expiry", result.proof?.sessionExpiry ? new Date(result.proof.sessionExpiry * 1000).toISOString() : "?")
+        if (result.requestedScopes?.length) {
+          log()
+          log("  Resolved Scopes:", C.bold)
+          for (const s of result.requestedScopes) {
+            log(`    ${C.green}✓${C.reset} ${s}`)
+          }
+        }
+        if (result.missingScopes?.length) {
+          log()
+          log("  Missing Scopes:", C.bold)
+          for (const s of result.missingScopes) {
+            log(`    ${C.red}✗${C.reset} ${s}`)
+          }
+        }
+      } else {
+        err(`Proof is INVALID: ${result.error || "unknown reason"}`)
+      }
+      log()
+    } catch (e: any) {
+      err(e.message || String(e))
+    }
+  })
+
+// ── atx verify-demo ────────────────────────────────────────────────────
+program
+  .command("verify-demo")
+  .description("Simulate a relying party verifying an agent proof end-to-end")
+  .action(async () => {
+    try {
+      log()
+      log("  ╔══════════════════════════════════════════════════════╗", C.cyan)
+      log("  ║  Agentix Protocol Demo — Relying Party Verification  ║", C.cyan)
+      log("  ╚══════════════════════════════════════════════════════╝", C.cyan)
+      log()
+
+      const client = await createClient()
+
+      // Step 1: Fetch the well-known config
+      info("Step 1: Discovering protocol config via .well-known/agentix")
+      const wkc = await client.fetchWellKnown()
+      ok(`Discovered issuer: ${wkc.issuer} on ${wkc.meta.network} (chain ${wkc.meta.chain_id})`)
+      ok(`${wkc.scopes.length} supported scopes, ${wkc.circuits.length} circuit(s)`)
+      log()
+
+      // Step 2: Check circuit availability
+      info("Step 2: Checking circuit availability")
+      const circuit = await client.fetchCircuitConfig()
+      if (!circuit.available) {
+        warn("Circuit not available — some features may not work")
+      } else {
+        ok(`Circuit ready: WASM=${circuit.hasWasm}, ZKey=${circuit.hasZkey}, VK=${!!circuit.verificationKey}`)
+      }
+      log()
+
+      // Step 3: Inspect verification endpoint
+      info(`Step 3: Verification endpoint at ${wkc.endpoints.verification}`)
+      ok(`POST ${wkc.endpoints.verification} accepts Groth16 proofs on bn128`)
+      log()
+
+      // Step 4: Check if any agents are registered and test a verification flow
+      const config = loadConfig()
+      const agentIds = config.agents ? Object.keys(config.agents) : []
+      if (agentIds.length > 0) {
+        info(`Step 4: ${agentIds.length} locally-known agent(s) — can generate+verify proof`)
+        for (const id of agentIds.slice(0, 3)) {
+          log(`  Agent #${id}: secret=${getAgentSecret(parseInt(id, 10)) ? "stored" : "missing"}`)
+        }
+        log()
+        info("Run 'atx proof <agentId>' to generate a proof, then 'atx verify -f <file>' to verify it")
+      } else {
+        info("Step 4: No locally-known agents. Run 'atx provision' first, then verify-demo again")
+      }
+      log()
+
+      log("  ─────────────────────────────────────────────", C.dim)
+      info("Standard verification endpoint ready")
+      ok(`POST ${client.api}/verify accepts { proof, publicSignals, requestedScopes }`)
+      ok("Any app can verify agent proofs with zero blockchain knowledge")
+      log()
     } catch (e: any) {
       err(e.message || String(e))
     }
