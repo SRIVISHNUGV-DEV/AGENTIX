@@ -6,6 +6,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
+import fs from "fs"
+import path from "path"
+import { buildPoseidon } from "circomlibjs"
 
 const store = new InMemoryStore()
 
@@ -204,51 +207,58 @@ handlers.generate_proof = async (args) => {
     return { content: [{ type: "text", text: JSON.stringify({ error: "Agent not found" }) }], isError: true }
   }
 
-  const { wasm, zkey } = checkCircuits()
-  if (!wasm || !zkey) {
-    // Circuit files missing — return simulated proof
-    const nullifier = ethers.keccak256(ethers.toUtf8Bytes(`${agentId}:${orgId}:${Date.now()}`))
-    const expiresAt = Math.floor(Date.now() / 1000) + (expirySeconds || 3600)
+  const circuitStatus = getProverStatus()
+  if (!circuitStatus.available) {
     return {
       content: [{
         type: "text",
         text: JSON.stringify({
-          success: true,
-          proof: {
-            nullifier,
-            root: "0x0000000000000000000000000000000000000000000000000000000000000000",
-            revokedRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
-            proof: { a: ["0", "0"], b: [["0", "0"], ["0", "0"]], c: ["0", "0"] },
-            publicSignals: [nullifier, "0", "0", "255", expiresAt.toString()],
-          },
-          permissionBitmask: 255,
-          expiresAt,
-          note: "Simulated proof — install circuit files for real ZK proofs",
-          circuitStatus: getProverStatus(),
+          error: "Circuit files not found and no prover available.",
+          circuitStatus,
+          resolution: "Place credential.wasm and .zkey files in circuits/build/ or set CIRCUIT_DIR env var.",
         }, null, 2),
       }],
+      isError: true,
     }
   }
 
-  // Real Groth16 proof with circuit
+  const poseidon = await buildPoseidon()
   const permissions = 255
   const expiresAt = Math.floor(Date.now() / 1000) + (expirySeconds || 3600)
+  const cryptoMod = await import("crypto")
+  const secretBytes = cryptoMod.randomBytes(31)
+  const secret = BigInt("0x" + Array.from(secretBytes)
+    .map((b: number) => b.toString(16).padStart(2, "0")).join(""))
+
+  const sessionNonce = BigInt(Math.floor(Date.now() / 1000))
+  const nullifier = poseidon([secret, sessionNonce])
+
+  const depth = 20
+  const activePathElements = Array(depth).fill("0")
+  const activePathIndices = Array(depth).fill("0")
+  const activeRoot = "0"
+
+  const revokedSiblings = Array(depth).fill("0")
+  const revokedOldKey = "0"
+  const revokedOldValue = "0"
+  const revokedIsOld0 = 1
+  const revokedRoot = "0"
 
   const input = {
     agentId: String(agentId),
     orgId: String(orgId),
     permissions: String(permissions),
     expiry: String(expiresAt),
-    secret: String(agentId), // ephemeral — use client-generated secret in production
-    sessionNonce: String(Math.floor(Date.now() / 1000)),
-    activePathElements: Array(20).fill("0"),
-    activePathIndices: Array(20).fill("0"),
-    revokedSiblings: Array(20).fill("0"),
-    revokedOldKey: "0",
-    revokedOldValue: "0",
-    revokedIsOld0: 1,
-    activeRoot: "0",
-    revokedRoot: "0",
+    secret: String(secret),
+    sessionNonce: String(sessionNonce),
+    activePathElements,
+    activePathIndices,
+    revokedSiblings,
+    revokedOldKey,
+    revokedOldValue,
+    revokedIsOld0,
+    activeRoot,
+    revokedRoot,
     maxValue: String(permissions),
     sessionExpiry: String(expiresAt),
   }
@@ -263,6 +273,9 @@ handlers.generate_proof = async (args) => {
       text: JSON.stringify({
         success: true,
         proof: {
+          nullifier: BigInt(poseidon.F.toString(nullifier)).toString(),
+          root: activeRoot,
+          revokedRoot,
           proof: {
             a: [proof.pi_a[0]?.toString() ?? "0", proof.pi_a[1]?.toString() ?? "0"],
             b: [[proof.pi_b[0][1]?.toString() ?? "0", proof.pi_b[0][0]?.toString() ?? "0"],
@@ -279,14 +292,49 @@ handlers.generate_proof = async (args) => {
 }
 
 handlers.verify_proof = async (args) => {
-  return {
-    content: [{
-      type: "text",
-      text: JSON.stringify({
-        valid: true,
-        note: "On-chain verification requires the proof to be submitted to SessionManager.verifyProof(). In test mode, trust is assumed.",
-      }, null, 2),
-    }],
+  const { proof: inputProof, action } = args
+
+  if (!inputProof || !inputProof.proof || !inputProof.publicSignals) {
+    return { content: [{ type: "text", text: JSON.stringify({ valid: false, error: "Invalid proof structure" }) }], isError: true }
+  }
+
+  const { wasm, zkey } = checkCircuits()
+  if (!wasm || !zkey) {
+    return {
+      content: [{ type: "text", text: JSON.stringify({
+        valid: false,
+        error: "No circuit files available for proof verification",
+      }), }],
+      isError: true,
+    }
+  }
+
+  try {
+    const { groth16 } = await import("snarkjs")
+    const vkPath = path.resolve(__dirname, "../../../circuits/build/verification_key.json")
+    if (!fs.existsSync(vkPath)) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          valid: false,
+          error: "verification_key.json not found",
+        }), }],
+        isError: true,
+      }
+    }
+    const vk = JSON.parse(fs.readFileSync(vkPath, "utf-8"))
+    const valid = await groth16.verify(vk, inputProof.publicSignals, inputProof.proof)
+    return {
+      content: [{ type: "text", text: JSON.stringify({
+        valid,
+        action,
+        publicSignals: inputProof.publicSignals,
+      }, null, 2), }],
+    }
+  } catch (err: any) {
+    return {
+      content: [{ type: "text", text: JSON.stringify({ valid: false, error: err.message }), }],
+      isError: true,
+    }
   }
 }
 
@@ -503,7 +551,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "generate_proof",
-    description: "Generate a ZK proof (snarkjs-based, testnet). Falls back to simulated proof if circuit files missing.",
+    description: "Generate a real Groth16 ZK proof using rapidsnark (WSL) with snarkjs fallback.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -517,7 +565,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "verify_proof",
-    description: "Verify a ZK proof (test-mode: returns valid by default)",
+    description: "Verify a ZK proof using Groth16 verification (snarkjs/on-chain).",
     inputSchema: {
       type: "object" as const,
       properties: {

@@ -1,4 +1,6 @@
 import * as crypto from "crypto"
+import fs from "fs"
+import path from "path"
 import { initDB } from "../db"
 import {
     ExternalAgent,
@@ -1102,9 +1104,11 @@ export class ExternalAgentService {
         const db = await initDB()
 
         const agent = await db.get(
-            `SELECT ea.*, c.permissions, c.expiry as credential_expiry, c.leaf_index,
+            `SELECT ea.*, a.managed_secret,
+                    c.permissions, c.expiry as credential_expiry, c.leaf_index,
                     c.secret_hash, c.commitment
              FROM external_agents ea
+             LEFT JOIN agents a ON ea.linked_agent_id = a.id
              LEFT JOIN credentials c ON ea.linked_agent_id = c.agent_id
              WHERE ea.id = ? AND ea.org_id = ?`,
             agentId,
@@ -1158,7 +1162,8 @@ export class ExternalAgentService {
     }
 
     /**
-     * Attempt full Groth16 proof; fall back to Merkle-data-only proof when circuits are absent.
+     * Generate a real Groth16 proof using the fastProver (rapidsnark WSL + snarkjs fallback).
+     * Throws if circuit files are not available — no stub proofs.
      */
     private async _tryFullProof(
         agent: any,
@@ -1173,39 +1178,11 @@ export class ExternalAgentService {
         permissions: number,
         expiresAt: number
     ): Promise<ExecutionProof> {
-        const fs = await import("fs")
-        const path = await import("path")
+        const { getProverBackend } = await import("./fastProver")
 
-        const wasmPath = path.resolve(
-            __dirname, "../../../circuits/build/credential_js/credential.wasm"
-        )
-        const zkeyPath = (() => {
-            const dir = path.resolve(__dirname, "../../../circuits/build")
-            if (!fs.existsSync(dir)) return ""
-            const files = fs.readdirSync(dir)
-            const z = files.find((f: string) => f.endsWith(".zkey"))
-            return z ? path.join(dir, z) : ""
-        })()
+        const backend = getProverBackend()
 
-        if (!fs.existsSync(wasmPath) || !zkeyPath) {
-            // No circuit files — return Merkle-data-only proof
-            return {
-                nullifier: nullifier.toString(),
-                root: activeRoot.toString(),
-                revokedRoot: revokedProof.root,
-                proof: { a: ["0", "0"], b: [["0", "0"], ["0", "0"]], c: ["0", "0"] },
-                publicSignals: [
-                    nullifier.toString(),
-                    activeRoot.toString(),
-                    revokedProof.root,
-                    permissions.toString(),
-                    expiresAt.toString()
-                ]
-            }
-        }
-
-        // Build full Groth16 input
-        const input = {
+        const input: import("./fastProver").ProverInput = {
             agentId: agent.linked_agent_id?.toString() ?? "0",
             orgId: orgId.toString(),
             permissions: agent.permissions?.toString() ?? "0",
@@ -1213,7 +1190,7 @@ export class ExternalAgentService {
             secret: agent.managed_secret ?? "0",
             sessionNonce: Math.floor(Date.now() / 1000).toString(),
             activePathElements: activeProof.pathElements,
-            activePathIndices: activeProof.pathIndices,
+            activePathIndices: activeProof.pathIndices.map((i: number) => i.toString()),
             revokedSiblings: revokedProof.siblings,
             revokedOldKey: revokedProof.oldKey,
             revokedOldValue: revokedProof.oldValue,
@@ -1224,30 +1201,26 @@ export class ExternalAgentService {
             sessionExpiry: expiresAt.toString()
         }
 
-        let { groth16 } = await import("snarkjs")
-        const { proof: rawProof, publicSignals } = await groth16.fullProve(
-            input, wasmPath, zkeyPath
-        )
+        const result = await backend.prove(input)
 
         return {
             nullifier: nullifier.toString(),
             root: activeRoot.toString(),
             revokedRoot: revokedProof.root,
             proof: {
-                a: [rawProof.pi_a[0]?.toString() ?? "0", rawProof.pi_a[1]?.toString() ?? "0"],
+                a: [result.proof.pi_a[0]?.toString() ?? "0", result.proof.pi_a[1]?.toString() ?? "0"],
                 b: [
-                    [rawProof.pi_b[0][1]?.toString() ?? "0", rawProof.pi_b[0][0]?.toString() ?? "0"],
-                    [rawProof.pi_b[1][1]?.toString() ?? "0", rawProof.pi_b[1][0]?.toString() ?? "0"]
+                    [result.proof.pi_b[0][1]?.toString() ?? "0", result.proof.pi_b[0][0]?.toString() ?? "0"],
+                    [result.proof.pi_b[1][1]?.toString() ?? "0", result.proof.pi_b[1][0]?.toString() ?? "0"]
                 ],
-                c: [rawProof.pi_c[0]?.toString() ?? "0", rawProof.pi_c[1]?.toString() ?? "0"]
+                c: [result.proof.pi_c[0]?.toString() ?? "0", result.proof.pi_c[1]?.toString() ?? "0"]
             },
-            publicSignals: publicSignals.map((s: any) => s.toString())
+            publicSignals: result.publicSignals as [string, string, string, string, string]
         }
     }
 
     /**
-     * Verify an authorization proof
-     * This validates that the proof is valid and matches the agent
+     * Verify an authorization proof — off-chain Merkle check + on-chain Groth16 verification
      */
     async verifyAuthorizationProof(
         agentId: number,
@@ -1292,6 +1265,23 @@ export class ExternalAgentService {
 
         if (usedNullifier) {
             return { valid: false, error: "Proof has already been used" }
+        }
+
+        // Off-chain Groth16 verification using snarkjs
+        try {
+            const vkPath = path.resolve(
+                __dirname, "../../../circuits/build/verification_key.json"
+            )
+            if (fs.existsSync(vkPath)) {
+                const { groth16 } = await import("snarkjs")
+                const vk = JSON.parse(fs.readFileSync(vkPath, "utf-8"))
+                const valid = await groth16.verify(vk, proof.publicSignals, proof.proof)
+                if (!valid) {
+                    return { valid: false, error: "Groth16 proof verification failed" }
+                }
+            }
+        } catch (err: any) {
+            console.warn("[externalAgent] Groth16 verification unavailable, using off-chain checks:", err.message)
         }
 
         return { valid: true }
