@@ -5,6 +5,7 @@ import { buildPoseidon } from "circomlibjs"
 import { Wallet } from "ethers"
 import { AgentRegistrationInput, AgentRegistrationResponse, CredentialInput, WalletResponse } from "./types"
 import { SessionManager } from "./SessionManager"
+import { AuditClient } from "./AuditClient"
 
 // Check if running in browser or Node.js
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined"
@@ -32,9 +33,11 @@ export class AgentClient {
     api: string
     secret: bigint
     poseidon: any
+    audit: AuditClient
 
     constructor(api: string) {
         this.api = api
+        this.audit = new AuditClient(api)
     }
 
     async init() {
@@ -47,6 +50,12 @@ export class AgentClient {
                 .map(b => b.toString(16).padStart(2, "0"))
                 .join("")
         )
+
+        this.audit.log({
+            action: "agent.init",
+            resourceType: "agent",
+            details: { entropyBytes: 31 },
+        })
     }
 
     getSecret() {
@@ -86,6 +95,17 @@ export class AgentClient {
             secretHash: this.computeSecretHash().toString()
         })
 
+        this.audit.setContext(input.orgId, input.agentId)
+        this.audit.log({
+            action: "credential.register",
+            resourceType: "credential",
+            resourceId: commitment.toString(),
+            agentId: input.agentId,
+            orgId: input.orgId,
+            details: { permissions: input.permissions, expiry: input.expiry },
+        })
+        this.audit.flush()
+
         return commitment
     }
 
@@ -97,6 +117,8 @@ export class AgentClient {
         })
 
         const payload = provision.data as AgentRegistrationResponse
+        this.audit.setContext(payload.orgId, payload.agentId)
+
         const commitment = this.computeCommitment({
             agentId: payload.agentId,
             orgId: payload.orgId,
@@ -112,6 +134,16 @@ export class AgentClient {
             commitment: commitment.toString(),
             secretHash: this.computeSecretHash().toString()
         })
+
+        this.audit.log({
+            action: "agent.register",
+            resourceType: "agent",
+            resourceId: String(payload.agentId),
+            agentId: payload.agentId,
+            orgId: payload.orgId,
+            details: { agentName: input.agentName, orgName: input.orgName },
+        })
+        this.audit.flush()
 
         return payload
     }
@@ -136,6 +168,15 @@ export class AgentClient {
             agentId: options?.agentId
         })
 
+        this.audit.log({
+            action: "wallet.create",
+            resourceType: "wallet",
+            resourceId: res.data?.walletAddress,
+            agentId: options?.agentId,
+            details: { ownerAddress: owner },
+        })
+        this.audit.flush()
+
         return {
             ...res.data,
             ownerPrivateKey
@@ -147,6 +188,14 @@ export class AgentClient {
             agentId,
             secretHash: this.computeSecretHash().toString()
         })
+
+        this.audit.log({
+            action: "credential.revoke",
+            resourceType: "credential",
+            agentId,
+            resourceId: String(agentId),
+        })
+        this.audit.flush()
 
         return res.data
     }
@@ -174,6 +223,24 @@ export class AgentClient {
         return res.data
     }
 
+    async queryAuditLogs(params?: {
+        orgId?: number
+        action?: string
+        userId?: number
+        resourceType?: string
+        limit?: number
+        offset?: number
+        search?: string
+    }): Promise<any> {
+        const res = await axios.get(`${this.api}/audit`, { params })
+        return res.data
+    }
+
+    async getAuditStats(orgId?: number): Promise<any> {
+        const res = await axios.get(`${this.api}/audit/stats`, { params: { orgId } })
+        return res.data
+    }
+
     async fetchCircuitConfig(): Promise<import("./types").CircuitConfig> {
         const res = await axios.get(`${this.api}/circuit/config`)
         return res.data
@@ -185,12 +252,23 @@ export class AgentClient {
         action: string,
         expirySeconds?: number
     ): Promise<import("./types").RemoteProofResponse> {
+        this.audit.setContext(orgId, agentId)
         const res = await axios.post(`${this.api}/external/agents/${agentId}/proof`, {
             orgId,
             action,
             expirySeconds: expirySeconds ?? 3600,
             secret: this.secret.toString()
         })
+
+        this.audit.log({
+            action: "proof.generate.remote",
+            resourceType: "proof",
+            agentId,
+            orgId,
+            details: { action, expirySeconds: expirySeconds ?? 3600 },
+        })
+        this.audit.flush()
+
         return res.data
     }
 
@@ -203,7 +281,16 @@ export class AgentClient {
             throw new Error("Verification key not available from backend")
         }
         const { groth16 } = await import("snarkjs")
-        return groth16.verify(config.verificationKey, proof.publicSignals, proof.proof)
+        const result = await groth16.verify(config.verificationKey, proof.publicSignals, proof.proof)
+
+        this.audit.log({
+            action: "proof.verify.local",
+            resourceType: "proof",
+            details: { valid: result, publicSignals: proof.publicSignals[0]?.slice(0, 16) },
+        })
+        this.audit.flush()
+
+        return result
     }
 
     async createSession(input: {
@@ -225,8 +312,11 @@ export class AgentClient {
         const permissions = input.permissions ?? Number(state?.credential?.permissions)
         const expiry = input.expiry ?? Number(state?.credential?.expiry)
 
+        this.audit.setContext(orgId, input.agentId)
+
         const manager = this.sessionManager()
         const proofBundle = await manager.fetchMerkleProof(input.agentId)
+        this.audit.log({ action: "proof.fetch.merkle", resourceType: "merkle-proof", agentId: input.agentId, orgId })
         const sessionWallet = input.sessionKey
             ? { address: input.sessionKey }
             : manager.createSessionWallet()
@@ -238,11 +328,22 @@ export class AgentClient {
             Date.now(),
             proofBundle
         )
+        this.audit.log({ action: "proof.generate.local", resourceType: "proof", agentId: input.agentId, orgId, details: { permissions, expiry } })
         const session = await manager.submitSession(
             input.agentId,
             zk,
             sessionWallet.address
         )
+
+        this.audit.log({
+            action: "session.create.local",
+            resourceType: "session",
+            resourceId: session?.sessionId,
+            agentId: input.agentId,
+            orgId,
+            details: { sessionKey: sessionWallet.address.slice(0, 10) },
+        })
+        this.audit.flush()
 
         return {
             session,
@@ -263,18 +364,20 @@ export class AgentClient {
             : null
         const orgId = input.orgId ?? Number(state?.agent?.org_id)
 
+        this.audit.setContext(orgId, input.agentId)
+
         const manager = this.sessionManager()
         const proofBundle = await manager.fetchMerkleProof(input.agentId)
+        this.audit.log({ action: "proof.fetch.merkle", resourceType: "merkle-proof", agentId: input.agentId, orgId })
         const sessionWallet = input.sessionKey
             ? { address: input.sessionKey }
             : manager.createSessionWallet()
 
-        // Use remote proving (sends secret to backend)
         const remote = await this.generateProofRemote(
             input.agentId,
             orgId,
             input.action ?? "create_session",
-            604800 // 7 days
+            604800
         )
 
         const zk = {
@@ -286,6 +389,16 @@ export class AgentClient {
             zk,
             sessionWallet.address
         )
+
+        this.audit.log({
+            action: "session.create.remote",
+            resourceType: "session",
+            resourceId: session?.sessionId,
+            agentId: input.agentId,
+            orgId,
+            details: { sessionKey: sessionWallet.address.slice(0, 10) },
+        })
+        this.audit.flush()
 
         return {
             session,

@@ -1,11 +1,48 @@
 import { Hono } from "hono"
-import { getAuditLogs, getAuditLogById, getAuditStats, type AuditAction } from "../services/audit"
+import { getAuditLogs, getAuditLogById, getAuditStats, logAuditEvent, type AuditAction } from "../services/audit"
 import { listAnomalyAlerts, runAnomalyDetection } from "../services/anomalyDetection"
 import type { AppContext, AppVariables } from "../types/http"
 import { respondWithError } from "../utils/errors"
 import { requireInteger } from "../utils/validation"
 
 const router = new Hono<{ Variables: AppVariables }>()
+
+router.post("/events", async (c) => {
+    try {
+        const body = await c.req.json()
+        const { events, orgId, agentId } = body
+
+        if (!Array.isArray(events) || events.length === 0) {
+            return c.json({ error: "events array required" }, 400)
+        }
+
+        const results: { index: number; success: boolean; error?: string }[] = []
+
+        for (let i = 0; i < events.length; i++) {
+            try {
+                const ev = events[i]
+                await logAuditEvent({
+                    orgId,
+                    userId: agentId,
+                    action: ev.action as AuditAction,
+                    resourceType: ev.resourceType,
+                    resourceId: ev.resourceId,
+                    details: {
+                        ...(ev.details ?? {}),
+                        clientTimestamp: ev.timestamp,
+                    },
+                })
+                results.push({ index: i, success: true })
+            } catch (err: any) {
+                results.push({ index: i, success: false, error: err.message })
+            }
+        }
+
+        return c.json({ ingested: results.filter(r => r.success).length, results })
+    } catch (error) {
+        return respondWithError(c, error, "audit.ingest")
+    }
+})
 
 router.get("/", async (c) => {
     try {
