@@ -37,7 +37,7 @@ export class SessionManager {
   async fetchMerkleProof(agentId:number):Promise<MerkleProof>{
 
     const res = await axios.get(
-      `${this.api}/proofs/${agentId}`
+      `${this.api}/sessions/proof/${agentId}`
     )
 
     return res.data

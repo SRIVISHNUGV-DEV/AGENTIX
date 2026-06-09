@@ -3,10 +3,63 @@ import { initDB } from "../db"
 import { BlockchainService } from "../services/blockchain"
 import type { AuthRequest } from "../types/http"
 import { respondWithError } from "../utils/errors"
-import { requireInteger } from "../utils/validation"
+import { ensureBodyObject, optionalInteger, optionalString, requireInteger } from "../utils/validation"
 
 const router = express.Router()
 const blockchain = new BlockchainService()
+
+// Provision an agent (auto-create org + deploy contracts if needed)
+router.post("/agents/provision", async (req: AuthRequest, res) => {
+    try {
+        const db = await initDB()
+        ensureBodyObject(req.body)
+
+        const orgName = optionalString(req.body.orgName, "orgName", { minLength: 2, maxLength: 120 })
+        const agentName = optionalString(req.body.agentName, "agentName", { minLength: 2, maxLength: 120 })
+        const requestedOrgId = optionalInteger(req.body.orgId, "orgId", 1)
+
+        let resolvedOrgId = req.auth?.orgId ?? requestedOrgId
+        if (!resolvedOrgId) {
+            if (!orgName) {
+                return res.status(400).json({ error: "orgId or orgName is required" })
+            }
+            const createdOrg = await db.run(
+                `INSERT INTO organizations (name) VALUES (?)`,
+                orgName
+            )
+            resolvedOrgId = createdOrg.lastID
+        }
+
+        const org = await db.get(`SELECT id FROM organizations WHERE id = ?`, resolvedOrgId)
+        if (!org) return res.status(404).json({ error: "organization not found" })
+
+        const agent = await db.run(
+            `INSERT INTO agents (org_id, agent_name) VALUES (?, ?)`,
+            resolvedOrgId, agentName ?? `Agent ${Date.now()}`
+        )
+        const agentId = agent.lastID
+        const contracts = await blockchain.ensureOrganizationContracts(db, resolvedOrgId)
+
+        res.json({
+            success: true,
+            orgId: resolvedOrgId,
+            agentId,
+            contracts,
+            next: {
+                credentialRegisterUrl: `/credentials`,
+                proofBundleUrl: `/sessions/proof/${agentId}`,
+                remoteProofUrl: `/external/agents/${agentId}/proof`,
+                sessionSubmitUrl: `/sessions`,
+                revokeUrl: `/credentials/revoke`,
+                walletCreateUrl: `/wallets`,
+                circuitConfigUrl: `/circuit/config`,
+                verificationKeyUrl: `/circuit/verification-key`
+            }
+        })
+    } catch (error) {
+        respondWithError(res, error, "v1.provision")
+    }
+})
 
 router.get("/agents/:agentId/state", async (req:AuthRequest,res)=>{
     try{

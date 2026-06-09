@@ -174,6 +174,38 @@ export class AgentClient {
         return res.data
     }
 
+    async fetchCircuitConfig(): Promise<import("./types").CircuitConfig> {
+        const res = await axios.get(`${this.api}/circuit/config`)
+        return res.data
+    }
+
+    async generateProofRemote(
+        agentId: number,
+        orgId: number,
+        action: string,
+        expirySeconds?: number
+    ): Promise<import("./types").RemoteProofResponse> {
+        const res = await axios.post(`${this.api}/external/agents/${agentId}/proof`, {
+            orgId,
+            action,
+            expirySeconds: expirySeconds ?? 3600,
+            secret: this.secret.toString()
+        })
+        return res.data
+    }
+
+    async verifyProof(proof: {
+        proof: { a: string[]; b: string[][]; c: string[] }
+        publicSignals: string[]
+    }): Promise<boolean> {
+        const config = await this.fetchCircuitConfig()
+        if (!config.verificationKey) {
+            throw new Error("Verification key not available from backend")
+        }
+        const { groth16 } = await import("snarkjs")
+        return groth16.verify(config.verificationKey, proof.publicSignals, proof.proof)
+    }
+
     async createSession(input: {
         agentId: number
         orgId?: number
@@ -217,6 +249,49 @@ export class AgentClient {
             sessionKey: sessionWallet.address,
             sessionPrivateKey: "privateKey" in sessionWallet ? sessionWallet.privateKey : undefined,
             publicSignals: zk.publicSignals
+        }
+    }
+
+    async createSessionRemote(input: {
+        agentId: number
+        orgId?: number
+        action?: string
+        sessionKey?: string
+    }) {
+        const state = input.orgId === undefined
+            ? await this.getAgentState(input.agentId)
+            : null
+        const orgId = input.orgId ?? Number(state?.agent?.org_id)
+
+        const manager = this.sessionManager()
+        const proofBundle = await manager.fetchMerkleProof(input.agentId)
+        const sessionWallet = input.sessionKey
+            ? { address: input.sessionKey }
+            : manager.createSessionWallet()
+
+        // Use remote proving (sends secret to backend)
+        const remote = await this.generateProofRemote(
+            input.agentId,
+            orgId,
+            input.action ?? "create_session",
+            604800 // 7 days
+        )
+
+        const zk = {
+            proof: remote.proof.proof,
+            publicSignals: remote.proof.publicSignals,
+        }
+        const session = await manager.submitSession(
+            input.agentId,
+            zk,
+            sessionWallet.address
+        )
+
+        return {
+            session,
+            sessionKey: sessionWallet.address,
+            sessionPrivateKey: "privateKey" in sessionWallet ? sessionWallet.privateKey : undefined,
+            publicSignals: remote.proof.publicSignals
         }
     }
 

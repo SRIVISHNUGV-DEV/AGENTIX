@@ -51,9 +51,12 @@ export interface AgentRegistrationResponse {
   next: {
     credentialRegisterUrl?: string
     proofBundleUrl: string
+    remoteProofUrl?: string
     sessionSubmitUrl: string
     revokeUrl: string
     walletCreateUrl: string
+    circuitConfigUrl?: string
+    verificationKeyUrl?: string
   }
 }
 
@@ -67,4 +70,26 @@ export interface WalletResponse {
   entryPointAddress?: string
   factorySalt?: string
   walletKind?: string
+}
+
+export interface CircuitConfig {
+  available: boolean
+  hasWasm: boolean
+  hasZkey: boolean
+  verificationKeyUrl: string
+  verificationKey: object | null
+  backendProvingAvailable: boolean
+}
+
+export interface RemoteProofResponse {
+  success: boolean
+  proof: {
+    nullifier: string
+    root: string
+    revokedRoot: string
+    proof: { a: string[]; b: string[][]; c: string[] }
+    publicSignals: [string, string, string, string, string]
+  }
+  permissionBitmask: number
+  expiresAt: number
 }

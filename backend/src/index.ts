@@ -14,6 +14,7 @@ import aiRoutes from "./routes/ai"
 import authRoutes from "./routes/auth"
 import externalAgentRoutes from "./routes/externalAgents"
 import v1Routes from "./routes/v1"
+import circuitRoutes from "./routes/circuit"
 
 import { initCrypto } from "./utils/crypto"
 import { EventSyncService } from "./services/eventSync"
@@ -64,6 +65,7 @@ app.use("/events", eventRoutes)
 app.use("/ai", aiRoutes)
 app.use("/external", externalAgentRoutes)
 app.use("/v1", v1Routes)
+app.use("/circuit", circuitRoutes)
 
 app.use((error:any,req:any,res:any,next:any)=>{
     // Track the error with context
