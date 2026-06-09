@@ -82,7 +82,7 @@ const AGENT_WALLET_ABI = [
   'function changeOwner(address newOwner) external',
 
   // Events
-  'event ExecutionPerformed(address indexed caller, address indexed target, uint256 value, bytes data)',
+  'event ExecutionPerformed(address indexed caller, address indexed target, uint256 value, bytes32 dataHash)',
   'event BatchExecutionPerformed(address indexed caller, uint256 callCount, uint256 totalValue)',
   'event WhiteListUpdated(address indexed party, bool status)',
   'event EntryPointDepositAdded(uint256 amount, uint256 newBalance)',

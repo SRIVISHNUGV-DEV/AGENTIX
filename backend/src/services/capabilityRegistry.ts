@@ -79,7 +79,7 @@ const CAPABILITY_REGISTRY_ABI = [
   "function updateGrantRoot(address agent, bytes32 newRoot) external",
   "function revokeGrant(bytes32 grantLeafHash, bytes32 capabilityId) external",
   "function grantRoots(address) external view returns (bytes32)",
-  "function capabilities(bytes32) external view returns (string action, address registrar, uint64 createdAt, uint64 expiresAt, bool revoked)",
+  "function capabilities(bytes32) external view returns (bytes32 actionHash, address registrar, uint64 createdAt, uint64 expiresAt, bool revoked)",
   "function verifyCapability(address agent, bytes32 capabilityId, bytes32 grantLeaf, bytes32[] calldata merkleProof, address grantor, bytes32 constraintsHash, uint64 expiresAt) external view returns (bool)",
 ]
 

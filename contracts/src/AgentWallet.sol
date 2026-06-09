@@ -43,7 +43,7 @@ contract AgentWallet is ReentrancyGuard {
     bytes4 private constant EXECUTE_BATCH_SELECTOR = bytes4(keccak256("executeBatch(address[],uint256[],bytes[])"));
 
     event WalletInitialized(address indexed owner, address indexed sessionManager, address indexed entryPoint);
-    event ExecutionPerformed(address indexed caller, address indexed target, uint256 value, bytes data);
+    event ExecutionPerformed(address indexed caller, address indexed target, uint256 value, bytes32 dataHash);
     event BatchExecutionPerformed(address indexed caller, uint256 callCount, uint256 totalValue);
     event OwnerChanged(address indexed oldOwner, address indexed newOwner);
     event WhiteListUpdated(address indexed party, bool status);
@@ -127,7 +127,7 @@ contract AgentWallet is ReentrancyGuard {
         (bool success,) = target.call{value: value}(data);
         require(success, "Execution failed");
 
-        emit ExecutionPerformed(msg.sender, target, value, data);
+        emit ExecutionPerformed(msg.sender, target, value, keccak256(data));
     }
 
     function executeBatch(

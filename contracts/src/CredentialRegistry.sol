@@ -11,14 +11,13 @@ contract CredentialRegistry is ReentrancyGuard {
 
     event CredentialIssued(
         address indexed issuer,
-        uint64 indexed agentId,
         bytes32 indexed commitment,
         uint64 expiry
     );
 
     event CredentialRevoked(
         address indexed issuer,
-        bytes32 indexed secretHash
+        bytes32 indexed commitment
     );
 
     event ActiveRootUpdated(bytes32 indexed newRoot);

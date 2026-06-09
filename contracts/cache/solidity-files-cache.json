@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\AgentWallet.sol": {
-      "lastModificationDate": 1780367844005,
-      "contentHash": "c1f351b93e5fb598203998e06a3ea61b",
+      "lastModificationDate": 1780984127893,
+      "contentHash": "4722b452cfd4c8a11eb547eda258d006",
       "sourceName": "src/AgentWallet.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -393,8 +393,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CapabilityRegistry.sol": {
-      "lastModificationDate": 1780319581532,
-      "contentHash": "7ae1f4c685c905a8da810afbca8fd3e4",
+      "lastModificationDate": 1780984126582,
+      "contentHash": "9eac1f26f0a7200b8f062b9cb0f72276",
       "sourceName": "src/CapabilityRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -433,8 +433,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CredentialRegistry.sol": {
-      "lastModificationDate": 1780367844005,
-      "contentHash": "1aa178fa9b65ec328a58935bd7a0d41c",
+      "lastModificationDate": 1780984123686,
+      "contentHash": "57b48714f37b74d5cad854d6981592e4",
       "sourceName": "src/CredentialRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",

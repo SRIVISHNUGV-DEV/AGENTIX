@@ -73,10 +73,6 @@ declare module "hardhat/types/runtime" {
       name: "SessionManager",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.SessionManager__factory>;
-    getContractFactory(
-      name: "Groth16Verifier",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.Groth16Verifier__factory>;
 
     getContractAt(
       name: "Pausable",
@@ -153,11 +149,6 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.SessionManager>;
-    getContractAt(
-      name: "Groth16Verifier",
-      address: string | ethers.Addressable,
-      signer?: ethers.Signer
-    ): Promise<Contracts.Groth16Verifier>;
 
     deployContract(
       name: "Pausable",
@@ -219,10 +210,6 @@ declare module "hardhat/types/runtime" {
       name: "SessionManager",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.SessionManager>;
-    deployContract(
-      name: "Groth16Verifier",
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.Groth16Verifier>;
 
     deployContract(
       name: "Pausable",
@@ -299,11 +286,6 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.SessionManager>;
-    deployContract(
-      name: "Groth16Verifier",
-      args: any[],
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.Groth16Verifier>;
 
     // default types
     getContractFactory(

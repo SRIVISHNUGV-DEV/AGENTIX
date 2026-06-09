@@ -42,7 +42,7 @@ const ERC1271_MAGIC_VALUE = "0x1626ba7e"
 
 const CAPABILITY_REGISTRY_ABI = [
   "function verifyCapability(address agent, bytes32 capabilityId, bytes32 grantLeaf, bytes32[] calldata merkleProof, address grantor, bytes32 constraintsHash, uint64 expiresAt) external view returns (bool)",
-  "function capabilities(bytes32) external view returns (string action, address registrar, uint64 createdAt, uint64 expiresAt, bool revoked)",
+  "function capabilities(bytes32) external view returns (bytes32 actionHash, address registrar, uint64 createdAt, uint64 expiresAt, bool revoked)",
   "function grantRoots(address) external view returns (bytes32)",
   "function revokedGrants(bytes32) external view returns (bool)",
 ]
@@ -191,8 +191,9 @@ export class AgentVerifier {
     if (capability.expiresAt > 0 && Number(capability.expiresAt) < Math.floor(Date.now() / 1000)) {
       return { valid: false, reason: "Capability has expired" }
     }
-    if (capability.action !== check.action) {
-      return { valid: false, reason: `Action mismatch: expected ${check.action}, got ${capability.action}` }
+    const expectedActionHash = ethers.keccak256(ethers.toUtf8Bytes(check.action))
+    if (capability.actionHash !== expectedActionHash) {
+      return { valid: false, reason: `Action mismatch: expected hash ${expectedActionHash}, got ${capability.actionHash}` }
     }
 
     const valid = await registry.verifyCapability(
@@ -212,7 +213,7 @@ export class AgentVerifier {
     return {
       valid: true,
       details: {
-        action: capability.action,
+        actionHash: capability.actionHash,
         grantor: check.grantor,
         registrar: capability.registrar,
         expiresAt: check.expiresAt,

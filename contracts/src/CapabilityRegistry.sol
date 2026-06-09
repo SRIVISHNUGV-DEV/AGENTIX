@@ -8,7 +8,7 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
 
     event CapabilityRegistered(
         bytes32 indexed capabilityId,
-        string action,
+        bytes32 indexed actionHash,
         address indexed registrar
     );
     event CapabilityRevoked(bytes32 indexed capabilityId);
@@ -18,7 +18,7 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
     address public owner;
 
     struct CapabilityDef {
-        string action;
+        bytes32 actionHash;
         address registrar;
         uint64 createdAt;
         uint64 expiresAt;
@@ -57,8 +57,10 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
         require(capabilities[capabilityId].createdAt == 0, "Capability exists");
         require(bytes(action).length > 0, "Action required");
 
+        bytes32 actionHash = keccak256(abi.encodePacked(action));
+
         capabilities[capabilityId] = CapabilityDef({
-            action: action,
+            actionHash: actionHash,
             registrar: msg.sender,
             createdAt: uint64(block.timestamp),
             expiresAt: expiresAt,
@@ -66,7 +68,7 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
         });
         capabilityList.push(capabilityId);
 
-        emit CapabilityRegistered(capabilityId, action, msg.sender);
+        emit CapabilityRegistered(capabilityId, actionHash, msg.sender);
     }
 
     function revokeCapability(bytes32 capabilityId) external {
