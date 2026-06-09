@@ -638,6 +638,199 @@ program
     }
   })
 
+// ── atx auth ──────────────────────────────────────────────────────────
+program
+  .command("auth")
+  .description("Challenge-response auth flow: challenge, exchange, header")
+  .argument("<agentId>", "Agent ID")
+  .option("-s, --scope <scopes...>", "Requested scopes")
+  .option("-H, --header", "Generate Authorization header value instead of full flow")
+  .option("--remote", "Use remote proving for proof generation")
+  .action(async (agentId, opts) => {
+    try {
+      const id = parseInt(agentId, 10)
+      const secret = getAgentSecret(id)
+      if (!secret) { err(`No secret stored for agent #${id}. Run 'atx provision' first.`); return }
+
+      const config = loadConfig()
+      const api = config.backendUrl || "http://127.0.0.1:3001"
+
+      const { AuthFlowClient } = require("@agentix/sdk")
+      const flow = new AuthFlowClient(api)
+
+      if (opts.header) {
+        log("\n  Generating Agentix Authorization header...\n", C.cyan)
+        const header = await flow.generateAuthHeader(id, secret, async () => {
+          const client = await createClient(id)
+          if (opts.remote) {
+            const r = await client.generateProofRemote(id, 1, "auth_challenge")
+            return { proof: r.proof.proof, publicSignals: r.proof.publicSignals }
+          }
+          const state = await client.getAgentState(id)
+          const manager = client.sessionManager()
+          const pb = await manager.fetchMerkleProof(id)
+          const zk = await manager.generateProof(
+            id, Number(state?.agent?.org_id || 1),
+            Number(state?.credential?.permissions || 1),
+            Number(state?.credential?.expiry || 9999999999),
+            Date.now(), pb
+          )
+          return zk
+        }, { scopes: opts.scope })
+        log()
+        label("Authorization Header", header.slice(0, 60) + "...")
+        log()
+        label("Usage", `curl -H "Authorization: ${header.slice(0, 40)}..." https://your-api.com/endpoint`)
+        log()
+        return
+      }
+
+      log(`\n  Auth flow for agent #${id}...\n`, C.cyan)
+
+      info("Requesting challenge...")
+      const challenge = await flow.requestChallenge(id, { requestedScopes: opts.scope })
+      ok(`Challenge issued: ${challenge.challengeId.slice(0, 16)}...`)
+      label("Expires", new Date(challenge.expiresAt).toISOString())
+
+      log()
+      info("Signing challenge with agent secret...")
+      const signature = await flow.signChallenge(secret, challenge.challenge)
+      ok(`Signature: ${signature.slice(0, 16)}...`)
+
+      log()
+      info("Generating proof...")
+      const client = await createClient(id)
+      let zk: any
+      if (opts.remote) {
+        const r = await client.generateProofRemote(id, 1, "auth_challenge")
+        zk = { proof: r.proof.proof, publicSignals: r.proof.publicSignals }
+      } else {
+        const state = await client.getAgentState(id)
+        const manager = client.sessionManager()
+        const pb = await manager.fetchMerkleProof(id)
+        zk = await manager.generateProof(
+          id, Number(state?.agent?.org_id || 1),
+          Number(state?.credential?.permissions || 1),
+          Number(state?.credential?.expiry || 9999999999),
+          Date.now(), pb
+        )
+      }
+      ok("Proof generated")
+
+      log()
+      info("Exchanging proof for verification...")
+      const result = await flow.exchange({
+        challengeId: challenge.challengeId,
+        proof: zk.proof,
+        publicSignals: zk.publicSignals,
+        signature,
+        agentId: id,
+        requestedScopes: opts.scope,
+      })
+
+      if (result.valid) {
+        ok("Authentication successful!")
+        log()
+        label("Agent ID", result.agentId)
+        label("Org ID", result.orgId ?? "?")
+        label("Permissions", result.publicSignals.permissions)
+        label("Session Expiry", new Date(parseInt(result.publicSignals.sessionExpiry) * 1000).toISOString())
+        if (result.scopes?.length) {
+          log()
+          log("  Resolved Scopes:", C.bold)
+          for (const s of result.scopes) log(`    ${C.green}✓${C.reset} ${s}`)
+        }
+      } else {
+        err(`Authentication failed: ${result.error}`)
+      }
+      log()
+    } catch (e: any) {
+      err(e.message || String(e))
+    }
+  })
+
+// ── atx serve ─────────────────────────────────────────────────────────
+program
+  .command("serve")
+  .description("Start a demo relying party server with Agentix auth middleware")
+  .option("-p, --port <port>", "Port to listen on", "3456")
+  .action(async (opts) => {
+    const port = parseInt(opts.port, 10)
+
+    log(`\n  Starting Agentix Demo Relying Party on :${port}...\n`, C.cyan)
+    info(`This simulates an API server that verifies agent proofs via Agentix middleware.`)
+
+    const express = require("express")
+    const app = express()
+    app.use(express.json())
+
+    const { RelyingPartyClient } = require("@agentix/sdk")
+    const config = loadConfig()
+    const rp = new RelyingPartyClient(config.backendUrl || "http://127.0.0.1:3001")
+
+    await rp.discover()
+    ok(`Discovered issuer via .well-known/agentix`)
+
+    // Public endpoint — no auth
+    app.get("/", (_req, res) => {
+      res.json({
+        service: "Agentix Demo API",
+        version: "0.1.0",
+        endpoints: {
+          "GET /": "this help",
+          "GET /status": "public health check",
+          "GET /protected": "requires Agentix Authorization header",
+          "POST /protected": "requires Agentix Authorization header",
+        },
+      })
+    })
+
+    app.get("/status", (_req, res) => {
+      res.json({ status: "ok", timestamp: new Date().toISOString() })
+    })
+
+    // Protected endpoint — requires Agentix auth
+    const agentixGuard = rp.middleware({
+      requiredScopes: ["agentix:scope:permissions"],
+    })
+
+    app.get("/protected", agentixGuard, (req, res) => {
+      res.json({
+        message: "You are authenticated!",
+        agent: req.agent,
+      })
+    })
+
+    app.post("/protected", agentixGuard, (req, res) => {
+      res.json({
+        message: "Authenticated POST received",
+        agent: req.agent,
+        body: req.body,
+      })
+    })
+
+    // Endpoint that echoes auth info
+    app.get("/whoami", agentixGuard, (req, res) => {
+      res.json({
+        agentId: req.agent.agentId,
+        scopes: req.agent.scopes,
+        authenticated: true,
+        timestamp: new Date().toISOString(),
+      })
+    })
+
+    app.listen(port, () => {
+      ok(`Demo server running at http://127.0.0.1:${port}`)
+      log()
+      log("  Try these commands:", C.bold)
+      log(`    ${C.cyan}curl http://127.0.0.1:${port}/status${C.reset}`)
+      log(`    ${C.cyan}curl http://127.0.0.1:${port}/protected${C.reset}  # returns 401`)
+      log(`    ${C.cyan}atx auth 1 --header${C.reset}  # generate auth header`)
+      log(`    ${C.cyan}curl -H \"Authorization: Agentix <header>\" http://127.0.0.1:${port}/protected${C.reset}`)
+      log()
+    })
+  })
+
 // ── Parse ─────────────────────────────────────────────────────────────
 async function prompt(label: string, defaultVal = ""): Promise<string> {
   const rl = require("readline").createInterface({ input: process.stdin, output: process.stdout })

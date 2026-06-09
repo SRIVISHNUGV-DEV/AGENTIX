@@ -12,6 +12,7 @@ import eventRoutes from "./routes/events"
 import simpleRoutes from "./routes/simple"
 import aiRoutes from "./routes/ai"
 import authRoutes from "./routes/auth"
+import authFlowRoutes from "./routes/authFlow"
 import externalAgentRoutes from "./routes/externalAgents"
 import v1Routes from "./routes/v1"
 import circuitRoutes from "./routes/circuit"
@@ -56,6 +57,7 @@ app.use(express.urlencoded({ extended: true, limit: "32kb" }))
 app.use(attachAuth)
 
 app.use("/auth", authRateLimit, authRoutes)
+app.use("/auth", authFlowRoutes)
 app.use("/orgs", orgRoutes)
 app.use("/agents", agentRoutes)
 app.use("/credentials", credentialRoutes)

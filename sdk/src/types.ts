@@ -144,3 +144,12 @@ export interface VerifyResponse {
   requestedScopes?: string[]
   missingScopes?: string[]
 }
+
+export interface AgentixAuthPackage {
+  proof: any
+  publicSignals: string[]
+  signature: string
+  agentId: number
+  scopes?: string[]
+  challengeId?: string
+}
