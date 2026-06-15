@@ -532,3 +532,53 @@ export async function getAgentProvisioningStatus(
     return { hasWallet: false, hasSession: false, isReady: false }
   }
 }
+
+/**
+ * Phase 1: Create agent wallet (no funds yet)
+ */
+export async function createAgentWallet(
+  agentId: number,
+  orgId: number,
+  ownerAddress: string
+): Promise<{ success: boolean; walletAddress?: string; entryPointAddress?: string; error?: string }> {
+  const response = await fetch(`${API_BASE_URL}/external/${agentId}/create-wallet`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId, ownerAddress }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return { success: false, error: text || `Wallet creation failed: ${response.status}` }
+  }
+
+  return response.json()
+}
+
+/**
+ * Phase 2: Complete provisioning after user has deposited funds
+ */
+export async function completeProvisioning(
+  agentId: number,
+  orgId: number,
+  ownerAddress: string,
+  walletAddress: string,
+  options?: {
+    dailySpendLimitWei?: string
+    dailyTxLimit?: number
+    sessionExpiryDays?: number
+  }
+): Promise<ProvisionResult> {
+  const response = await fetch(`${API_BASE_URL}/external/${agentId}/complete-provisioning`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId, ownerAddress, walletAddress, ...options }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return { success: false, error: text || `Provisioning failed: ${response.status}` }
+  }
+
+  return response.json()
+}

@@ -56,6 +56,8 @@ type WalletContextValue = {
     nonce: string
     requestedAt: number
   }>
+  sendTransaction: (to: string, valueWei: string) => Promise<string>
+  depositToAgent: (agentWalletAddress: string, amountEth: string) => Promise<string>
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null)
@@ -258,6 +260,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return signature
   }
 
+  const sendTransaction = async (to: string, valueWei: string): Promise<string> => {
+    const provider = getProvider()
+    if (!account) {
+      throw new Error('Connect a wallet first')
+    }
+
+    const txHash = (await provider.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: account,
+        to,
+        value: '0x' + BigInt(valueWei).toString(16),
+      }],
+    })) as string
+
+    return txHash
+  }
+
+  const depositToAgent = async (agentWalletAddress: string, amountEth: string): Promise<string> => {
+    const valueWei = BigInt(Math.floor(parseFloat(amountEth) * 10 ** 18)).toString()
+    return sendTransaction(agentWalletAddress, valueWei)
+  }
+
   const value = useMemo(
     () => ({
       account,
@@ -271,8 +296,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       switchToBaseSepolia,
       signMessage,
       signPlatformAction,
+      sendTransaction,
+      depositToAgent,
     }),
-    [account, chainId, error, isConnecting, signMessage, signPlatformAction]
+    [account, chainId, error, isConnecting, signMessage, signPlatformAction, sendTransaction, depositToAgent]
   )
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>

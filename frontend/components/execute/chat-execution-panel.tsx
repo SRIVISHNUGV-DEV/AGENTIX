@@ -20,7 +20,8 @@ import {
   saveChatHistory,
   clearChatHistory,
 } from "@/lib/chat-storage"
-import { executeChatMessage, type ChatMessageResult, getAgentProvisioningStatus, type AgentProvisioningStatus } from "@/lib/external-agents-api"
+import { executeChatMessage, type ChatMessageResult, getAgentProvisioningStatus, type AgentProvisioningStatus, createAgentWallet, completeProvisioning } from "@/lib/external-agents-api"
+import { useWallet } from "@/components/wallet/wallet-provider"
 import type { SignaturePayload } from "@/lib/external-agents-api"
 
 interface ChatExecutionPanelProps {
@@ -57,8 +58,10 @@ export function ChatExecutionPanel({
   const [selectedAction, setSelectedAction] = useState<QuickAction | null>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [provisioningStatus, setProvisioningStatus] = useState<AgentProvisioningStatus | null>(null)
+  const [pendingDeposit, setPendingDeposit] = useState<{ walletAddress: string; agentId: number; orgId: number } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const { isConnected: walletConnected, depositToAgent, account: walletAccount } = useWallet()
 
   const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
@@ -76,17 +79,21 @@ export function ChatExecutionPanel({
       setProvisioningStatus(status)
 
       if (!status.isReady && messages.length === 0) {
+        const walletMsg = walletConnected
+          ? `I see your wallet is connected (${walletAccount?.slice(0, 6)}...${walletAccount?.slice(-4)}).`
+          : "Please connect your wallet first."
+
         const welcomeMessage: ChatMessage = {
           id: generateId(),
           role: "agent",
-          content: `Welcome! I'm your autonomous agent. To start transacting, I need to set up a wallet and session for you.\n\nPlease tell me:\n1. Your wallet address (to set as owner)\n2. How much ETH to fund the wallet (default: 0.05 ETH)\n3. How much ETH for gas (default: 0.01 ETH)\n\nExample: "My address is 0x..., fund 0.1 ETH, gas 0.02 ETH"`,
+          content: `Welcome! I'm your autonomous agent. Let me set up everything for you.\n\n${walletMsg}\n\nI'll create your agent wallet, then you can deposit funds directly from your wallet. No private keys needed — you stay in control.\n\nType "set up" to get started.`,
           timestamp: Date.now(),
           status: "complete",
         }
         setMessages([welcomeMessage])
       }
     })
-  }, [externalAgentId])
+  }, [externalAgentId, walletConnected, walletAccount])
 
   // Save chat history when messages change
   useEffect(() => {
@@ -114,8 +121,118 @@ export function ChatExecutionPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
+  const addAgentMessage = (content: string) => {
+    const msg: ChatMessage = {
+      id: generateId(),
+      role: "agent",
+      content,
+      timestamp: Date.now(),
+      status: "complete",
+    }
+    setMessages((prev) => [...prev, msg])
+    return msg
+  }
+
+  const handleProvisioning = async () => {
+    if (!walletConnected || !walletAccount) {
+      addAgentMessage("Please connect your wallet first to continue setup.")
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      addAgentMessage("Creating your agent wallet...")
+
+      const walletResult = await createAgentWallet(externalAgentId, orgId, walletAccount)
+
+      if (!walletResult.success || !walletResult.walletAddress) {
+        addAgentMessage(`Failed to create wallet: ${walletResult.error}`)
+        return
+      }
+
+      setPendingDeposit({
+        walletAddress: walletResult.walletAddress,
+        agentId: externalAgentId,
+        orgId,
+      })
+
+      addAgentMessage(
+        `Your agent wallet is ready at:\n\`${walletResult.walletAddress}\`\n\n` +
+        `Now deposit ETH from your wallet to fund the agent. I recommend at least 0.05 ETH for transactions and gas.\n\n` +
+        `Click the button below or type "deposit" to send funds.`
+      )
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Setup failed"
+      addAgentMessage(`Error: ${msg}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDeposit = async () => {
+    if (!pendingDeposit || !walletConnected) return
+
+    setIsLoading(true)
+    try {
+      addAgentMessage("Opening your wallet to confirm deposit...")
+
+      const txHash = await depositToAgent(pendingDeposit.walletAddress, "0.05")
+
+      addAgentMessage(`Deposit sent! Transaction: \`${txHash}\`\n\nWaiting for confirmation...`)
+
+      // Complete provisioning
+      const result = await completeProvisioning(
+        pendingDeposit.agentId,
+        pendingDeposit.orgId,
+        walletAccount!,
+        pendingDeposit.walletAddress
+      )
+
+      if (result.success) {
+        setProvisioningStatus({
+          hasWallet: true,
+          hasSession: true,
+          isReady: true,
+          walletAddress: pendingDeposit.walletAddress,
+        })
+        setPendingDeposit(null)
+
+        addAgentMessage(
+          `All set! Your agent is fully provisioned.\n\n` +
+          `Wallet: \`${pendingDeposit.walletAddress}\`\n` +
+          `Session: Active\n` +
+          `Daily limit: ${result.session?.dailySpendLimit || "0.1"} ETH\n\n` +
+          `You can now send transactions, manage whitelist, and more.`
+        )
+      } else {
+        addAgentMessage(`Provisioning failed: ${result.error}`)
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Deposit failed"
+      addAgentMessage(`Error: ${msg}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSendMessage = async (content: string, action?: QuickAction) => {
     if (!content.trim() || !externalAgentId) return
+
+    // Handle provisioning commands
+    const lowerContent = content.trim().toLowerCase()
+    if (
+      (lowerContent === "set up" || lowerContent === "setup" || lowerContent === "start") &&
+      provisioningStatus && !provisioningStatus.isReady
+    ) {
+      await handleProvisioning()
+      return
+    }
+
+    // Handle deposit confirmation
+    if (lowerContent === "deposit" && pendingDeposit) {
+      await handleDeposit()
+      return
+    }
 
     // Add user message
     const userMessage: ChatMessage = {

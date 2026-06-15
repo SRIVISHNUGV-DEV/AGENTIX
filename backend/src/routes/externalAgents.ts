@@ -710,6 +710,47 @@ router.post("/:agentId/provision", async (req: Request, res: Response) => {
   }
 })
 
+router.post("/:agentId/create-wallet", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.body.orgId || req.query.orgId, "orgId", 1)
+    const ownerAddress = requireString(req.body.ownerAddress, "ownerAddress")
+
+    const { provisioningService } = await import("../services/provisioning")
+
+    const result = await provisioningService.createWallet({ orgId, agentId, ownerAddress })
+
+    res.json({ success: true, ...result })
+  } catch (error) {
+    respondWithError(res, error, "provisioning.createWallet")
+  }
+})
+
+router.post("/:agentId/complete-provisioning", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.body.orgId || req.query.orgId, "orgId", 1)
+    const ownerAddress = requireString(req.body.ownerAddress, "ownerAddress")
+    const walletAddress = requireString(req.body.walletAddress, "walletAddress")
+
+    const { provisioningService } = await import("../services/provisioning")
+
+    const result = await provisioningService.completeProvisioning({
+      orgId,
+      agentId,
+      ownerAddress,
+      walletAddress,
+      dailySpendLimitWei: req.body.dailySpendLimitWei,
+      dailyTxLimit: req.body.dailyTxLimit,
+      sessionExpiryDays: req.body.sessionExpiryDays,
+    })
+
+    res.json({ success: true, ...result })
+  } catch (error) {
+    respondWithError(res, error, "provisioning.complete")
+  }
+})
+
 router.get("/:agentId/provision-status", async (req: Request, res: Response) => {
   try {
     const agentId = requireInteger(req.params.agentId, "agentId")

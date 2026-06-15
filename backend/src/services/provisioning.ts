@@ -23,12 +23,12 @@ export interface ProvisionResult {
     dailyTxLimit: number
     expiresAt: number
   }
-  funding: {
-    walletTxHash: string
-    gasDepositTxHash: string
-    walletFunded: string
-    gasDeposited: string
-  }
+}
+
+export interface WalletCreationResult {
+  walletAddress: string
+  entryPointAddress: string
+  sessionManagerAddress: string
 }
 
 export interface ProvisionOptions {
@@ -37,51 +37,31 @@ export interface ProvisionOptions {
   ownerAddress: string
   dailySpendLimitWei?: string
   dailyTxLimit?: number
-  walletFundingEth?: string
-  gasDepositEth?: string
   sessionExpiryDays?: number
 }
 
 export class ProvisioningService {
 
   /**
-   * Fully provision an agent in one call:
-   * 1. Create ERC-4337 wallet via factory
-   * 2. Fund wallet with ETH from deployer
-   * 3. Deposit gas to EntryPoint
-   * 4. Generate session key and create session
+   * Phase 1: Create wallet only. User will deposit funds from their own wallet.
    */
-  async provisionAgent(options: ProvisionOptions): Promise<ProvisionResult> {
-    const {
-      orgId,
-      agentId,
-      ownerAddress,
-      dailySpendLimitWei = "100000000000000000", // 0.1 ETH
-      dailyTxLimit = 10,
-      walletFundingEth = "0.05",
-      gasDepositEth = "0.01",
-      sessionExpiryDays = 30,
-    } = options
-
+  async createWallet(options: {
+    orgId: number
+    agentId: number
+    ownerAddress: string
+  }): Promise<WalletCreationResult> {
+    const { orgId, agentId, ownerAddress } = options
     const db = await initDB()
     const blockchain = getBlockchainService()
 
-    // Check if agent is already provisioned
     const existingWallet = await db.get(
       `SELECT wallet_address FROM wallets WHERE agent_id = ?`,
       agentId
     )
     if (existingWallet) {
-      throw new AppError(400, "Agent already has a wallet. Revoke existing session first.")
+      throw new AppError(400, "Agent already has a wallet.")
     }
 
-    // Check for existing active session
-    const existingSession = await sessionKeyService.getSessionForAgent(agentId)
-    if (existingSession) {
-      throw new AppError(400, "Agent already has an active session.")
-    }
-
-    // Step 1: Create wallet
     const walletResult = await blockchain.createWalletForOrg(db, orgId, ownerAddress)
     const walletAddress = walletResult.walletAddress
 
@@ -89,7 +69,6 @@ export class ProvisioningService {
       throw new AppError(500, "Wallet creation failed — no address returned")
     }
 
-    // Store wallet in DB
     await db.run(
       `INSERT INTO wallets (
         wallet_address, org_id, agent_id, owner_address,
@@ -107,13 +86,48 @@ export class ProvisioningService {
       walletResult.factorySalt
     )
 
-    // Step 2: Fund wallet
-    const fundingResult = await blockchain.fundAddress(walletAddress, walletFundingEth)
+    return {
+      walletAddress,
+      entryPointAddress: walletResult.entryPointAddress,
+      sessionManagerAddress: walletResult.sessionManagerAddress,
+    }
+  }
 
-    // Step 3: Deposit gas to EntryPoint
-    const gasDepositResult = await this.depositGas(walletAddress, gasDepositEth, walletResult.entryPointAddress)
+  /**
+   * Phase 2: After user has deposited funds, create session.
+   * The user sends ETH from their wallet to the agent wallet via wallet provider.
+   * We verify the balance and create the session.
+   */
+  async completeProvisioning(options: ProvisionOptions & { walletAddress: string }): Promise<ProvisionResult> {
+    const {
+      orgId,
+      agentId,
+      ownerAddress,
+      walletAddress,
+      dailySpendLimitWei = "100000000000000000",
+      dailyTxLimit = 10,
+      sessionExpiryDays = 30,
+    } = options
 
-    // Step 4: Create session key and session
+    const db = await initDB()
+    const blockchain = getBlockchainService()
+
+    const existingSession = await sessionKeyService.getSessionForAgent(agentId)
+    if (existingSession) {
+      throw new AppError(400, "Agent already has an active session.")
+    }
+
+    // Verify wallet has balance
+    const balance = await blockchain.provider.getBalance(walletAddress)
+    if (balance === 0n) {
+      throw new AppError(400, "Wallet has no balance. Please deposit funds first.")
+    }
+
+    // Deposit to EntryPoint for gas from wallet balance
+    // The user's ETH is now in the agent wallet; we use it for gas
+    await this.depositGasFromWallet(walletAddress, blockchain)
+
+    // Create session key and session
     const keyPair = generateSessionKeyPair()
     const sessionIdOnChain = ethers.keccak256(
       ethers.solidityPacked(
@@ -135,7 +149,7 @@ export class ProvisioningService {
 
     return {
       walletAddress,
-      entryPointAddress: walletResult.entryPointAddress,
+      entryPointAddress: "", // Already set during wallet creation
       session: {
         id: session.id,
         sessionIdOnChain,
@@ -144,6 +158,51 @@ export class ProvisioningService {
         dailyTxLimit,
         expiresAt: session.expiresAt,
       },
+    }
+  }
+
+  /**
+   * Legacy: Full provisioning in one call (auto-funds from deployer).
+   * Use createWallet + completeProvisioning instead for user-deposited flow.
+   */
+  async provisionAgent(options: ProvisionOptions & { walletFundingEth?: string; gasDepositEth?: string }): Promise<ProvisionResult & { funding: { walletTxHash: string; gasDepositTxHash: string; walletFunded: string; gasDeposited: string } }> {
+    const {
+      orgId,
+      agentId,
+      ownerAddress,
+      dailySpendLimitWei = "100000000000000000",
+      dailyTxLimit = 10,
+      walletFundingEth = "0.05",
+      gasDepositEth = "0.01",
+      sessionExpiryDays = 30,
+    } = options
+
+    const db = await initDB()
+    const blockchain = getBlockchainService()
+
+    // Step 1: Create wallet
+    const walletResult = await this.createWallet({ orgId, agentId, ownerAddress })
+
+    // Step 2: Fund wallet from deployer
+    const fundingResult = await blockchain.fundAddress(walletResult.walletAddress, walletFundingEth)
+
+    // Step 3: Deposit gas to EntryPoint
+    const gasDepositResult = await this.depositGasFromWallet(walletResult.walletAddress, blockchain)
+
+    // Step 4: Create session
+    const result = await this.completeProvisioning({
+      orgId,
+      agentId,
+      ownerAddress,
+      walletAddress: walletResult.walletAddress,
+      dailySpendLimitWei,
+      dailyTxLimit,
+      sessionExpiryDays,
+    })
+
+    return {
+      ...result,
+      entryPointAddress: walletResult.entryPointAddress,
       funding: {
         walletTxHash: fundingResult.txHash,
         gasDepositTxHash: gasDepositResult.txHash,
@@ -154,20 +213,42 @@ export class ProvisioningService {
   }
 
   /**
-   * Deposit ETH to EntryPoint for gas
+   * Deposit ETH from agent wallet to EntryPoint for gas
    */
-  private async depositGas(walletAddress: string, amountEth: string, entryPointAddress: string): Promise<{ txHash: string }> {
-    const blockchain = getBlockchainService()
+  private async depositGasFromWallet(walletAddress: string, blockchain: ReturnType<typeof getBlockchainService>): Promise<{ txHash: string }> {
+    // Get the entry point address from the wallet record
+    const db = await initDB()
+    const walletRecord = await db.get(
+      `SELECT entry_point_address FROM wallets WHERE wallet_address = ?`,
+      walletAddress
+    )
+    const entryPointAddress = walletRecord?.entry_point_address || process.env.ENTRY_POINT_ADDRESS || "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+
+    // Use the wallet's balance to deposit gas
+    // In ERC-4337, the wallet calls EntryPoint.depositTo() with ETH
     const walletContract = new ethers.Contract(
-      entryPointAddress,
-      ["function depositTo(address account) payable"],
+      walletAddress,
+      ["function addDeposit() payable", "function getDeposit() view returns (uint256)"],
       blockchain.wallet
     )
 
-    const tx = await walletContract.depositTo{ value: ethers.parseEther(amountEth) }(walletAddress)
-    const receipt = await tx.wait()
+    // Check current deposit
+    const currentDeposit = await walletContract.getDeposit()
 
-    return { txHash: receipt.hash }
+    // Only deposit if needed (minimum 0.005 ETH for gas)
+    if (currentDeposit < ethers.parseEther("0.005")) {
+      // The deployer sends a small amount to the wallet for gas, then wallet deposits
+      // Or we can deposit directly if the wallet has funds
+      const balance = await blockchain.provider.getBalance(walletAddress)
+      if (balance > ethers.parseEther("0.01")) {
+        const depositAmount = ethers.parseEther("0.005")
+        const tx = await walletContract.addDeposit({ value: depositAmount })
+        const receipt = await tx.wait()
+        return { txHash: receipt.hash }
+      }
+    }
+
+    return { txHash: "0x" }
   }
 }
 
