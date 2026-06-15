@@ -20,7 +20,7 @@ import {
   saveChatHistory,
   clearChatHistory,
 } from "@/lib/chat-storage"
-import { executeChatMessage, type ChatMessageResult } from "@/lib/external-agents-api"
+import { executeChatMessage, type ChatMessageResult, getAgentProvisioningStatus, type AgentProvisioningStatus } from "@/lib/external-agents-api"
 import type { SignaturePayload } from "@/lib/external-agents-api"
 
 interface ChatExecutionPanelProps {
@@ -56,14 +56,37 @@ export function ChatExecutionPanel({
   const [isLoading, setIsLoading] = useState(false)
   const [selectedAction, setSelectedAction] = useState<QuickAction | null>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [provisioningStatus, setProvisioningStatus] = useState<AgentProvisioningStatus | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
   // Load chat history on mount
   useEffect(() => {
     const history = loadChatHistory(agentId)
     setMessages(history)
   }, [agentId])
+
+  // Check provisioning status on mount
+  useEffect(() => {
+    if (!externalAgentId) return
+
+    getAgentProvisioningStatus(externalAgentId).then((status) => {
+      setProvisioningStatus(status)
+
+      if (!status.isReady && messages.length === 0) {
+        const welcomeMessage: ChatMessage = {
+          id: generateId(),
+          role: "agent",
+          content: `Welcome! I'm your autonomous agent. To start transacting, I need to set up a wallet and session for you.\n\nPlease tell me:\n1. Your wallet address (to set as owner)\n2. How much ETH to fund the wallet (default: 0.05 ETH)\n3. How much ETH for gas (default: 0.01 ETH)\n\nExample: "My address is 0x..., fund 0.1 ETH, gas 0.02 ETH"`,
+          timestamp: Date.now(),
+          status: "complete",
+        }
+        setMessages([welcomeMessage])
+      }
+    })
+  }, [externalAgentId])
 
   // Save chat history when messages change
   useEffect(() => {
@@ -90,8 +113,6 @@ export function ChatExecutionPanel({
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
-  const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
   const handleSendMessage = async (content: string, action?: QuickAction) => {
     if (!content.trim() || !externalAgentId) return

@@ -438,6 +438,7 @@ router.post("/:agentId/execute", async (req: Request, res: Response) => {
 
     // Validate action type
     const validActions = [
+      "provision_agent",
       "read_file", "write_file", "execute_command", "query",
       "api_call", "sign_transaction", "deploy_contract", "custom"
     ]
@@ -706,6 +707,41 @@ router.post("/:agentId/provision", async (req: Request, res: Response) => {
     res.json({ success: true, ...result })
   } catch (error) {
     respondWithError(res, error, "provisioning.provision")
+  }
+})
+
+router.get("/:agentId/provision-status", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const db = await initDB()
+
+    const wallet = await db.get(
+      `SELECT wallet_address FROM wallets WHERE agent_id = ?`,
+      agentId
+    )
+
+    let sessionInfo = null
+    if (wallet) {
+      const { sessionKeyService } = await import("../services/sessionKey")
+      const session = await sessionKeyService.getSessionForAgent(agentId)
+      if (session) {
+        sessionInfo = {
+          id: session.id,
+          dailySpendLimit: session.dailySpendLimit.toString(),
+          dailyTxLimit: session.dailyTxLimit,
+          expiresAt: session.expiresAt,
+        }
+      }
+    }
+
+    res.json({
+      hasWallet: !!wallet,
+      hasSession: !!sessionInfo,
+      walletAddress: wallet?.wallet_address || null,
+      sessionInfo,
+    })
+  } catch (error) {
+    respondWithError(res, error, "provisioning.status")
   }
 })
 

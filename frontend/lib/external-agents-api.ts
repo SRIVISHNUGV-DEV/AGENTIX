@@ -493,3 +493,42 @@ export async function provisionAgent(
 
   return response.json()
 }
+
+export interface AgentProvisioningStatus {
+  hasWallet: boolean
+  hasSession: boolean
+  isReady: boolean
+  walletAddress?: string
+  sessionInfo?: {
+    id: string
+    dailySpendLimit: string
+    dailyTxLimit: number
+    expiresAt: number
+  }
+}
+
+/**
+ * Check if an agent is fully provisioned (has wallet + active session)
+ */
+export async function getAgentProvisioningStatus(
+  agentId: number
+): Promise<AgentProvisioningStatus> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/external/${agentId}/provision-status`)
+
+    if (!response.ok) {
+      return { hasWallet: false, hasSession: false, isReady: false }
+    }
+
+    const data = await response.json()
+    return {
+      hasWallet: data.hasWallet ?? false,
+      hasSession: data.hasSession ?? false,
+      isReady: (data.hasWallet ?? false) && (data.hasSession ?? false),
+      walletAddress: data.walletAddress,
+      sessionInfo: data.sessionInfo,
+    }
+  } catch {
+    return { hasWallet: false, hasSession: false, isReady: false }
+  }
+}

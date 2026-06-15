@@ -339,6 +339,7 @@ async function executeTask(
 
         // Blockchain actions - use AgentToolsService
         const blockchainActions = [
+            "provision_agent",
             "send_transaction",
             "batch_transactions",
             "get_wallet_info",

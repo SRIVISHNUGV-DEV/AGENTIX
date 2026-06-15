@@ -22,6 +22,25 @@ export const AGENT_TOOLS = [
     {
         type: "function" as const,
         function: {
+            name: "provision_agent",
+            description: "Provision this agent for autonomous blockchain transactions. Creates a wallet, funds it with ETH, deposits gas to EntryPoint, and creates a session. Call this when the agent has no wallet or session.",
+            parameters: {
+                type: "object",
+                properties: {
+                    ownerAddress: { type: "string", description: "The user's Ethereum address (wallet owner)" },
+                    walletFundingEth: { type: "string", description: "ETH to deposit into the agent wallet (default: 0.05)", default: "0.05" },
+                    gasDepositEth: { type: "string", description: "ETH to deposit to EntryPoint for gas (default: 0.01)", default: "0.01" },
+                    dailySpendLimitWei: { type: "string", description: "Max wei the agent can spend per day (default: 0.1 ETH = 100000000000000000)", default: "100000000000000000" },
+                    dailyTxLimit: { type: "number", description: "Max transactions per day (default: 10)", default: 10 },
+                    sessionExpiryDays: { type: "number", description: "Session validity in days (default: 30)", default: 30 }
+                },
+                required: ["ownerAddress"]
+            }
+        }
+    },
+    {
+        type: "function" as const,
+        function: {
             name: "send_transaction",
             description: "Send a transaction from the agent wallet to a target address. The target MUST be whitelisted.",
             parameters: {
@@ -177,6 +196,9 @@ export class AgentToolsService {
     async executeAction(action: string, params: Record<string, any>, agentId?: number): Promise<AgentActionResult> {
         try {
             switch (action) {
+                case "provision_agent":
+                    return await this.provisionAgent(params, agentId)
+
                 case "send_transaction":
                     return await this.sendTransaction(params, agentId)
 
@@ -213,6 +235,84 @@ export class AgentToolsService {
                 success: false,
                 action,
                 error: error.message || "Unknown error"
+            }
+        }
+    }
+
+    /**
+     * Provision agent: create wallet, fund, deposit gas, create session
+     */
+    private async provisionAgent(params: Record<string, any>, agentId?: number): Promise<AgentActionResult> {
+        const {
+            ownerAddress,
+            walletFundingEth = "0.05",
+            gasDepositEth = "0.01",
+            dailySpendLimitWei = "100000000000000000",
+            dailyTxLimit = 10,
+            sessionExpiryDays = 30
+        } = params
+
+        if (!ownerAddress) {
+            return {
+                success: false,
+                action: "provision_agent",
+                error: "Missing required parameter: ownerAddress (your wallet address)"
+            }
+        }
+
+        if (!agentId) {
+            return {
+                success: false,
+                action: "provision_agent",
+                error: "No agent ID provided"
+            }
+        }
+
+        const db = await initDB()
+
+        // Get agent's org
+        const agent = await db.get(
+            `SELECT org_id FROM agents WHERE id = ?`,
+            agentId
+        )
+        if (!agent) {
+            return {
+                success: false,
+                action: "provision_agent",
+                error: "Agent not found"
+            }
+        }
+
+        try {
+            const { provisioningService } = await import("./provisioning")
+
+            const result = await provisioningService.provisionAgent({
+                orgId: agent.org_id,
+                agentId,
+                ownerAddress,
+                dailySpendLimitWei,
+                dailyTxLimit,
+                walletFundingEth,
+                gasDepositEth,
+                sessionExpiryDays,
+            })
+
+            return {
+                success: true,
+                action: "provision_agent",
+                result: {
+                    walletAddress: result.walletAddress,
+                    entryPointAddress: result.entryPointAddress,
+                    session: result.session,
+                    funding: result.funding,
+                    message: `Agent provisioned! Wallet: ${result.walletAddress}. Funded with ${walletFundingEth} ETH, ${gasDepositEth} ETH deposited for gas. Daily limit: ${dailySpendLimitWei} wei, ${dailyTxLimit} txs/day.`
+                }
+            }
+        } catch (error: any) {
+            return {
+                success: false,
+                action: "provision_agent",
+                error: error.message || "Provisioning failed"
             }
         }
     }
