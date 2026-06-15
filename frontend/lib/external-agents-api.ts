@@ -442,3 +442,54 @@ export async function removeFromWhitelist(
 ): Promise<ChatMessageResult> {
   return executeAgentAction(externalAgentId, "whitelist", { address, action: "remove" }, orgId, signature)
 }
+
+export interface ProvisionResult {
+  success: boolean
+  walletAddress?: string
+  entryPointAddress?: string
+  session?: {
+    id: string
+    sessionIdOnChain: string
+    sessionKeyPublic: string
+    dailySpendLimit: string
+    dailyTxLimit: number
+    expiresAt: number
+  }
+  funding?: {
+    walletTxHash: string
+    gasDepositTxHash: string
+    walletFunded: string
+    gasDeposited: string
+  }
+  error?: string
+}
+
+/**
+ * Fully provision an agent — creates wallet, funds it, deposits gas, creates session.
+ * One call to go from "just created" to "ready to transact".
+ */
+export async function provisionAgent(
+  agentId: number,
+  orgId: number,
+  ownerAddress: string,
+  options?: {
+    dailySpendLimitWei?: string
+    dailyTxLimit?: number
+    walletFundingEth?: string
+    gasDepositEth?: string
+    sessionExpiryDays?: number
+  }
+): Promise<ProvisionResult> {
+  const response = await fetch(`${API_BASE_URL}/external/${agentId}/provision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId, ownerAddress, ...options }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return { success: false, error: text || `Provisioning failed: ${response.status}` }
+  }
+
+  return response.json()
+}

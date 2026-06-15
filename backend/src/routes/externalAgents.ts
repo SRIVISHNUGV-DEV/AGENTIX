@@ -684,4 +684,29 @@ router.get("/:agentId/permissions", async (req: Request, res: Response) => {
   }
 })
 
+router.post("/:agentId/provision", async (req: Request, res: Response) => {
+  try {
+    const agentId = requireInteger(req.params.agentId, "agentId")
+    const orgId = requireInteger(req.body.orgId || req.query.orgId, "orgId", 1)
+    const ownerAddress = requireString(req.body.ownerAddress, "ownerAddress")
+
+    const { provisioningService } = await import("../services/provisioning")
+
+    const result = await provisioningService.provisionAgent({
+      orgId,
+      agentId,
+      ownerAddress,
+      dailySpendLimitWei: req.body.dailySpendLimitWei,
+      dailyTxLimit: req.body.dailyTxLimit,
+      walletFundingEth: req.body.walletFundingEth,
+      gasDepositEth: req.body.gasDepositEth,
+      sessionExpiryDays: req.body.sessionExpiryDays,
+    })
+
+    res.json({ success: true, ...result })
+  } catch (error) {
+    respondWithError(res, error, "provisioning.provision")
+  }
+})
+
 export default router
