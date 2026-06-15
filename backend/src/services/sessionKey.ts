@@ -393,3 +393,6 @@ export class SessionKeyService {
     return result.changes || 0
   }
 }
+
+// Singleton instance
+export const sessionKeyService = new SessionKeyService()

@@ -14,6 +14,7 @@
 import { ethers } from "ethers"
 import { initDB } from "../db"
 import { getBlockchainService, BlockchainService } from "./blockchain"
+import { sessionKeyService } from "./sessionKey"
 import { AppError } from "../utils/errors"
 
 // Tool definitions for OpenAI function calling
@@ -158,6 +159,9 @@ export type AgentActionResult = {
     result?: any
     txHash?: string
     error?: string
+    needsSession?: boolean
+    needsWhitelist?: boolean
+    limitRemaining?: string
 }
 
 export class AgentToolsService {
@@ -170,14 +174,14 @@ export class AgentToolsService {
     /**
      * Execute an agent action by name
      */
-    async executeAction(action: string, params: Record<string, any>): Promise<AgentActionResult> {
+    async executeAction(action: string, params: Record<string, any>, agentId?: number): Promise<AgentActionResult> {
         try {
             switch (action) {
                 case "send_transaction":
-                    return await this.sendTransaction(params)
+                    return await this.sendTransaction(params, agentId)
 
                 case "batch_transactions":
-                    return await this.batchTransactions(params)
+                    return await this.batchTransactions(params, agentId)
 
                 case "get_wallet_info":
                     return await this.getWalletInfo(params)
@@ -214,12 +218,11 @@ export class AgentToolsService {
     }
 
     /**
-     * Send a single transaction from agent wallet
+     * Send a single transaction from agent wallet using session-based signing
      */
-    private async sendTransaction(params: Record<string, any>): Promise<AgentActionResult> {
+    private async sendTransaction(params: Record<string, any>, agentId?: number): Promise<AgentActionResult> {
         const { walletAddress, target, valueWei = "0", data = "0x" } = params
 
-        // Validate inputs
         if (!walletAddress || !target) {
             return {
                 success: false,
@@ -228,19 +231,11 @@ export class AgentToolsService {
             }
         }
 
-        const db = await initDB()
-
-        // Get wallet from database
-        const wallet = await db.get(
-            `SELECT * FROM wallets WHERE wallet_address = ?`,
-            walletAddress
-        )
-
-        if (!wallet) {
+        if (!agentId) {
             return {
                 success: false,
                 action: "send_transaction",
-                error: `Wallet not found: ${walletAddress}`
+                error: "No agent ID provided. Session-based signing requires an agent ID."
             }
         }
 
@@ -254,7 +249,34 @@ export class AgentToolsService {
             }
         }
 
-        // Prepare and submit user operation
+        // Get active session for this agent
+        const session = await sessionKeyService.getSessionForAgent(agentId)
+        if (!session) {
+            return {
+                success: false,
+                action: "send_transaction",
+                error: "No active session. Create a session first.",
+                needsSession: true
+            }
+        }
+
+        // Validate session limits
+        const limitCheck = await sessionKeyService.validateSessionForExecution(
+            session.id,
+            walletAddress,
+            agentId,
+            BigInt(valueWei)
+        )
+        if (!limitCheck.valid) {
+            return {
+                success: false,
+                action: "send_transaction",
+                error: limitCheck.reason || "Session validation failed"
+            }
+        }
+
+        // Build UserOperation
+        const db = await initDB()
         const walletInterface = new ethers.Interface(this.blockchain.getWalletAbi())
         const callData = walletInterface.encodeFunctionData("execute", [
             target,
@@ -268,28 +290,50 @@ export class AgentToolsService {
             callData
         )
 
-        // Note: For autonomous execution, we need the wallet owner's signature
-        // This is a placeholder - in production, use session key or pre-approved nonce
-        // The signature would come from the session manager contract
+        // Decrypt session key and sign the UserOp hash
+        const { privateKey } = await sessionKeyService.unlockSession(session.id)
+        const sessionWallet = new ethers.Wallet(privateKey)
+        const sessionSignature = await sessionWallet.signMessage(
+            ethers.getBytes(prepared.userOpHash)
+        )
+
+        // Encode signature as abi.encode(sessionId, signature) for AgentWallet validation
+        const encodedSignature = ethers.AbiCoder.defaultAbiCoder().encode(
+            ["bytes32", "bytes"],
+            [session.sessionIdOnChain, sessionSignature]
+        )
+
+        // Set the signature on the UserOp
+        prepared.userOp.signature = encodedSignature
+
+        // Submit to EntryPoint via bundler
+        const submitResult = await this.blockchain.submitUserOperation(
+            prepared.userOp,
+            prepared.entryPointAddress
+        )
+
+        // Record usage after successful submission
+        await sessionKeyService.recordUsage(session.id, BigInt(valueWei))
 
         return {
             success: true,
             action: "send_transaction",
             result: {
-                userOpHash: prepared.userOpHash,
+                userOpHash: submitResult.userOpHash,
                 walletAddress,
                 target,
                 valueWei,
-                status: "prepared",
-                note: "Transaction prepared. Requires signature from wallet owner or session key."
+                sessionId: session.id,
+                entryPointAddress: submitResult.entryPointAddress,
+                status: "submitted"
             }
         }
     }
 
     /**
-     * Execute multiple transactions in a batch
+     * Execute multiple transactions in a batch using session-based signing
      */
-    private async batchTransactions(params: Record<string, any>): Promise<AgentActionResult> {
+    private async batchTransactions(params: Record<string, any>, agentId?: number): Promise<AgentActionResult> {
         const { walletAddress, calls } = params
 
         if (!walletAddress || !calls || !Array.isArray(calls) || calls.length === 0) {
@@ -300,19 +344,11 @@ export class AgentToolsService {
             }
         }
 
-        const db = await initDB()
-
-        // Get wallet from database
-        const wallet = await db.get(
-            `SELECT * FROM wallets WHERE wallet_address = ?`,
-            walletAddress
-        )
-
-        if (!wallet) {
+        if (!agentId) {
             return {
                 success: false,
                 action: "batch_transactions",
-                error: `Wallet not found: ${walletAddress}`
+                error: "No agent ID provided. Session-based signing requires an agent ID."
             }
         }
 
@@ -336,7 +372,40 @@ export class AgentToolsService {
             }
         }
 
-        // Prepare batch transaction
+        // Get active session for this agent
+        const session = await sessionKeyService.getSessionForAgent(agentId)
+        if (!session) {
+            return {
+                success: false,
+                action: "batch_transactions",
+                error: "No active session. Create a session first.",
+                needsSession: true
+            }
+        }
+
+        // Calculate total value for limit check
+        const totalValue = calls.reduce(
+            (sum, call) => sum + BigInt(call.valueWei || "0"),
+            BigInt(0)
+        )
+
+        // Validate session limits
+        const limitCheck = await sessionKeyService.validateSessionForExecution(
+            session.id,
+            walletAddress,
+            agentId,
+            totalValue
+        )
+        if (!limitCheck.valid) {
+            return {
+                success: false,
+                action: "batch_transactions",
+                error: limitCheck.reason || "Session validation failed"
+            }
+        }
+
+        // Build batch UserOperation
+        const db = await initDB()
         const walletInterface = new ethers.Interface(this.blockchain.getWalletAbi())
         const targets = calls.map(c => c.target)
         const values = calls.map(c => BigInt(c.valueWei || "0"))
@@ -354,16 +423,42 @@ export class AgentToolsService {
             callData
         )
 
+        // Decrypt session key and sign
+        const { privateKey } = await sessionKeyService.unlockSession(session.id)
+        const sessionWallet = new ethers.Wallet(privateKey)
+        const sessionSignature = await sessionWallet.signMessage(
+            ethers.getBytes(prepared.userOpHash)
+        )
+
+        // Encode signature
+        const encodedSignature = ethers.AbiCoder.defaultAbiCoder().encode(
+            ["bytes32", "bytes"],
+            [session.sessionIdOnChain, sessionSignature]
+        )
+
+        prepared.userOp.signature = encodedSignature
+
+        // Submit via bundler
+        const submitResult = await this.blockchain.submitUserOperation(
+            prepared.userOp,
+            prepared.entryPointAddress
+        )
+
+        // Record usage
+        await sessionKeyService.recordUsage(session.id, totalValue)
+
         return {
             success: true,
             action: "batch_transactions",
             result: {
-                userOpHash: prepared.userOpHash,
+                userOpHash: submitResult.userOpHash,
                 walletAddress,
                 callCount: calls.length,
                 targets,
-                status: "prepared",
-                note: "Batch prepared. Requires signature from wallet owner or session key."
+                totalValue: totalValue.toString(),
+                sessionId: session.id,
+                entryPointAddress: submitResult.entryPointAddress,
+                status: "submitted"
             }
         }
     }

@@ -352,7 +352,7 @@ async function executeTask(
         if (blockchainActions.includes(task.action)) {
             const agentTools = getAgentToolsService()
             const toolResult = await executeWithTimeout(
-                agentTools.executeAction(task.action, params),
+                agentTools.executeAction(task.action, params, agentId),
                 timeout
             )
             return {
