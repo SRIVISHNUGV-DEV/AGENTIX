@@ -492,6 +492,32 @@ export const migrations: Migration[] = [
             CREATE INDEX IF NOT EXISTS idx_agent_policies_agent ON agent_policies(agent_id);
             CREATE INDEX IF NOT EXISTS idx_agent_policies_type ON agent_policies(policy_type);
         `
+    },
+    {
+        version: 17,
+        name: "persistent_task_queue",
+        up: `
+            CREATE TABLE IF NOT EXISTS agent_execution_queue (
+                id SERIAL PRIMARY KEY,
+                agent_id INTEGER NOT NULL REFERENCES external_agents(id) ON DELETE CASCADE,
+                action TEXT NOT NULL,
+                params JSONB DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending',
+                priority INTEGER DEFAULT 5,
+                attempts INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 3,
+                result JSONB,
+                error TEXT,
+                deduplication_key TEXT,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                started_at INTEGER,
+                completed_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_exec_queue_status ON agent_execution_queue(status);
+            CREATE INDEX IF NOT EXISTS idx_exec_queue_agent ON agent_execution_queue(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_exec_queue_priority ON agent_execution_queue(priority, created_at);
+            CREATE INDEX IF NOT EXISTS idx_exec_queue_dedup ON agent_execution_queue(deduplication_key) WHERE deduplication_key IS NOT NULL;
+        `
     }
 ]
 

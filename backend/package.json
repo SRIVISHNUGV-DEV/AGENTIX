@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/ws": "^8.18.1",
     "bull": "^4.16.5",
     "circomlib": "^2.0.5",
     "circomlibjs": "^0.1.7",
@@ -19,6 +20,7 @@
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "snarkjs": "^0.7.5",
+    "ws": "^8.17.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
