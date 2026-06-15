@@ -1,41 +1,47 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-contract DelegationManager is ReentrancyGuard, Pausable {
+error OnlyOwnerMsg();
+error NotARootUpdater();
+error NotAuthorizedForDelegation();
+error AlreadyRevokedDelegation();
+error EmptyChain();
+
+contract DelegationManager is Initializable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
 
     event DelegationRootUpdated(address indexed delegator, bytes32 newRoot);
     event DelegationRevoked(bytes32 indexed delegationLeafHash);
-
-    address public owner;
 
     mapping(address => bytes32) public delegationRoots;
     mapping(bytes32 => bool) public revokedDelegations;
     mapping(address => bool) public rootUpdaters;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
-        _;
-    }
-
-    modifier onlyRootUpdater() {
-        require(rootUpdaters[msg.sender], "Not a root updater");
-        _;
-    }
-
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        owner = msg.sender;
+        _disableInitializers();
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Invalid owner");
-        owner = newOwner;
+    function initialize(address owner_) public initializer {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+        if (owner_ != msg.sender) transferOwnership(owner_);
     }
 
-    function pause() external onlyOwner { _pause(); }
-    function unpause() external onlyOwner { _unpause(); }
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     function setRootUpdater(address updater, bool allowed) external onlyOwner {
         rootUpdaters[updater] = allowed;
@@ -45,10 +51,7 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         address delegator,
         bytes32 newRoot
     ) external {
-        require(
-            msg.sender == delegator || rootUpdaters[msg.sender],
-            "Not authorized"
-        );
+        if (msg.sender != delegator && !rootUpdaters[msg.sender]) revert NotAuthorizedForDelegation();
         delegationRoots[delegator] = newRoot;
         emit DelegationRootUpdated(delegator, newRoot);
     }
@@ -57,14 +60,8 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         bytes32 delegationLeafHash,
         address delegator
     ) external {
-        require(
-            msg.sender == delegator || msg.sender == owner,
-            "Not authorized"
-        );
-        require(
-            !revokedDelegations[delegationLeafHash],
-            "Already revoked"
-        );
+        if (msg.sender != delegator && msg.sender != owner()) revert NotAuthorizedForDelegation();
+        if (revokedDelegations[delegationLeafHash]) revert AlreadyRevokedDelegation();
         revokedDelegations[delegationLeafHash] = true;
         emit DelegationRevoked(delegationLeafHash);
     }
@@ -82,12 +79,11 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         bytes32 root = delegationRoots[delegator];
         if (root == bytes32(0)) return false;
         if (revokedDelegations[delegationLeaf]) return false;
-        if (expiresAt < block.timestamp) return false;
+        if (expiresAt != 0 && expiresAt < block.timestamp) return false;
         if (currentDepth > maxDepth) return false;
 
         bytes32 expectedLeaf = keccak256(
             abi.encode(
-                delegationLeaf,
                 delegator,
                 delegate,
                 scopeHash,
@@ -151,7 +147,7 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         uint8[] calldata maxDepths
     ) external view returns (bool) {
         uint256 len = delegationLeaves.length;
-        require(len > 0, "Empty chain");
+        if (len == 0) revert EmptyChain();
 
         for (uint256 i = 0; i < len; i++) {
             address expectedDelegate = i == len - 1
@@ -175,17 +171,11 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         return true;
     }
 
-    function getDelegationRoot(
-        address delegator
-    ) external view returns (bytes32) {
+    function getDelegationRoot(address delegator) external view returns (bytes32) {
         return delegationRoots[delegator];
     }
 
-    function _verifyProof(
-        bytes32[] calldata proof,
-        bytes32 root,
-        bytes32 leaf
-    ) internal pure returns (bool) {
+    function _verifyProof(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
         bytes32 computedHash = leaf;
         for (uint256 i = 0; i < proof.length; i++) {
             computedHash = _hashPair(computedHash, proof[i]);
@@ -193,12 +183,11 @@ contract DelegationManager is ReentrancyGuard, Pausable {
         return computedHash == root;
     }
 
-    function _hashPair(
-        bytes32 a,
-        bytes32 b
-    ) internal pure returns (bytes32) {
+    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a < b
             ? keccak256(abi.encodePacked(a, b))
             : keccak256(abi.encodePacked(b, a));
     }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }

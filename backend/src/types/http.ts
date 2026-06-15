@@ -7,6 +7,8 @@ export type AuthContext = {
     name: string
     role: string
     expiresAt: number
+    type?: string
+    agentId?: number
 }
 
 export interface AuthRequest extends Request {

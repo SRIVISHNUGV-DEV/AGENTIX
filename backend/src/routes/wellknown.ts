@@ -2,6 +2,7 @@ import express from "express"
 import fs from "fs"
 import path from "path"
 import { STANDARD_SCOPES } from "../services/scopeParser"
+import { getPublicJWK } from "../services/jwt"
 
 const router = express.Router()
 
@@ -63,6 +64,35 @@ router.get("/agentix", (_req, res) => {
   }
 
   res.json(config)
+})
+
+router.get("/agentix/jwks.json", async (_req, res) => {
+  try {
+    const jwk = await getPublicJWK()
+    res.json({
+      keys: [jwk],
+    })
+  } catch (error) {
+    console.error("[jwks] Failed to generate JWK:", error)
+    res.status(500).json({ error: "failed to generate JWKS" })
+  }
+})
+
+router.get("/agentix/oauth-issuer.json", (_req, res) => {
+  const baseUrl = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`
+  res.json({
+    issuer: process.env.JWT_ISSUER || "agentix",
+    authorization_endpoint: `${baseUrl}/auth/oauth/authorize`,
+    token_endpoint: `${baseUrl}/auth/oauth/token`,
+    jwks_uri: `${baseUrl}/.well-known/agentix/jwks.json`,
+    revocation_endpoint: `${baseUrl}/auth/oauth/revoke`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    subject_types_supported: ["public"],
+    id_token_signing_alg_values_supported: ["RS256"],
+    scopes_supported: ["openid", "profile", "email", "agent:read", "agent:write", "agent:execute"],
+    claims_supported: ["sub", "iss", "aud", "exp", "iat", "email", "name", "org_id", "role"],
+  })
 })
 
 export default router

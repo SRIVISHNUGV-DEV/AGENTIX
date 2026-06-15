@@ -1,33 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-contract CredentialRegistry is ReentrancyGuard {
+error OnlyIssuer();
+error OnlyOwner();
+error InvalidOwner();
+error NullifierUsed();
+error OnlySessionManager();
 
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
+contract CredentialRegistry is Initializable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
 
-    event CredentialIssued(
-        address indexed issuer,
-        bytes32 indexed commitment,
-        uint64 expiry
-    );
-
-    event CredentialRevoked(
-        address indexed issuer,
-        bytes32 indexed commitment
-    );
-
+    event CredentialIssued(address indexed issuer, bytes32 indexed commitment, uint64 expiry);
+    event CredentialRevoked(address indexed issuer, bytes32 indexed commitment);
     event ActiveRootUpdated(bytes32 indexed newRoot);
     event RevokedSecretRootUpdated(bytes32 indexed newRoot);
-
-    /*//////////////////////////////////////////////////////////////
-                                STORAGE
-    //////////////////////////////////////////////////////////////*/
-
-    address public owner;
 
     mapping(address => bool) public issuers;
     mapping(address => bool) public sessionManagers;
@@ -37,36 +28,31 @@ contract CredentialRegistry is ReentrancyGuard {
 
     mapping(bytes32 => bool) public usedNullifiers;
 
-    /*//////////////////////////////////////////////////////////////
-                                MODIFIERS
-    //////////////////////////////////////////////////////////////*/
-
     modifier onlyIssuer() {
-        require(issuers[msg.sender], "Only issuer");
+        if (!issuers[msg.sender]) revert OnlyIssuer();
         _;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
-        _;
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                                CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
-
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        owner = msg.sender;
+        _disableInitializers();
+    }
+
+    function initialize(address owner_) public initializer {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+        if (owner_ != msg.sender) transferOwnership(owner_);
         issuers[msg.sender] = true;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        ISSUER MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
+    function pause() external onlyOwner {
+        _pause();
+    }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Invalid owner");
-        owner = newOwner;
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     function addIssuer(address issuer) external onlyOwner {
@@ -77,20 +63,14 @@ contract CredentialRegistry is ReentrancyGuard {
         issuers[issuer] = false;
     }
 
-    function setSessionManager(address sessionManager, bool allowed)
-        external
-        onlyOwner
-    {
+    function setSessionManager(address sessionManager, bool allowed) external onlyOwner {
         sessionManagers[sessionManager] = allowed;
     }
-
-    /*//////////////////////////////////////////////////////////////
-                        ROOT MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
 
     function updateActiveRoot(bytes32 newRoot)
         external
         onlyIssuer
+        whenNotPaused
         nonReentrant
     {
         activeRoot = newRoot;
@@ -100,27 +80,22 @@ contract CredentialRegistry is ReentrancyGuard {
     function updateRevokedSecretRoot(bytes32 newRoot)
         external
         onlyIssuer
+        whenNotPaused
         nonReentrant
     {
         revokedSecretRoot = newRoot;
         emit RevokedSecretRootUpdated(newRoot);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        NULLIFIER MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
     function markNullifierUsed(bytes32 nullifier) external {
-        require(sessionManagers[msg.sender], "Only session manager");
-        require(!usedNullifiers[nullifier], "Nullifier used");
+        if (!sessionManagers[msg.sender]) revert OnlySessionManager();
+        if (usedNullifiers[nullifier]) revert NullifierUsed();
         usedNullifiers[nullifier] = true;
     }
 
-    function isNullifierUsed(bytes32 nullifier)
-        external
-        view
-        returns (bool)
-    {
+    function isNullifierUsed(bytes32 nullifier) external view returns (bool) {
         return usedNullifiers[nullifier];
     }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }

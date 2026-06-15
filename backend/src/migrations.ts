@@ -422,6 +422,76 @@ export const migrations: Migration[] = [
             CREATE INDEX IF NOT EXISTS idx_nullifiers_nullifier ON used_nullifiers(nullifier);
             CREATE INDEX IF NOT EXISTS idx_nullifiers_used_at ON used_nullifiers(used_at);
         `
+    },
+    {
+        version: 15,
+        name: "covenant_budget_and_spending",
+        up: `
+            CREATE TABLE IF NOT EXISTS session_budgets (
+                session_id TEXT PRIMARY KEY,
+                total_budget NUMERIC NOT NULL DEFAULT 0,
+                spent NUMERIC NOT NULL DEFAULT 0,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                updated_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS covenant_spending_log (
+                id SERIAL PRIMARY KEY,
+                agent_id INTEGER NOT NULL,
+                org_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                value NUMERIC NOT NULL DEFAULT 0,
+                tx_hash TEXT,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_spending_log_agent ON covenant_spending_log(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_spending_log_date ON covenant_spending_log(created_at);
+        `
+    },
+    {
+        version: 16,
+        name: "agent_auth_and_policies",
+        up: `
+            CREATE TABLE IF NOT EXISTS agent_api_keys (
+                id SERIAL PRIMARY KEY,
+                agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                api_key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                permissions BIT(8) DEFAULT B'00000000',
+                spending_limit_wei NUMERIC DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                expires_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_api_keys_hash ON agent_api_keys(api_key_hash);
+            CREATE INDEX IF NOT EXISTS idx_agent_api_keys_agent ON agent_api_keys(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_api_keys_org ON agent_api_keys(org_id);
+
+            CREATE TABLE IF NOT EXISTS whitelisted_parties (
+                id SERIAL PRIMARY KEY,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                address TEXT NOT NULL,
+                label TEXT,
+                max_payment_wei NUMERIC DEFAULT 0,
+                set_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER,
+                UNIQUE(org_id, address)
+            );
+            CREATE INDEX IF NOT EXISTS idx_whitelisted_parties_org ON whitelisted_parties(org_id);
+
+            CREATE TABLE IF NOT EXISTS agent_policies (
+                id SERIAL PRIMARY KEY,
+                org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                agent_id INTEGER REFERENCES agents(id) ON DELETE CASCADE,
+                policy_type TEXT NOT NULL,
+                policy_value JSONB NOT NULL DEFAULT '{}',
+                is_active INTEGER DEFAULT 1,
+                created_at INTEGER DEFAULT EXTRACT(EPOCH FROM NOW())::INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_policies_org ON agent_policies(org_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_policies_agent ON agent_policies(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_policies_type ON agent_policies(policy_type);
+        `
     }
 ]
 

@@ -1,15 +1,14 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
-import { AgentWallet, AgentWalletFactory, SessionManager, MockVerifier, CredentialRegistry } from "../typechain-types";
 
 describe("AgentWallet", function () {
-  let wallet: AgentWallet;
-  let walletImpl: AgentWallet;
-  let factory: AgentWalletFactory;
-  let sessionManager: SessionManager;
-  let mockVerifier: MockVerifier;
-  let credentialRegistry: CredentialRegistry;
+  let wallet: any;
+  let walletImpl: any;
+  let factory: any;
+  let sessionManager: any;
+  let mockVerifier: any;
+  let credentialRegistry: any;
   let owner: SignerWithAddress;
   let sessionKey: SignerWithAddress;
   let attacker: SignerWithAddress;
@@ -21,24 +20,46 @@ describe("AgentWallet", function () {
     const MockVerifierFactory = await ethers.getContractFactory("MockVerifier");
     mockVerifier = await MockVerifierFactory.deploy();
 
-    const CredentialRegistryFactory = await ethers.getContractFactory("CredentialRegistry");
-    credentialRegistry = await CredentialRegistryFactory.deploy();
-
-    const SessionManagerFactory = await ethers.getContractFactory("SessionManager");
-    sessionManager = await SessionManagerFactory.deploy(
-      await mockVerifier.getAddress(),
-      await credentialRegistry.getAddress()
+    // Deploy CredentialRegistry (UUPS)
+    const CredRegImpl = await ethers.getContractFactory("CredentialRegistry");
+    const credRegImpl = await CredRegImpl.deploy();
+    const CredRegProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const credRegProxy = await CredRegProxy.deploy(
+      await credRegImpl.getAddress(),
+      credRegImpl.interface.encodeFunctionData("initialize", [owner.address])
     );
+    credentialRegistry = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
 
+    // Deploy SessionManager (UUPS)
+    const SessMgrImpl = await ethers.getContractFactory("SessionManager");
+    const sessMgrImpl = await SessMgrImpl.deploy();
+    const SessMgrProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const sessMgrProxy = await SessMgrProxy.deploy(
+      await sessMgrImpl.getAddress(),
+      sessMgrImpl.interface.encodeFunctionData("initialize", [
+        await mockVerifier.getAddress(),
+        await credentialRegistry.getAddress()
+      ])
+    );
+    sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
+
+    // Deploy AgentWallet implementation (non-upgradeable clone source)
     const AgentWalletFactory = await ethers.getContractFactory("AgentWallet");
     walletImpl = await AgentWalletFactory.deploy();
 
-    const FactoryFactory = await ethers.getContractFactory("AgentWalletFactory");
-    factory = await FactoryFactory.deploy(
-      await walletImpl.getAddress(),
-      await sessionManager.getAddress(),
-      await mockEntryPoint.getAddress()
+    // Deploy AgentWalletFactory (UUPS)
+    const FactoryImpl = await ethers.getContractFactory("AgentWalletFactory");
+    const factoryImplContract = await FactoryImpl.deploy();
+    const FactoryProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const factoryProxy = await FactoryProxy.deploy(
+      await factoryImplContract.getAddress(),
+      factoryImplContract.interface.encodeFunctionData("initialize", [
+        await walletImpl.getAddress(),
+        await sessionManager.getAddress(),
+        await mockEntryPoint.getAddress()
+      ])
     );
+    factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
 
     const tx = await factory.connect(owner).createWallet(await owner.getAddress());
     const receipt = await tx.wait();
@@ -47,7 +68,7 @@ describe("AgentWallet", function () {
       catch { return false; }
     });
     const walletAddress = (factory.interface.parseLog(event as any) as any).args.wallet;
-    wallet = await ethers.getContractAt("AgentWallet", walletAddress) as AgentWallet;
+    wallet = await ethers.getContractAt("AgentWallet", walletAddress);
   });
 
   describe("Initialization", function () {
@@ -58,32 +79,45 @@ describe("AgentWallet", function () {
           await sessionManager.getAddress(),
           await mockEntryPoint.getAddress()
         )
-      ).to.be.revertedWith("Already initialized");
+      ).to.be.revertedWithCustomError(wallet, "AlreadyInitializedError");
     });
 
     it("Should reject zero-address owner", async function () {
       await expect(
         factory.connect(owner).createWallet(ethers.ZeroAddress)
-      ).to.be.revertedWith("Invalid owner");
+      ).to.be.revertedWithCustomError(wallet, "InvalidOwnerError");
     });
   });
 
   describe("Owner Management", function () {
-    it("Should allow owner to change owner", async function () {
+    it("Should allow owner to initiate ownership transfer", async function () {
       await wallet.connect(owner).changeOwner(await attacker.getAddress());
+      expect(await wallet.pendingOwner()).to.equal(await attacker.getAddress());
+    });
+
+    it("Should allow pending owner to accept ownership", async function () {
+      await wallet.connect(owner).changeOwner(await attacker.getAddress());
+      await wallet.connect(attacker).acceptOwnership();
       expect(await wallet.owner()).to.equal(await attacker.getAddress());
     });
 
-    it("Should prevent non-owner from changing owner", async function () {
+    it("Should prevent non-owner from initiating ownership transfer", async function () {
       await expect(
         wallet.connect(attacker).changeOwner(await attacker.getAddress())
-      ).to.be.revertedWith("Not owner");
+      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
+    });
+
+    it("Should prevent non-pending-owner from accepting ownership", async function () {
+      await wallet.connect(owner).changeOwner(await attacker.getAddress());
+      await expect(
+        wallet.connect(sessionKey).acceptOwnership()
+      ).to.be.revertedWithCustomError(wallet, "NotAuthorizedError");
     });
 
     it("Should reject zero-address new owner", async function () {
       await expect(
         wallet.connect(owner).changeOwner(ethers.ZeroAddress)
-      ).to.be.revertedWith("Invalid owner");
+      ).to.be.revertedWithCustomError(wallet, "InvalidOwnerError");
     });
   });
 
@@ -107,23 +141,13 @@ describe("AgentWallet", function () {
           [await attacker.getAddress()],
           [true, false]
         )
-      ).to.be.revertedWith("Array length mismatch");
+      ).to.be.revertedWithCustomError(wallet, "LengthMismatchError");
     });
 
     it("Should prevent non-owner from whitelisting", async function () {
       await expect(
         wallet.connect(attacker).setWhiteListedParty(await attacker.getAddress(), true)
-      ).to.be.revertedWith("Not owner");
-    });
-  });
-
-  describe("Pause / Unpause", function () {
-    it("Should allow owner to execute without pausing (pause removed)", async function () {
-      const target = await attacker.getAddress();
-      await wallet.connect(owner).setWhiteListedParty(target, true);
-      await expect(
-        wallet.connect(owner).execute(target, 0, "0x")
-      ).to.emit(wallet, "ExecutionPerformed");
+      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
     });
   });
 
@@ -139,7 +163,7 @@ describe("AgentWallet", function () {
     it("Should reject execute on non-whitelisted target", async function () {
       await expect(
         wallet.connect(owner).execute(await attacker.getAddress(), 0, "0x")
-      ).to.be.revertedWith("Not white listed");
+      ).to.be.revertedWithCustomError(wallet, "NotWhiteListedError");
     });
 
     it("Should allow batch execution on whitelisted targets", async function () {
@@ -165,7 +189,7 @@ describe("AgentWallet", function () {
     it("Should prevent non-owner from withdrawing", async function () {
       await expect(
         wallet.connect(attacker).withdrawDepositTo(await attacker.getAddress(), 0)
-      ).to.be.revertedWith("Not owner");
+      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
     });
   });
 
@@ -177,7 +201,7 @@ describe("AgentWallet", function () {
           await sessionManager.getAddress(),
           await mockEntryPoint.getAddress()
         )
-      ).to.be.revertedWith("Already initialized");
+      ).to.be.revertedWithCustomError(walletImpl, "AlreadyInitializedError");
     });
   });
 });

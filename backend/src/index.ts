@@ -18,6 +18,10 @@ import v1Routes from "./routes/v1"
 import circuitRoutes from "./routes/circuit"
 import wellKnownRoutes from "./routes/wellknown"
 import verifyRoutes from "./routes/verify"
+import covenantRoutes from "./routes/covenant"
+import sessionsSimpleRoutes from "./routes/sessionsSimple"
+import agentAuthRoutes from "./routes/agentAuth"
+import dashboardRoutes from "./routes/dashboard"
 
 import { initCrypto } from "./utils/crypto"
 import { EventSyncService } from "./services/eventSync"
@@ -58,6 +62,8 @@ app.use(attachAuth)
 
 app.use("/auth", authRateLimit, authRoutes)
 app.use("/auth", authFlowRoutes)
+app.use("/auth/agent", agentAuthRoutes)
+app.use("/dashboard", dashboardRoutes)
 app.use("/orgs", orgRoutes)
 app.use("/agents", agentRoutes)
 app.use("/credentials", credentialRoutes)
@@ -72,6 +78,8 @@ app.use("/v1", v1Routes)
 app.use("/circuit", circuitRoutes)
 app.use("/.well-known", wellKnownRoutes)
 app.use("/verify", verifyRoutes)
+app.use("/covenant", covenantRoutes)
+app.use("/sessions/simple", sessionsSimpleRoutes)
 
 app.use((error:any,req:any,res:any,next:any)=>{
     // Track the error with context

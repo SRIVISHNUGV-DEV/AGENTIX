@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-contract CapabilityRegistry is ReentrancyGuard, Pausable {
+error OnlyOwnerMsg();
+error NotARootUpdater();
+error CapabilityExists();
+error ActionRequired();
+error CapabilityNotFound();
+error NotAuthorizedForCapability();
+error AlreadyRevokedCapability();
 
-    event CapabilityRegistered(
-        bytes32 indexed capabilityId,
-        bytes32 indexed actionHash,
-        address indexed registrar
-    );
+contract CapabilityRegistry is Initializable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
+
+    event CapabilityRegistered(bytes32 indexed capabilityId, bytes32 indexed actionHash, address indexed registrar);
     event CapabilityRevoked(bytes32 indexed capabilityId);
     event GrantRootUpdated(address indexed agent, bytes32 newRoot);
     event GrantRevoked(bytes32 indexed grantLeafHash);
-
-    address public owner;
 
     struct CapabilityDef {
         bytes32 actionHash;
@@ -32,35 +37,34 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
     mapping(bytes32 => bool) public revokedGrants;
     mapping(address => bool) public rootUpdaters;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
-        _;
-    }
-
-    modifier onlyRootUpdater() {
-        require(rootUpdaters[msg.sender], "Not a root updater");
-        _;
-    }
-
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        owner = msg.sender;
+        _disableInitializers();
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Invalid owner");
-        owner = newOwner;
+    function initialize(address owner_) public initializer {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+        if (owner_ != msg.sender) transferOwnership(owner_);
     }
 
-    function pause() external onlyOwner { _pause(); }
-    function unpause() external onlyOwner { _unpause(); }
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     function registerCapability(
         bytes32 capabilityId,
         string calldata action,
         uint64 expiresAt
-    ) external whenNotPaused {
-        require(capabilities[capabilityId].createdAt == 0, "Capability exists");
-        require(bytes(action).length > 0, "Action required");
+    ) external whenNotPaused onlyOwner {
+        if (capabilities[capabilityId].createdAt != 0) revert CapabilityExists();
+        if (bytes(action).length == 0) revert ActionRequired();
 
         bytes32 actionHash = keccak256(abi.encodePacked(action));
 
@@ -78,12 +82,9 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
 
     function revokeCapability(bytes32 capabilityId) external {
         CapabilityDef storage cap = capabilities[capabilityId];
-        require(cap.createdAt != 0, "Capability not found");
-        require(
-            cap.registrar == msg.sender || msg.sender == owner,
-            "Not authorized"
-        );
-        require(!cap.revoked, "Already revoked");
+        if (cap.createdAt == 0) revert CapabilityNotFound();
+        if (cap.registrar != msg.sender && msg.sender != owner()) revert NotAuthorizedForCapability();
+        if (cap.revoked) revert AlreadyRevokedCapability();
         cap.revoked = true;
         emit CapabilityRevoked(capabilityId);
     }
@@ -93,21 +94,14 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
     }
 
     function updateGrantRoot(address agent, bytes32 newRoot) external {
-        require(
-            msg.sender == agent || rootUpdaters[msg.sender],
-            "Not authorized"
-        );
+        if (msg.sender != agent && !rootUpdaters[msg.sender]) revert NotARootUpdater();
         grantRoots[agent] = newRoot;
         emit GrantRootUpdated(agent, newRoot);
     }
 
     function revokeGrant(bytes32 grantLeafHash, bytes32 capabilityId) external {
-        require(
-            capabilities[capabilityId].registrar == msg.sender ||
-                msg.sender == owner,
-            "Not authorized"
-        );
-        require(!revokedGrants[grantLeafHash], "Already revoked");
+        if (capabilities[capabilityId].registrar != msg.sender && msg.sender != owner()) revert NotAuthorizedForCapability();
+        if (revokedGrants[grantLeafHash]) revert AlreadyRevokedCapability();
         revokedGrants[grantLeafHash] = true;
         emit GrantRevoked(grantLeafHash);
     }
@@ -139,9 +133,7 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
         return _verifyProof(merkleProof, root, grantLeaf);
     }
 
-    function getCapability(
-        bytes32 capabilityId
-    ) external view returns (CapabilityDef memory) {
+    function getCapability(bytes32 capabilityId) external view returns (CapabilityDef memory) {
         return capabilities[capabilityId];
     }
 
@@ -149,11 +141,7 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
         return capabilityList.length;
     }
 
-    function _verifyProof(
-        bytes32[] calldata proof,
-        bytes32 root,
-        bytes32 leaf
-    ) internal pure returns (bool) {
+    function _verifyProof(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
         bytes32 computedHash = leaf;
         for (uint256 i = 0; i < proof.length; i++) {
             computedHash = _hashPair(computedHash, proof[i]);
@@ -161,12 +149,11 @@ contract CapabilityRegistry is ReentrancyGuard, Pausable {
         return computedHash == root;
     }
 
-    function _hashPair(
-        bytes32 a,
-        bytes32 b
-    ) internal pure returns (bytes32) {
+    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a < b
             ? keccak256(abi.encodePacked(a, b))
             : keccak256(abi.encodePacked(b, a));
     }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }

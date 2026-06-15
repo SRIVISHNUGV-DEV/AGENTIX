@@ -10,79 +10,109 @@ async function main() {
   console.log(`Chain ID: ${(await ethers.provider.getNetwork()).chainId}`);
   console.log();
 
-  // 1. Deploy Groth16Verifier
-  console.log("1/7 Deploying Groth16Verifier...");
+  // 1. Deploy Groth16Verifier (non-upgradeable, auto-generated)
+  console.log("1/8 Deploying Groth16Verifier...");
   const verifier = await ethers.deployContract("Groth16Verifier");
   await verifier.waitForDeployment();
   const verifierAddr = await verifier.getAddress();
   console.log(`   Verifier: ${verifierAddr}`);
 
-  // 2. Deploy CredentialRegistry
-  console.log("2/7 Deploying CredentialRegistry...");
-  const registry = await ethers.deployContract("CredentialRegistry");
-  await registry.waitForDeployment();
-  const registryAddr = await registry.getAddress();
-  console.log(`   CredentialRegistry: ${registryAddr}`);
-
-  // 3. Deploy SessionManager
-  console.log("3/7 Deploying SessionManager...");
-  const sessionManager = await ethers.deployContract("SessionManager", [
-    verifierAddr,
-    registryAddr
+  // 2. Deploy CredentialRegistry (UUPS)
+  console.log("2/8 Deploying CredentialRegistry...");
+  const credRegImpl = await ethers.deployContract("CredentialRegistry");
+  await credRegImpl.waitForDeployment();
+  const credRegImplAddr = await credRegImpl.getAddress();
+  const credRegProxy = await ethers.deployContract("ERC1967Proxy", [
+    credRegImplAddr,
+    credRegImpl.interface.encodeFunctionData("initialize", [deployer.address])
   ]);
-  await sessionManager.waitForDeployment();
-  const sessionManagerAddr = await sessionManager.getAddress();
-  console.log(`   SessionManager: ${sessionManagerAddr}`);
+  await credRegProxy.waitForDeployment();
+  const credRegAddr = await credRegProxy.getAddress();
+  console.log(`   CredentialRegistry Proxy: ${credRegAddr}`);
+  console.log(`   CredentialRegistry Impl:  ${credRegImplAddr}`);
 
-  // 4. Deploy AgentWallet implementation
-  console.log("4/7 Deploying AgentWallet...");
-  const walletImplementation = await ethers.deployContract("AgentWallet");
-  await walletImplementation.waitForDeployment();
-  const walletImplAddr = await walletImplementation.getAddress();
+  // 3. Deploy SessionManager (UUPS)
+  console.log("3/8 Deploying SessionManager...");
+  const sessMgrImpl = await ethers.deployContract("SessionManager");
+  await sessMgrImpl.waitForDeployment();
+  const sessMgrImplAddr = await sessMgrImpl.getAddress();
+  const sessMgrProxy = await ethers.deployContract("ERC1967Proxy", [
+    sessMgrImplAddr,
+    sessMgrImpl.interface.encodeFunctionData("initialize", [verifierAddr, credRegAddr])
+  ]);
+  await sessMgrProxy.waitForDeployment();
+  const sessMgrAddr = await sessMgrProxy.getAddress();
+  console.log(`   SessionManager Proxy: ${sessMgrAddr}`);
+  console.log(`   SessionManager Impl:  ${sessMgrImplAddr}`);
+
+  // 4. Deploy AgentWallet implementation (non-upgradeable clone source)
+  console.log("4/8 Deploying AgentWallet...");
+  const walletImpl = await ethers.deployContract("AgentWallet");
+  await walletImpl.waitForDeployment();
+  const walletImplAddr = await walletImpl.getAddress();
   console.log(`   AgentWallet Impl: ${walletImplAddr}`);
 
-  // 5. Deploy AgentWalletFactory
-  console.log("5/7 Deploying AgentWalletFactory...");
-  const walletFactory = await ethers.deployContract("AgentWalletFactory", [
-    walletImplAddr,
-    sessionManagerAddr,
-    ENTRY_POINT_ADDRESS
+  // 5. Deploy AgentWalletFactory (UUPS)
+  console.log("5/8 Deploying AgentWalletFactory...");
+  const factoryImpl = await ethers.deployContract("AgentWalletFactory");
+  await factoryImpl.waitForDeployment();
+  const factoryImplAddr = await factoryImpl.getAddress();
+  const factoryProxy = await ethers.deployContract("ERC1967Proxy", [
+    factoryImplAddr,
+    factoryImpl.interface.encodeFunctionData("initialize", [
+      walletImplAddr, sessMgrAddr, ENTRY_POINT_ADDRESS
+    ])
   ]);
-  await walletFactory.waitForDeployment();
-  const walletFactoryAddr = await walletFactory.getAddress();
-  console.log(`   AgentWalletFactory: ${walletFactoryAddr}`);
+  await factoryProxy.waitForDeployment();
+  const factoryAddr = await factoryProxy.getAddress();
+  console.log(`   AgentWalletFactory Proxy: ${factoryAddr}`);
+  console.log(`   AgentWalletFactory Impl:  ${factoryImplAddr}`);
 
-  // 6. Deploy CapabilityRegistry
-  console.log("6/7 Deploying CapabilityRegistry...");
-  const capReg = await ethers.deployContract("CapabilityRegistry");
-  await capReg.waitForDeployment();
-  const capRegAddr = await capReg.getAddress();
-  console.log(`   CapabilityRegistry: ${capRegAddr}`);
+  // 6. Deploy CapabilityRegistry (UUPS)
+  console.log("6/8 Deploying CapabilityRegistry...");
+  const capRegImpl = await ethers.deployContract("CapabilityRegistry");
+  await capRegImpl.waitForDeployment();
+  const capRegImplAddr = await capRegImpl.getAddress();
+  const capRegProxy = await ethers.deployContract("ERC1967Proxy", [
+    capRegImplAddr,
+    capRegImpl.interface.encodeFunctionData("initialize", [deployer.address])
+  ]);
+  await capRegProxy.waitForDeployment();
+  const capRegAddr = await capRegProxy.getAddress();
+  console.log(`   CapabilityRegistry Proxy: ${capRegAddr}`);
+  console.log(`   CapabilityRegistry Impl:  ${capRegImplAddr}`);
 
-  // 7. Deploy DelegationManager
-  console.log("7/7 Deploying DelegationManager...");
-  const delMan = await ethers.deployContract("DelegationManager");
-  await delMan.waitForDeployment();
-  const delManAddr = await delMan.getAddress();
-  console.log(`   DelegationManager: ${delManAddr}`);
+  // 7. Deploy DelegationManager (UUPS)
+  console.log("7/8 Deploying DelegationManager...");
+  const delMgrImpl = await ethers.deployContract("DelegationManager");
+  await delMgrImpl.waitForDeployment();
+  const delMgrImplAddr = await delMgrImpl.getAddress();
+  const delMgrProxy = await ethers.deployContract("ERC1967Proxy", [
+    delMgrImplAddr,
+    delMgrImpl.interface.encodeFunctionData("initialize", [deployer.address])
+  ]);
+  await delMgrProxy.waitForDeployment();
+  const delMgrAddr = await delMgrProxy.getAddress();
+  console.log(`   DelegationManager Proxy: ${delMgrAddr}`);
+  console.log(`   DelegationManager Impl:  ${delMgrImplAddr}`);
 
-  // Configure CredentialRegistry with SessionManager
-  console.log("\nConfiguring CredentialRegistry.setSessionManager...");
-  const registryContract = await ethers.getContractAt("CredentialRegistry", registryAddr);
-  const tx = await registryContract.setSessionManager(sessionManagerAddr, true);
+  // 8. Configure CredentialRegistry with SessionManager
+  console.log("8/8 Configuring CredentialRegistry...");
+  const credReg = await ethers.getContractAt("CredentialRegistry", credRegAddr);
+  const tx = await credReg.setSessionManager(sessMgrAddr, true);
   await tx.wait();
   console.log("   Done.");
 
   const output = {
     deployer: deployer.address,
     verifier: verifierAddr,
-    credentialRegistry: registryAddr,
-    sessionManager: sessionManagerAddr,
+    credentialRegistry: { proxy: credRegAddr, implementation: credRegImplAddr },
+    sessionManager: { proxy: sessMgrAddr, implementation: sessMgrImplAddr },
     agentWalletImplementation: walletImplAddr,
-    agentWalletFactory: walletFactoryAddr,
+    agentWalletFactory: { proxy: factoryAddr, implementation: factoryImplAddr },
     entryPoint: ENTRY_POINT_ADDRESS,
-    capabilityRegistry: capRegAddr,
-    delegationManager: delManAddr,
+    capabilityRegistry: { proxy: capRegAddr, implementation: capRegImplAddr },
+    delegationManager: { proxy: delMgrAddr, implementation: delMgrImplAddr },
   };
 
   console.log("\n" + JSON.stringify(output, null, 2));

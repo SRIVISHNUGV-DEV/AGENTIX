@@ -1,12 +1,11 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
-import { SessionManager, CredentialRegistry, MockVerifier } from "../typechain-types";
 
 describe("SessionManager", function () {
-  let sessionManager: SessionManager;
-  let credentialRegistry: CredentialRegistry;
-  let mockVerifier: MockVerifier;
+  let sessionManager: any;
+  let credentialRegistry: any;
+  let mockVerifier: any;
   let owner: SignerWithAddress;
   let agent: SignerWithAddress;
   let operator: SignerWithAddress;
@@ -15,19 +14,34 @@ describe("SessionManager", function () {
   beforeEach(async function () {
     [owner, agent, operator, unauthorized] = await ethers.getSigners();
 
-    const CredentialRegistryFactory = await ethers.getContractFactory("CredentialRegistry");
-    credentialRegistry = await CredentialRegistryFactory.deploy();
+    // Deploy CredentialRegistry (UUPS)
+    const CredRegImpl = await ethers.getContractFactory("CredentialRegistry");
+    const credRegImpl = await CredRegImpl.deploy();
+    const CredRegProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const credRegProxy = await CredRegProxy.deploy(
+      await credRegImpl.getAddress(),
+      credRegImpl.interface.encodeFunctionData("initialize", [owner.address])
+    );
+    credentialRegistry = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
 
+    // Deploy MockVerifier (non-upgradeable)
     const MockVerifierFactory = await ethers.getContractFactory("MockVerifier");
     mockVerifier = await MockVerifierFactory.deploy();
 
-    const SessionManagerFactory = await ethers.getContractFactory("SessionManager");
-    sessionManager = await SessionManagerFactory.deploy(
-      await mockVerifier.getAddress(),
-      await credentialRegistry.getAddress()
+    // Deploy SessionManager (UUPS)
+    const SessMgrImpl = await ethers.getContractFactory("SessionManager");
+    const sessMgrImpl = await SessMgrImpl.deploy();
+    const SessMgrProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const sessMgrProxy = await SessMgrProxy.deploy(
+      await sessMgrImpl.getAddress(),
+      sessMgrImpl.interface.encodeFunctionData("initialize", [
+        await mockVerifier.getAddress(),
+        await credentialRegistry.getAddress()
+      ])
     );
+    sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
 
-    // Register SessionManager as allowed caller for markNullifierUsed
+    // Register SessionManager as allowed caller
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
   });
 
@@ -56,6 +70,10 @@ describe("SessionManager", function () {
     it("Should set correct verifier", async function () {
       expect(await sessionManager.verifier()).to.equal(await mockVerifier.getAddress());
     });
+
+    it("Should set correct owner", async function () {
+      expect(await sessionManager.owner()).to.equal(owner.address);
+    });
   });
 
   describe("Session Creation", function () {
@@ -82,7 +100,7 @@ describe("SessionManager", function () {
           p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
           p.a, p.b, p.c, p.publicSignals
         )
-      ).to.be.revertedWith("Invalid proof");
+      ).to.be.revertedWithCustomError(sessionManager, "InvalidProof");
     });
   });
 
@@ -116,7 +134,7 @@ describe("SessionManager", function () {
 
       await expect(
         sessionManager.validateSession(p.sessionId, agentAddr, 1n)
-      ).to.be.revertedWith("Session Expired");
+      ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
     });
   });
 
@@ -131,7 +149,7 @@ describe("SessionManager", function () {
         p.a, p.b, p.c, p.publicSignals
       );
 
-      await sessionManager.connect(agent).revokeSession(p.sessionId);
+      await sessionManager.connect(agent).revokeSession(p.sessionId, ethers.ZeroAddress);
       const session = await sessionManager.sessions(p.sessionId);
       expect(session.revoked).to.be.true;
     });
@@ -147,8 +165,8 @@ describe("SessionManager", function () {
       );
 
       await expect(
-        sessionManager.connect(unauthorized).revokeSession(p.sessionId)
-      ).to.be.revertedWith("Only session key");
+        sessionManager.connect(unauthorized).revokeSession(p.sessionId, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(sessionManager, "NotAuthorizedToRevoke");
     });
   });
 
@@ -169,7 +187,7 @@ describe("SessionManager", function () {
           sessionId2, agentAddr, p.maxValue, p.expiry, p.nullifier,
           p.a, p.b, p.c, p.publicSignals
         )
-      ).to.be.revertedWith("Nullifier used");
+      ).to.be.revertedWithCustomError(sessionManager, "NullifierAlreadyUsed");
     });
 
     it("Should mark nullifier as used in credential registry", async function () {
@@ -185,18 +203,64 @@ describe("SessionManager", function () {
       expect(await credentialRegistry.isNullifierUsed(p.nullifier)).to.be.true;
     });
   });
+
+  describe("Upgrade", function () {
+    it("Should prevent non-owner from upgrading", async function () {
+      const SessMgrImpl = await ethers.getContractFactory("SessionManager");
+      const newImpl = await SessMgrImpl.deploy();
+      await expect(
+        sessionManager.connect(unauthorized).upgradeToAndCall(await newImpl.getAddress(), "0x")
+      ).to.be.reverted;
+    });
+
+    it("Should allow owner to pause (upgrade auth check)", async function () {
+      await sessionManager.pause();
+      expect(await sessionManager.paused()).to.be.true;
+      await sessionManager.unpause();
+    });
+  });
+
+  describe("Pausable", function () {
+    it("Should allow owner to pause and unpause", async function () {
+      await sessionManager.pause();
+      expect(await sessionManager.paused()).to.be.true;
+
+      await sessionManager.unpause();
+      expect(await sessionManager.paused()).to.be.false;
+    });
+
+    it("Should prevent session creation when paused", async function () {
+      const agentAddr = await agent.getAddress();
+      const p = await makeCreateParams(agentAddr);
+      await mockVerifier.setResult(true);
+      await sessionManager.pause();
+
+      await expect(
+        sessionManager.connect(operator).createSession(
+          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.a, p.b, p.c, p.publicSignals
+        )
+      ).to.be.revertedWith("Pausable: paused");
+    });
+  });
 });
 
 describe("CredentialRegistry", function () {
-  let credentialRegistry: CredentialRegistry;
+  let credentialRegistry: any;
   let owner: SignerWithAddress;
   let issuer: SignerWithAddress;
   let unauthorized: SignerWithAddress;
 
   beforeEach(async function () {
     [owner, issuer, unauthorized] = await ethers.getSigners();
-    const CredentialRegistryFactory = await ethers.getContractFactory("CredentialRegistry");
-    credentialRegistry = await CredentialRegistryFactory.deploy();
+    const CredRegImpl = await ethers.getContractFactory("CredentialRegistry");
+    const impl = await CredRegImpl.deploy();
+    const Proxy = await ethers.getContractFactory("ERC1967Proxy");
+    const proxy = await Proxy.deploy(
+      await impl.getAddress(),
+      impl.interface.encodeFunctionData("initialize", [owner.address])
+    );
+    credentialRegistry = await ethers.getContractAt("CredentialRegistry", await proxy.getAddress());
   });
 
   describe("Access Control", function () {
@@ -235,16 +299,24 @@ describe("CredentialRegistry", function () {
 
       await expect(
         credentialRegistry.connect(unauthorized).updateActiveRoot(newRoot)
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(credentialRegistry, "OnlyIssuer");
     });
   });
-});
 
-describe("AgentWallet", function () {
-  // Tests for agent wallet security
-  it("Should prevent initialization after deployment", async function () {
-    // This would be tested with actual AgentWallet deployment
-    // Placeholder for security test structure
-    expect(true).to.be.true;
+  describe("Pausable", function () {
+    it("Should pause and unpause root updates", async function () {
+      await credentialRegistry.addIssuer(await issuer.getAddress());
+      await credentialRegistry.pause();
+
+      const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
+      await expect(
+        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+      ).to.be.revertedWith("Pausable: paused");
+
+      await credentialRegistry.unpause();
+      await expect(
+        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+      ).to.emit(credentialRegistry, "ActiveRootUpdated");
+    });
   });
 });

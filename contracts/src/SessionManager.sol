@@ -1,8 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+error InvalidSessionKey();
+error InvalidExpiry();
+error SessionAlreadyExists();
+error NullifierMismatch();
+error RootMismatch();
+error RevokedRootMismatch();
+error MaxValueMismatch();
+error ExpiryMismatch();
+error NullifierAlreadyUsed();
+error InvalidProof();
+error SessionNotFound();
+error SessionIsRevoked();
+error SessionExpired();
+error InvalidSigner();
+error LimitExceeded();
+error SessionAlreadyRevoked();
+error NotWalletOwner();
+error DailySpendLimitExceeded();
+error DailyTxLimitExceeded();
+error NotAuthorizedToRevoke();
 
 interface IVerifier {
     function verifyProof(
@@ -24,46 +49,16 @@ interface IAgentWallet {
     function owner() external view returns (address);
 }
 
-contract SessionManager is ReentrancyGuard {
+contract SessionManager is Initializable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
     using ECDSA for bytes32;
 
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event SessionCreated(
-        bytes32 indexed sessionId,
-        address indexed sessionKey,
-        uint64 expiry,
-        uint128 maxValue
-    );
-
-    event SessionUsed(
-        bytes32 indexed sessionId,
-        uint256 value,
-        uint256 totalUsed
-    );
-
+    event SessionCreated(bytes32 indexed sessionId, address indexed sessionKey, uint64 expiry, uint128 maxValue);
+    event SessionUsed(bytes32 indexed sessionId, uint256 value, uint256 totalUsed);
     event SessionRevoked(bytes32 indexed sessionId);
-
-    event LightSessionCreated(
-        bytes32 indexed sessionId,
-        address indexed sessionKey,
-        uint256 dailySpendLimit,
-        uint256 dailyTxLimit,
-        uint64 expiry
-    );
-    event LightSessionUsed(
-        bytes32 indexed sessionId,
-        uint256 value,
-        uint256 newDailySpend
-    );
+    event LightSessionCreated(bytes32 indexed sessionId, address indexed sessionKey, uint256 dailySpendLimit, uint256 dailyTxLimit, uint64 expiry);
+    event LightSessionUsed(bytes32 indexed sessionId, uint256 value, uint256 newDailySpend);
     event LightSessionRevoked(bytes32 indexed sessionId);
     event DailyLimitsReset(bytes32 indexed sessionId, uint64 newDay);
-
-    /*//////////////////////////////////////////////////////////////
-                                STORAGE
-    //////////////////////////////////////////////////////////////*/
 
     struct Session {
         address sessionKey;
@@ -73,16 +68,15 @@ contract SessionManager is ReentrancyGuard {
         bool revoked;
     }
 
-    // New struct for lightweight session with daily limits
     struct LightweightSession {
-        address sessionKey;           // Session public key
-        uint256 dailySpendLimit;      // Max wei spend per day
-        uint256 dailyTxLimit;         // Max transactions per day
-        uint256 dailySpendUsed;       // Wei spent today
-        uint256 dailyTxUsed;          // Transactions today
-        uint64 lastResetDay;          // Unix day for reset tracking
-        uint64 expiry;                // Session expiration timestamp
-        bool revoked;                 // Revocation flag
+        address sessionKey;
+        uint256 dailySpendLimit;
+        uint256 dailyTxLimit;
+        uint256 dailySpendUsed;
+        uint256 dailyTxUsed;
+        uint64 lastResetDay;
+        uint64 expiry;
+        bool revoked;
     }
 
     mapping(bytes32 => Session) public sessions;
@@ -92,18 +86,27 @@ contract SessionManager is ReentrancyGuard {
     IVerifier public verifier;
     ICredentialRegistry public registry;
 
-    /*//////////////////////////////////////////////////////////////
-                                CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
-
-    constructor(address _verifier, address _registry) {
-        verifier = IVerifier(_verifier);
-        registry = ICredentialRegistry(_registry);
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        SESSION CREATION
-    //////////////////////////////////////////////////////////////*/
+    function initialize(address verifier_, address registry_) public initializer {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+        verifier = IVerifier(verifier_);
+        registry = ICredentialRegistry(registry_);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     function createSession(
         bytes32 sessionId,
@@ -115,112 +118,72 @@ contract SessionManager is ReentrancyGuard {
         uint256[2][2] calldata b,
         uint256[2] calldata c,
         uint256[5] calldata publicSignals
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
+        if (sessionKey == address(0)) revert InvalidSessionKey();
+        if (expiry <= block.timestamp) revert InvalidExpiry();
+        if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
+        if (uint256(nullifier) != publicSignals[0]) revert NullifierMismatch();
+        if (uint256(registry.activeRoot()) != publicSignals[1]) revert RootMismatch();
+        if (uint256(registry.revokedSecretRoot()) != publicSignals[2]) revert RevokedRootMismatch();
+        if (uint256(maxValue) != publicSignals[3]) revert MaxValueMismatch();
+        if (uint256(expiry) != publicSignals[4]) revert ExpiryMismatch();
+        if (registry.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
 
-        require(sessionKey != address(0), "Invalid key");
-        require(expiry > block.timestamp, "Invalid expiry");
-        require(sessions[sessionId].sessionKey == address(0), "Session exists");
-        require(uint256(nullifier) == publicSignals[0], "Nullifier mismatch");
-        require(uint256(registry.activeRoot()) == publicSignals[1], "Root mismatch");
-        require(uint256(registry.revokedSecretRoot()) == publicSignals[2], "Revoked root mismatch");
-        require(uint256(maxValue) == publicSignals[3], "Max value mismatch");
-        require(uint256(expiry) == publicSignals[4], "Expiry mismatch");
-
-        require(!registry.isNullifierUsed(nullifier), "Nullifier used");
-
-        bool valid = verifier.verifyProof(a,b,c,publicSignals);
-        require(valid, "Invalid proof");
+        bool valid = verifier.verifyProof(a, b, c, publicSignals);
+        if (!valid) revert InvalidProof();
 
         registry.markNullifierUsed(nullifier);
 
         Session storage s = sessions[sessionId];
-
         s.sessionKey = sessionKey;
         s.maxValue = maxValue;
         s.valueUsed = 0;
         s.expiry = expiry;
         s.revoked = false;
 
-        emit SessionCreated(
-            sessionId,
-            sessionKey,
-            expiry,
-            maxValue
-        );
+        emit SessionCreated(sessionId, sessionKey, expiry, maxValue);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                        SESSION VALIDATION
-    //////////////////////////////////////////////////////////////*/
 
     function validateSession(
         bytes32 sessionId,
         address signer,
         uint256 value
     ) external returns (bool) {
-
         Session storage s = sessions[sessionId];
 
-        require(!s.revoked, "Revoked");
-        require(block.timestamp <= s.expiry, "Session Expired");
-        require(s.sessionKey == signer, "Invalid signer");
+        if (s.revoked) revert SessionIsRevoked();
+        if (block.timestamp > s.expiry) revert SessionExpired();
+        if (s.sessionKey != signer) revert InvalidSigner();
 
         uint256 newValue = s.valueUsed + value;
-
-        require(newValue <= s.maxValue, "Limit exceeded");
+        if (newValue > s.maxValue) revert LimitExceeded();
 
         s.valueUsed = uint128(newValue);
-
-        emit SessionUsed(sessionId,value,newValue);
-
+        emit SessionUsed(sessionId, value, newValue);
         return true;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        SESSION REVOCATION
-    //////////////////////////////////////////////////////////////*/
-
-    function revokeSession(bytes32 sessionId) external {
-
+    function revokeSession(bytes32 sessionId, address wallet) external {
         Session storage s = sessions[sessionId];
-
-        require(s.sessionKey != address(0), "Unknown session");
-        require(!s.revoked,"Already revoked");
-        require(msg.sender == s.sessionKey, "Only session key");
-
+        if (s.sessionKey == address(0)) revert SessionNotFound();
+        if (s.revoked) revert SessionAlreadyRevoked();
+        if (msg.sender != s.sessionKey && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+            revert NotAuthorizedToRevoke();
+        }
         s.revoked = true;
-
         emit SessionRevoked(sessionId);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    LIGHTWEIGHT SESSION HELPERS
-    //////////////////////////////////////////////////////////////*/
-
-    function _checkAndResetDaily(LightweightSession storage s) internal {
+    function _checkAndResetDaily(bytes32 sessionId, LightweightSession storage s) internal {
         uint64 currentDay = uint64(block.timestamp / 1 days);
         if (s.lastResetDay < currentDay) {
             s.dailySpendUsed = 0;
             s.dailyTxUsed = 0;
             s.lastResetDay = currentDay;
-            emit DailyLimitsReset(keccak256(abi.encode(s.sessionKey, s.expiry)), currentDay);
+            emit DailyLimitsReset(sessionId, currentDay);
         }
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    LIGHTWEIGHT SESSION MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Create a lightweight session with owner signature
-     * @dev Called by backend on behalf of wallet owner through wallet contract
-     * @param sessionId Unique session identifier
-     * @param sessionKey Public key of session (signer address)
-     * @param dailySpendLimit Maximum wei spendable per day
-     * @param dailyTxLimit Maximum transactions per day
-     * @param expiry Unix timestamp when session expires
-     * @param ownerSignature EIP-191 signature from wallet owner
-     */
     function createLightweightSession(
         bytes32 sessionId,
         address sessionKey,
@@ -228,27 +191,20 @@ contract SessionManager is ReentrancyGuard {
         uint256 dailyTxLimit,
         uint64 expiry,
         bytes calldata ownerSignature
-    ) external {
-        require(sessionKey != address(0), "Invalid session key");
-        require(expiry > block.timestamp, "Invalid expiry");
-        require(lightSessions[sessionId].sessionKey == address(0), "Session exists");
+    ) external whenNotPaused {
+        if (sessionKey == address(0)) revert InvalidSessionKey();
+        if (expiry <= block.timestamp) revert InvalidExpiry();
+        if (lightSessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
 
-        // Verify owner signature over session params
         bytes32 messageHash = keccak256(abi.encode(
-            sessionId,
-            sessionKey,
-            dailySpendLimit,
-            dailyTxLimit,
-            expiry
+            sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry
         ));
         bytes32 digest = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
-            messageHash
+            "\x19Ethereum Signed Message:\n32", messageHash
         ));
         address signer = ECDSA.recover(digest, ownerSignature);
 
-        // Verify signer is the wallet owner (msg.sender is the wallet contract)
-        require(IAgentWallet(msg.sender).owner() == signer, "Not wallet owner");
+        if (IAgentWallet(msg.sender).owner() != signer) revert NotWalletOwner();
 
         lightSessions[sessionId] = LightweightSession({
             sessionKey: sessionKey,
@@ -262,23 +218,9 @@ contract SessionManager is ReentrancyGuard {
         });
 
         walletSessions[msg.sender].push(sessionId);
-
-        emit LightSessionCreated(
-            sessionId,
-            sessionKey,
-            dailySpendLimit,
-            dailyTxLimit,
-            expiry
-        );
+        emit LightSessionCreated(sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry);
     }
 
-    /**
-     * @notice Validate a lightweight session for UserOperation execution
-     * @param sessionId Session to validate
-     * @param signer Address that signed the UserOperation
-     * @param value Value being transferred in this transaction
-     * @return valid True if session is valid and limits not exceeded
-     */
     function validateLightweightSession(
         bytes32 sessionId,
         address signer,
@@ -286,53 +228,37 @@ contract SessionManager is ReentrancyGuard {
     ) external returns (bool) {
         LightweightSession storage s = lightSessions[sessionId];
 
-        require(s.sessionKey != address(0), "Session not found");
-        require(!s.revoked, "Session revoked");
-        require(block.timestamp <= s.expiry, "Session expired");
-        require(s.sessionKey == signer, "Invalid session signer");
+        if (s.sessionKey == address(0)) revert SessionNotFound();
+        if (s.revoked) revert SessionIsRevoked();
+        if (block.timestamp > s.expiry) revert SessionExpired();
+        if (s.sessionKey != signer) revert InvalidSigner();
 
-        _checkAndResetDaily(s);
+        _checkAndResetDaily(sessionId, s);
 
         uint256 newSpend = s.dailySpendUsed + value;
-        require(newSpend <= s.dailySpendLimit, "Daily spend limit exceeded");
-        require(s.dailyTxUsed + 1 <= s.dailyTxLimit, "Daily tx limit exceeded");
+        if (newSpend > s.dailySpendLimit) revert DailySpendLimitExceeded();
+        if (s.dailyTxUsed + 1 > s.dailyTxLimit) revert DailyTxLimitExceeded();
 
         s.dailySpendUsed = newSpend;
         s.dailyTxUsed++;
 
         emit LightSessionUsed(sessionId, value, s.dailySpendUsed);
-
         return true;
     }
 
-    /**
-     * @notice Revoke a lightweight session
-     * @dev Only wallet owner or session key holder can revoke
-     * @param sessionId Session to revoke
-     */
-    function revokeLightweightSession(bytes32 sessionId) external {
+    function revokeLightweightSession(bytes32 sessionId, address wallet) external {
         LightweightSession storage s = lightSessions[sessionId];
+        if (s.sessionKey == address(0)) revert SessionNotFound();
+        if (s.revoked) revert SessionAlreadyRevoked();
 
-        require(s.sessionKey != address(0), "Session not found");
-        require(!s.revoked, "Already revoked");
-
-        // Verify caller is wallet owner or session key
-        // Check session key first to avoid abi.decode revert on EOA caller
-        require(
-            s.sessionKey == msg.sender ||
-            IAgentWallet(msg.sender).owner() == msg.sender,
-            "Not authorized to revoke"
-        );
+        if (s.sessionKey != msg.sender && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+            revert NotAuthorizedToRevoke();
+        }
 
         s.revoked = true;
-
         emit LightSessionRevoked(sessionId);
     }
 
-    /**
-     * @notice Get session details
-     * @param sessionId Session to query
-     */
     function getLightSession(bytes32 sessionId) external view returns (
         address sessionKey,
         uint256 dailySpendLimit,
@@ -344,22 +270,14 @@ contract SessionManager is ReentrancyGuard {
     ) {
         LightweightSession storage s = lightSessions[sessionId];
         return (
-            s.sessionKey,
-            s.dailySpendLimit,
-            s.dailyTxLimit,
-            s.dailySpendUsed,
-            s.dailyTxUsed,
-            s.expiry,
-            s.revoked
+            s.sessionKey, s.dailySpendLimit, s.dailyTxLimit,
+            s.dailySpendUsed, s.dailyTxUsed, s.expiry, s.revoked
         );
     }
 
-    /**
-     * @notice Get all sessions for a wallet
-     * @param wallet Wallet address
-     */
     function getWalletSessions(address wallet) external view returns (bytes32[] memory) {
         return walletSessions[wallet];
     }
 
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }
