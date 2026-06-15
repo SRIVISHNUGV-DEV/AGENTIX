@@ -33,16 +33,20 @@ The MCP server starts on **port 3001**. Connect any MCP-compatible client (Claud
 
 ## Live Deployment (Base Sepolia)
 
-| Contract | Address | Role |
-|----------|---------|------|
-| **Verifier** | [`0xa9ED...AC48`](https://sepolia.basescan.org/address/0xa9ED81d44847729a7C8D33907BaDFb767ac9AC48) | Groth16 proof verification |
-| **CredentialRegistry** | [`0xb184...4F95`](https://sepolia.basescan.org/address/0xb1841A44b57904849898EaA956b1C01a182e4F95) | Credential Merkle roots |
-| **SessionManager** | [`0x58E1...Ee7a`](https://sepolia.basescan.org/address/0x58E1D578ecd41e0D2639BA1C3C8E4795A8F6Ee7a) | ZK + lightweight sessions |
-| **AgentWalletFactory** | [`0x7689...138b`](https://sepolia.basescan.org/address/0x7689B8C445fAd670b03A0f68A912f5e93131138b) | Deterministic wallet deploy |
-| **AgentWallet Impl** | [`0xa282...f5c0`](https://sepolia.basescan.org/address/0xa282F01c520bD73eF7100eA0436539988a36f5c0) | ERC-4337 smart account |
-| **EntryPoint** | [`0x4337...F108`](https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | ERC-4337 singleton |
-| **CapabilityRegistry** | [`0x7Ebb...5Bb9`](https://sepolia.basescan.org/address/0x7Ebb4E2574613D73a1DC112E129f2c3b20b75Bb9) | Capability definitions & grants |
-| **DelegationManager** | [`0xc752...95d7`](https://sepolia.basescan.org/address/0xc7522D29E63f2a2cdEdeC405093920D2FC3B95d7) | Trust delegation chains |
+All contracts deployed and **verified on [Basescan](https://sepolia.basescan.org)**. 36/36 on-chain tests passing.
+
+| Contract | Proxy | Implementation | Role |
+|----------|-------|----------------|------|
+| **Groth16Verifier** | [`0x6cBb...EB61f`](https://sepolia.basescan.org/address/0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f) | (non-upgradeable) | Groth16 ZK proof verification |
+| **CredentialRegistry** | [`0x83e0...65F5c`](https://sepolia.basescan.org/address/0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c) | [`0x6CF1...fbeC8`](https://sepolia.basescan.org/address/0x6CF1D9a456aeD678a8057E49248aAe808B2fbeC8) | Credential Merkle roots |
+| **SessionManager** | [`0xcC0a...4C58`](https://sepolia.basescan.org/address/0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58) | [`0x98aB...B17f`](https://sepolia.basescan.org/address/0x98aB9cb51B939E32F5a4831330a0eb6443B3B17f) | ZK + lightweight sessions |
+| **AgentWalletFactory** | [`0x6313...1677`](https://sepolia.basescan.org/address/0x6313d16266FB2e60c8Ef142274e317878ba71677) | [`0xEE1A...29F2`](https://sepolia.basescan.org/address/0xEE1AB568CFe99C9113eF4abABf6dE9314aF729F2) | Deterministic wallet deploy |
+| **AgentWallet** | — | [`0x3144...1e9A`](https://sepolia.basescan.org/address/0x31448C7ca90c675F7f0631AF8A6a8627758E1e9A) | ERC-4337 smart account |
+| **CapabilityRegistry** | [`0xA562...98297`](https://sepolia.basescan.org/address/0xA5624939Fd99ed689Bc564FB2a09B3bc59198297) | [`0xaf73...83024`](https://sepolia.basescan.org/address/0xaf733b08541A6040A7704AB55340469498a83024) | Capability definitions & grants |
+| **DelegationManager** | [`0xa52e...02DA`](https://sepolia.basescan.org/address/0xa52e7C76811FAAC1514712eb0137d8f1631202DA) | [`0x301f...88aD`](https://sepolia.basescan.org/address/0x301f5a115f5EC84396875312Af0fB231EC7988aD) | Trust delegation chains |
+| **EntryPoint** | [`0x4337...F108`](https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | (ERC-4337 singleton) | UserOperation relay |
+
+**Deployer:** [`0xE2e3...ADAcC`](https://sepolia.basescan.org/address/0xE2e34Dceb7dAFCd63257C5cbE69Fcb06571ADAcC)
 
 ---
 
@@ -185,34 +189,33 @@ The MCP server is the primary interface for AI agents. It speaks the [Model Cont
 
 ## Smart Contracts
 
-### CredentialRegistry.sol
-Stores the active Merkle root and revoked sparse-Merkle root. Every credential issuance or revocation updates these roots. The single source of truth for agent authorization state. Credentials contain identity + expiry only — no embedded capabilities.
+### Groth16Verifier (`0x6cBb...EB61f`)
+Auto-generated Groth16 verifier from the Circom circuit. Used by SessionManager to verify ZK proofs during session creation. Non-upgradeable, deployed as a standalone contract.
 
-### SessionManager.sol
-Validates Groth16 proofs (ZK sessions) and EIP-191 signatures (lightweight sessions). Creates replay-safe, bounded sessions with `maxValue`, daily spend/tx limits, and `expiresAt` constraints. Two session types:
+### CredentialRegistry (`0x83e0...65F5c`)
+UUPS proxy. Stores the active Merkle root and revoked sparse-Merkle root. Every credential issuance or revocation updates these roots. The single source of truth for agent authorization state.
+
+### SessionManager (`0xcC0a...4C58`)
+UUPS proxy. Validates Groth16 proofs (ZK sessions) and EIP-191 signatures (lightweight sessions). Creates replay-safe, bounded sessions with `maxValue`, daily spend/tx limits, and `expiresAt` constraints:
 - **ZK-Proof Session** (~300k gas) — Privacy-preserving, requires Groth16 proof
 - **Lightweight Session** (~80k gas) — EIP-191 signature, daily spend/tx limits
 
-### CapabilityRegistry.sol (NEW)
-A separate on-chain catalog for agent capabilities. Capabilities are defined with an action, effect (allow/deny/audit), and constraint set. Grants link capabilities to agent addresses. This separation ensures **credential stability**: changing capabilities never invalidates credentials. Key functions:
+### CapabilityRegistry (`0xA562...98297`)
+UUPS proxy. On-chain catalog for agent capabilities. Capabilities are defined with an action, effect (allow/deny/audit), and constraint set. Grants link capabilities to agent addresses. Key functions:
 - `registerCapability()` / `revokeCapability()`
-- `grantCapability()` / `revokeGrant()`
-- `verifyCapability(agent, capabilityId, grantId)` — for third-party verifiers
+- `setRootUpdater()` / `updateGrantRoot()`
+- `verifyCapability()` — for third-party verifiers
 
-### DelegationManager.sol (NEW)
-Enables trust delegation chains between agents. A delegator grants a delegate a scope of authority, who can further delegate (up to a configurable depth). Revocation cascades to all children. Key functions:
-- `createDelegation()` with scope hash, expiry, max depth, and parent chain
-- `revokeDelegation()` with cascade revoke
-- `verifyDelegationChain(delegationId, delegate, scopeHash, expectedOriginator)` — full chain walk
+### DelegationManager (`0xa52e...02DA`)
+UUPS proxy. Enables trust delegation chains between agents. A delegator grants a delegate a scope of authority, who can further delegate (up to a configurable depth). Revocation cascades to all children. Key functions:
+- `updateDelegationRoot()` / `revokeDelegation()`
+- `verifyDelegation()` / `verifyDelegationForAction()` / `verifyDelegationChain()`
 
-### AgentWalletFactory.sol
-Deterministic deployment of ERC-4337 smart accounts using CREATE2. Each agent gets a predictable wallet address derived from organization salt and agent ID.
+### AgentWalletFactory (`0x6313...1677`)
+UUPS proxy. Deterministic deployment of ERC-4337 smart accounts using CREATE2. Each agent gets a predictable wallet address derived from organization salt and agent ID.
 
-### AgentWallet.sol
-ERC-4337-compatible smart account. Validates UserOperations against active sessions or owner address. Supports `execute()` and `executeBatch()`.
-
-### Verifier.sol
-Auto-generated Groth16 verifier from the Circom circuit. Used by SessionManager to verify ZK proofs during session creation.
+### AgentWallet (`0x3144...1e9A`)
+ERC-4337-compatible smart account (clone implementation). Validates UserOperations against active sessions or owner address. Supports `execute()`, `executeBatch()`, whitelist management, and ownership transfer.
 
 ---
 
@@ -235,17 +238,17 @@ import { AgentVerifier } from "@agentix/sdk"
 const verifier = new AgentVerifier({
   chainId: 84532,
   rpcUrl: "https://base-sepolia.g.alchemy.com/v2/YOUR_KEY",
-  credentialRegistry: "0xb184...4F95",
-  sessionManager: "0x58E1...Ee7a",
-  capabilityRegistry: "0x7Ebb...5Bb9",
-  delegationManager: "0xc752...95d7",
+  credentialRegistry: "0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c",
+  sessionManager: "0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58",
+  capabilityRegistry: "0xA5624939Fd99ed689Bc564FB2a09B3bc59198297",
+  delegationManager: "0xa52e7C76811FAAC1514712eb0137d8f1631202DA",
 })
 
 await verifier.init()
 
 // Verify a ZK credential proof
 const result = await verifier.verifyCredentialProof(proof, publicSignals, {
-  verifierAddress: "0xa9ED...AC48",
+  verifierAddress: "0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f",
 })
 
 // Verify an agent capability
@@ -287,25 +290,25 @@ const delResult = await verifier.verifyDelegation({
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `RPC_URL` | Base Sepolia RPC (Alchemy/Infura) |
-| `PRIVATE_KEY` | Backend signer wallet key (Base Sepolia ETH required) |
-| `BUNDLER_URL` | ERC-4337 bundler endpoint |
-| `REDIS_URL` | Redis for BullMQ queues (optional) |
-| `ENCRYPTION_KEY` | AES-256-GCM key (64 hex chars) |
-| `SESSION_ENCRYPTION_KEY` | Session key encryption key (64 hex chars) |
-| `VERIFIER_ADDRESS` | Groth16 verifier contract |
-| `CREDENTIAL_REGISTRY_ADDRESS` | Credential registry contract |
-| `SESSION_MANAGER_ADDRESS` | Session manager contract |
-| `AGENT_WALLET_FACTORY_ADDRESS` | Wallet factory contract |
-| `AGENT_WALLET_IMPLEMENTATION_ADDRESS` | Wallet implementation contract |
-| `ENTRY_POINT_ADDRESS` | ERC-4337 EntryPoint |
-| `CAPABILITY_REGISTRY_ADDRESS` | Capability registry contract |
-| `DELEGATION_MANAGER_ADDRESS` | Delegation manager contract |
-| `CHAIN_ID` | Network chain ID (default: 84532) |
-| `CORS_ORIGIN` | Allowed CORS origins |
+| Variable | Example Value | Description |
+|----------|---------------|-------------|
+| `DATABASE_URL` | `postgresql://agentix:secret@localhost:5432/agentix` | PostgreSQL connection string |
+| `RPC_URL` | `https://base-sepolia.g.alchemy.com/v2/KEY` | Base Sepolia RPC (Alchemy/Infura) |
+| `PRIVATE_KEY` | `0x...` | Backend signer wallet key (Base Sepolia ETH required) |
+| `BUNDLER_URL` | `https://base-sepolia.g.alchemy.com/v2/KEY` | ERC-4337 bundler endpoint |
+| `REDIS_URL` | `redis://localhost:6379` | Redis for BullMQ queues (optional) |
+| `ENCRYPTION_KEY` | `64 hex chars` | AES-256-GCM key for stored secrets |
+| `SESSION_ENCRYPTION_KEY` | `64 hex chars` | Session key encryption key |
+| `VERIFIER_ADDRESS` | `0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f` | Groth16 verifier contract |
+| `CREDENTIAL_REGISTRY_ADDRESS` | `0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c` | Credential registry contract |
+| `SESSION_MANAGER_ADDRESS` | `0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58` | Session manager contract |
+| `AGENT_WALLET_FACTORY_ADDRESS` | `0x6313d16266FB2e60c8Ef142274e317878ba71677` | Wallet factory contract |
+| `AGENT_WALLET_IMPLEMENTATION_ADDRESS` | `0x31448C7ca90c675F7f0631AF8A6a8627758E1e9A` | Wallet implementation contract |
+| `ENTRY_POINT_ADDRESS` | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` | ERC-4337 EntryPoint |
+| `CAPABILITY_REGISTRY_ADDRESS` | `0xA5624939Fd99ed689Bc564FB2a09B3bc59198297` | Capability registry contract |
+| `DELEGATION_MANAGER_ADDRESS` | `0xa52e7C76811FAAC1514712eb0137d8f1631202DA` | Delegation manager contract |
+| `CHAIN_ID` | `84532` | Network chain ID (Base Sepolia) |
+| `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origins |
 
 ---
 
@@ -315,6 +318,8 @@ const delResult = await verifier.verifyDelegation({
 agentix/
 ├── package.json                       # Workspace root
 ├── docker-compose.yml                 # Dev: PostgreSQL + Redis
+├── .mcp.json                          # MCP config for Claude Code / Cursor / VS Code
+├── mcp-configs.json                   # Generated configs for 7 MCP clients
 ├── backend/                           # Express/Hono API + MCP Server
 │   ├── src/
 │   │   ├── index.ts                   # Server entry point
@@ -340,21 +345,30 @@ agentix/
 │   ├── src/
 │   │   ├── CredentialRegistry.sol
 │   │   ├── SessionManager.sol
-│   │   ├── CapabilityRegistry.sol    # NEW — capability catalog
-│   │   ├── DelegationManager.sol     # NEW — trust delegation
+│   │   ├── CapabilityRegistry.sol
+│   │   ├── DelegationManager.sol
 │   │   ├── AgentWallet.sol
 │   │   ├── AgentWalletFactory.sol
-│   │   └── Verifier.sol
+│   │   ├── Credentialverifier.sol    # Groth16 verifier (auto-generated)
+│   │   └── mocks/MockVerifier.sol
 │   ├── test/
+│   │   ├── AgentWallet.test.ts
+│   │   ├── SessionManager.test.ts
+│   │   └── LightweightSession.test.ts
 │   └── scripts/
-├── circuits/                          # Circom ZK circuit
+│       ├── deploy-all.ts
+│       ├── deploy-and-test.ts        # Deploy + 36 on-chain tests
+│       ├── test-onchain.ts           # Test-only against deployed addresses
+│       └── verify-all.ts
+├── mcp-test/                          # MCP test server (standalone)
 ├── sdk/                               # TypeScript SDK
 │   └── src/
 │       ├── AgentClient.ts
 │       ├── SessionManager.ts
-│       ├── verifier.ts               # NEW — external trust verification
+│       ├── verifier.ts               # External trust verification
 │       └── types.ts
 ├── frontend/                          # Next.js 14 operator UI
+├── cli/                               # CLI client
 └── docs/
 ```
 

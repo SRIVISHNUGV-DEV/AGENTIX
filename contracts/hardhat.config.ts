@@ -20,9 +20,15 @@ function loadEnvFile(envPath: string): Record<string, string> {
 const backendEnv = loadEnvFile(path.resolve(__dirname, "../backend/.env"));
 const contractsEnv = loadEnvFile(path.resolve(__dirname, ".env"));
 
-const rpcUrl = backendEnv.RPC_URL || process.env.RPC_URL || "";
-const privateKey = backendEnv.PRIVATE_KEY || process.env.PRIVATE_KEY || "";
+const rpcUrl = backendEnv.RPC_URL || process.env.RPC_URL || contractsEnv.RPC_URL || "";
+const privateKey = contractsEnv.PRIVATE_KEY || backendEnv.PRIVATE_KEY || process.env.PRIVATE_KEY || "";
 const etherscanApiKey = contractsEnv.ETHERSCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "";
+
+const allAccounts = [privateKey];
+for (let i = 1; i <= 4; i++) {
+  const pk = contractsEnv[`PRIVATE_KEY_${i}`] || "";
+  if (pk) allAccounts.push(pk);
+}
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -47,11 +53,11 @@ const config: HardhatUserConfig = {
     },
     sepolia: {
       url: rpcUrl,
-      accounts: privateKey ? [privateKey] : []
+      accounts: allAccounts.filter(Boolean)
     },
     baseSepolia: {
       url: rpcUrl,
-      accounts: privateKey ? [privateKey] : [],
+      accounts: allAccounts.filter(Boolean),
       chainId: 84532
     }
   },
