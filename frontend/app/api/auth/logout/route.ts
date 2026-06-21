@@ -1,5 +1,6 @@
 import { BACKEND_API_BASE } from '@/lib/api-base'
-import { AUTH_COOKIE_NAME, getAuthToken } from '@/lib/auth'
+import { AUTH_COOKIE_NAME } from '@/lib/auth'
+import { getAuthToken } from '@/lib/auth-server'
 
 export async function POST() {
   const token = await getAuthToken()

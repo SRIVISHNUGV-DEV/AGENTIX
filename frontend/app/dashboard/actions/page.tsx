@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
 import { getAuthToken } from '@/lib/auth-server'
-import { DashboardOverview } from '@/components/dashboard/overview'
+import { ActionsLog } from '@/components/dashboard/actions-log'
 
-export default async function DashboardPage() {
+export default async function ActionsPage() {
     const token = await getAuthToken()
     if (!token) redirect('/login')
 
-    return <DashboardOverview />
+    return <ActionsLog />
 }

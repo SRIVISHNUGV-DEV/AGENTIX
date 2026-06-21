@@ -60,31 +60,31 @@ $frontendOut = Get-AvailableLogPath (Join-Path $frontendDir '.frontend.out.log')
 $frontendErr = Get-AvailableLogPath (Join-Path $frontendDir '.frontend.err.log')
 
 $backendCmd = 'npm run dev'
-$frontendCmd = 'npx next dev --webpack --hostname 127.0.0.1 --port 3001'
+$frontendCmd = 'npx next dev --webpack --hostname 127.0.0.1 --port 3000'
 
-$backendPid = Get-ListeningProcessId 3000
-$frontendPid = Get-ListeningProcessId 3001
+$backendPid = Get-ListeningProcessId 3001
+$frontendPid = Get-ListeningProcessId 3000
 
 if (-not $backendPid) {
-  Write-Output 'Starting backend...'
+  Write-Output 'Starting backend on port 3001...'
   Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $backendCmd -WorkingDirectory $backendDir -RedirectStandardOutput $backendOut -RedirectStandardError $backendErr -WindowStyle Hidden
 } else {
-  Write-Output "Backend already running on port 3000 (PID $backendPid)"
+  Write-Output "Backend already running on port 3001 (PID $backendPid)"
 }
 
 if (-not $frontendPid) {
-  Write-Output 'Starting frontend...'
+  Write-Output 'Starting frontend on port 3000...'
   Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $frontendCmd -WorkingDirectory $frontendDir -RedirectStandardOutput $frontendOut -RedirectStandardError $frontendErr -WindowStyle Hidden
 } else {
-  Write-Output "Frontend already running on port 3001 (PID $frontendPid)"
+  Write-Output "Frontend already running on port 3000 (PID $frontendPid)"
 }
 
 Start-Sleep -Seconds 2
 Print-LogPreview 'Backend' $backendOut
 Print-LogPreview 'Frontend' $frontendOut
 
-$backendReady = Wait-ForHttp 'http://127.0.0.1:3000/orgs'
-$frontendReady = Wait-ForHttp 'http://127.0.0.1:3001'
+$backendReady = Wait-ForHttp 'http://127.0.0.1:3001/health'
+$frontendReady = Wait-ForHttp 'http://127.0.0.1:3000'
 
 if ($backendReady) {
   Write-Output 'Backend started successfully.'
@@ -100,8 +100,8 @@ if ($frontendReady) {
 
 Write-Output ''
 Write-Output 'Open these URLs:'
-Write-Output '  Frontend: http://127.0.0.1:3001'
-Write-Output '  Backend:  http://127.0.0.1:3000'
+Write-Output '  Frontend: http://127.0.0.1:3000'
+Write-Output '  Backend:  http://127.0.0.1:3001'
 Write-Output ''
 Write-Output 'Logs:'
 Write-Output "  Backend out: $backendOut"

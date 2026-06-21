@@ -35,6 +35,8 @@
     "atx": "cd cli && node dist/index.js",
     "atx:dev": "cd cli && npx tsx src/index.ts",
     "atx:build": "cd cli && npm run build",
-    "example:create-session": "cd sdk && npx tsx examples/create-session.ts"
+    "example:create-session": "cd sdk && npx tsx examples/create-session.ts",
+    "demo": "node demo.mjs",
+    "demo:covenant": "node demo.mjs"
   }
 }

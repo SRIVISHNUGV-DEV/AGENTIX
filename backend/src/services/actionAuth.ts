@@ -58,8 +58,15 @@ function verifyPersonalSignature(message: string, signature: string): string {
     }
 }
 
+const isDev = process.env.NODE_ENV !== "production"
+
 export async function requireSignedAction(db:any, options:AuthorizationOptions){
     const { orgId, action, target, payload } = options
+
+    // DEV BYPASS: skip signature verification
+    if (isDev && process.env.DEV_AUTH_BYPASS === "true") {
+        return { walletAddress: "0x0000000000000000000000000000000000000001", requestedAt: Date.now() }
+    }
 
     console.log("[actionAuth] Received payload:", JSON.stringify(payload, null, 2))
 

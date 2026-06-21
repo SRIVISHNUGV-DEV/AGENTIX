@@ -28,9 +28,30 @@ export type CovenantAuthRequest = Request & {
   }
 }
 
+const isDev = process.env.NODE_ENV !== "production"
+
 export function requireCovenantAuth(action: string) {
   return async (req: CovenantAuthRequest, res: Response, next: NextFunction) => {
     try {
+      // DEV BYPASS: skip covenant auth when DEV_AUTH_BYPASS=true
+      if (isDev && process.env.DEV_AUTH_BYPASS === "true") {
+        const authReq = req as any
+        req.covenantAuth = {
+          sessionId: String(req.headers["x-covenant-session-id"] || `dev_session_${Date.now()}`),
+          agentId: Number(req.headers["x-covenant-agent-id"]) || 1,
+          orgId: Number(req.headers["x-covenant-org-id"]) || 1,
+          userId: authReq.auth?.userId || 1,
+          action,
+          authorized: true,
+          spendingLimit: 10000,
+          remainingBudget: 10000,
+          expiresAt: Math.floor(Date.now() / 1000) + 86400,
+          scopes: ["read_file", "write_file", "execute_command", "api_call", "sign_transaction"],
+          wallet: undefined
+        }
+        return next()
+      }
+
       const sessionId = req.headers["x-covenant-session-id"] as string
       const agentId = Number(req.headers["x-covenant-agent-id"])
       const orgId = Number(req.headers["x-covenant-org-id"])

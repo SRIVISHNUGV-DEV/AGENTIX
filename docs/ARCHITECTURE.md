@@ -1,93 +1,197 @@
-# Agentix Architecture
+# Architecture
 
-## Overview
+## System Overview
 
-Agentix is a four-part system:
-
-- frontend: organization operator platform
-- backend: API, state, proof orchestration, and chain integration
-- circuits: zero-knowledge proof logic
-- contracts: on-chain enforcement
-
-## Components
-
-### Frontend
-
-The frontend is a Next.js application that:
-
-- lets organizations connect a wallet
-- creates and selects workspaces
-- creates agents
-- triggers signed platform actions
-- shows sessions, wallets, and indexed events
-
-### Backend
-
-The backend is an Express + SQLite service that:
-
-- persists organizations, agents, credentials, wallets, sessions, and events
-- maintains the active Poseidon Merkle tree
-- maintains the revocation sparse tree
-- deploys contracts
-- submits root updates and session transactions
-- indexes contract events back into the database
-
-### Circuits
-
-The circuit proves:
-
-- credential membership in the active root
-- non-revocation against the revocation root
-- expiry and permission constraints
-- nullifier derivation for replay protection
-
-### Contracts
-
-Each organization has its own:
-
-- `CredentialRegistry`
-- `SessionManager`
-- `AgentWalletFactory`
-
-Shared infrastructure:
-
-- `Verifier`
-- wallet implementation used by the factory
-
-## Per-Organization Isolation
-
-The system deploys a separate contract stack per organization so:
-
-- roots are organization-scoped
-- wallet creation is organization-scoped
-- event indexing can attribute state changes to the right organization
-- one organization's operational load does not share the same registry or session contracts as another
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Developer                            │
+│                    (npm install → demo)                      │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     AgentIX Backend                         │
+│                  (Express.js + PostgreSQL)                   │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │ Sessions │  │Credentials│  │  Agents  │  │   Orgs   │   │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              Covenant Integration Layer               │  │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────┐  │  │
+│  │  │   Session   │  │    Budget    │  │   Wallet   │  │  │
+│  │  │  Validator  │  │   Tracker    │  │  Manager   │  │  │
+│  │  └─────────────┘  └──────────────┘  └────────────┘  │  │
+│  │  ┌─────────────┐  ┌──────────────┐                  │  │
+│  │  │   Covenant  │  │   Middleware  │                  │  │
+│  │  │   Client    │  │  (auth+audit) │                  │  │
+│  │  └─────────────┘  └──────────────┘                  │  │
+│  └──────────────────────────────────────────────────────┘  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │  AgentIX │ │ Covenant │ │ Base     │
+        │  Contracts│ │ Contracts│ │ Sepolia  │
+        └──────────┘ └──────────┘ └──────────┘
+```
 
 ## Data Flow
 
-1. Organization creates a workspace.
-2. Organization adds an agent.
-3. Backend deploys org-specific contracts if they do not exist.
-4. Backend inserts the credential commitment into the active tree.
-5. Backend updates the on-chain active root.
-6. Proof input is prepared from:
-   - agent credential data
-   - active tree proof
-   - revocation sparse-tree proof
-7. Session proof is generated.
-8. `SessionManager` verifies the proof and emits `SessionCreated`.
-9. Event indexer stores the event in SQLite and the frontend displays it.
+### 1. Session Creation
+
+```
+Developer → AgentIX Backend → PostgreSQL
+  1. Create org
+  2. Create agent
+  3. Issue credential (permission bits + expiry)
+  4. Create session (budget + expiry)
+  5. Return session ID
+```
+
+### 2. Task Execution
+
+```
+Developer → AgentIX Backend → Covenant Client → On-Chain
+  1. Authorize session (validate permissions, budget, expiry)
+  2. Deduct budget (atomic)
+  3. Create Covenant task (on-chain)
+  4. Log audit entry
+  5. Return task ID + tx hash
+```
+
+### 3. Settlement
+
+```
+Developer → AgentIX Backend → Covenant Client → On-Chain
+  1. Authorize session
+  2. Submit work (on-chain)
+  3. Complete task (on-chain)
+  4. Log audit entry
+  5. Return settlement tx hash
+```
+
+### 4. Revocation
+
+```
+Developer → AgentIX Backend → PostgreSQL + On-Chain
+  1. Add nullifier to revoked set
+  2. Update revocation tree root on-chain
+  3. All future session checks fail instantly
+```
 
 ## Security Model
 
-Current protections:
+### Session Validation (per request)
 
-- wallet signatures required for platform-triggered on-chain actions
-- on-chain session verification using Groth16
-- root updates and session creation scoped to organization contracts
-- event indexing for auditability
+1. **Org binding**: Session must match the requesting org
+2. **Expiry check**: Session must not be expired
+3. **Revocation check**: Nullifier must not be in revoked set
+4. **Credential check**: Agent must have a valid credential
+5. **Credential expiry**: Credential must not be expired
+6. **Permission check**: Action must be in permission bitfield
+7. **Budget check**: Requested value must not exceed remaining budget
 
-Current MVP limitations:
+### Budget Enforcement
 
-- wallet-based operator control is present, but not full user or session auth
-- this is still an MVP and should be hardened further before production use
+- **Atomic deduction**: DB-level `WHERE (total_budget - spent) >= amount`
+- **Redis fallback**: Lua script for atomic decrement
+- **Concurrent safe**: Second request gets rejected if budget exhausted
+
+### Audit Trail
+
+Every mutation logs:
+- `org_id` — which organization
+- `user_id` — which user
+- `action` — what was done
+- `resource_type` — what kind of resource
+- `resource_id` — which resource
+- `details` — JSON with session, agent, tx hash, success/failure
+
+## On-Chain vs Off-Chain
+
+| On-Chain | Off-Chain |
+|----------|-----------|
+| Credential commitments | Session validation |
+| Revocation tree roots | Permission checks |
+| Task escrow | Budget tracking |
+| Task settlement | Rate limiting |
+| Dispute resolution | Audit logging |
+| Agent identity | Analytics |
+| Capability grants | Risk scoring |
+
+## Contract Addresses (Base Sepolia)
+
+### AgentIX
+
+| Contract | Address |
+|----------|---------|
+| Groth16Verifier | `0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f` |
+| CredentialRegistry | `0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c` |
+| SessionManager | `0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58` |
+| AgentWalletFactory | `0x6313d16266FB2e60c8Ef142274e317878ba71677` |
+| CapabilityRegistry | `0xA5624939Fd99ed689Bc564FB2a09B3bc59198297` |
+| DelegationManager | `0xa52e7C76811FAAC1514712eb0137d8f1631202DA` |
+
+### Covenant
+
+| Contract | Address |
+|----------|---------|
+| CovenantIdentity | `0xB93eCF2bD8DE0e35ddAD13D9F00E70b938C18FdF` |
+| CovenantEscrow | `0xDb9F26155192c685BEC75E86A7c70A3ca0F80Ac3` |
+| CovenantSettlement | `0xBB3deBA10b0bDaa79c9384E39cDd899116082939` |
+| CovenantArbitration | `0x874d2D6Aa857685D1B7786db2eF9C32C0AcfB614` |
+| CovenantGovernance | `0xd505b5CA3dB39d04592D51DB51507550e0d878DF` |
+| CovenantAttestation | `0x65804fb982Be86C48E03107963FDAcd285f21540` |
+
+## File Structure
+
+```
+AGENT_CREDENTIAL/
+├── backend/
+│   ├── src/
+│   │   ├── index.ts                    # Express server entry
+│   │   ├── db.ts                       # PostgreSQL wrapper
+│   │   ├── migrations.ts               # Schema migrations
+│   │   ├── routes/
+│   │   │   ├── sessions.ts             # Session CRUD
+│   │   │   ├── credentials.ts          # Credential CRUD
+│   │   │   ├── covenant.ts             # Covenant integration routes
+│   │   │   └── ...
+│   │   ├── services/
+│   │   │   ├── session.ts              # Session ID generation
+│   │   │   ├── audit.ts                # Audit logging
+│   │   │   ├── blockchain.ts           # On-chain interactions
+│   │   │   └── ...
+│   │   ├── integrations/
+│   │   │   └── covenant/
+│   │   │       ├── covenant-client.ts  # Covenant contract client
+│   │   │       ├── session-validator.ts# Session validation
+│   │   │       ├── budget-tracker.ts   # Budget enforcement
+│   │   │       ├── wallet-manager.ts   # Per-agent wallets
+│   │   │       ├── middleware.ts       # Express middleware
+│   │   │       └── types.ts           # Shared types
+│   │   └── middleware/
+│   │       ├── auth.ts                 # JWT auth
+│   │       └── security.ts            # Rate limit, helmet, CORS
+│   └── tests/
+│       └── covenant-security.test.ts  # Security test suite
+├── sdk/
+│   └── src/
+│       ├── index.ts                    # SDK exports
+│       ├── SessionManager.ts          # ZK proof generation
+│       └── AgentClient.ts             # API client
+├── contracts/
+│   └── src/
+│       ├── SessionManager.sol         # On-chain session management
+│       ├── CredentialRegistry.sol     # On-chain credential registry
+│       └── ...
+├── demo.mjs                           # One-command demo
+└── docs/
+    ├── QUICKSTART.md
+    ├── PRODUCTION_CHECKLIST.md
+    ├── ARCHITECTURE.md
+    └── SECURITY_REPORT.md
+```

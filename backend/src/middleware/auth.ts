@@ -6,9 +6,27 @@ import type { AuthRequest } from "../types/http"
 import { AppError } from "../utils/errors"
 
 const auth = new AuthService()
+const isDev = process.env.NODE_ENV !== "production"
+
+// Dev bypass: when DEV_AUTH_BYPASS=true, all requests get a default auth context
+const DEV_AUTH = {
+    userId: 1,
+    orgId: 1,
+    email: "dev@corvenlabs.org",
+    name: "Dev User",
+    role: "admin",
+    expiresAt: Math.floor(Date.now() / 1000) + 86400,
+    type: "user" as const,
+}
 
 export async function attachAuth(req: AuthRequest, _res: Response, next: NextFunction) {
     try {
+        // DEV BYPASS: skip all auth when DEV_AUTH_BYPASS=true
+        if (isDev && process.env.DEV_AUTH_BYPASS === "true") {
+            req.auth = DEV_AUTH
+            return next()
+        }
+
         const header = req.headers.authorization
         if (!header) {
             return next()
@@ -64,6 +82,11 @@ export async function attachAuth(req: AuthRequest, _res: Response, next: NextFun
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+    // DEV BYPASS: skip auth check
+    if (isDev && process.env.DEV_AUTH_BYPASS === "true") {
+        if (!req.auth) req.auth = DEV_AUTH
+        return next()
+    }
     if (!req.auth) {
         return res.status(401).json({ error: "authentication required" })
     }
@@ -71,6 +94,11 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 export function requireOrgAccess(req: AuthRequest, res: Response, next: NextFunction) {
+    // DEV BYPASS: skip org check
+    if (isDev && process.env.DEV_AUTH_BYPASS === "true") {
+        if (!req.auth) req.auth = DEV_AUTH
+        return next()
+    }
     if (!req.auth) {
         return res.status(401).json({ error: "authentication required" })
     }

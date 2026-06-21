@@ -91,6 +91,7 @@ app.use("/.well-known", wellKnownRoutes)
 app.use("/verify", verifyRoutes)
 app.use("/covenant", covenantRoutes)
 app.use("/sessions/simple", sessionsSimpleRoutes)
+app.use("/agents/simple", simpleRoutes)
 
 app.use((error:any,req:any,res:any,next:any)=>{
     // Track the error with context

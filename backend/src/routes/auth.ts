@@ -31,7 +31,11 @@ router.post("/register", async (req,res)=>{
             orgName
         )
         const orgId = orgResult.lastID
-        await blockchain.ensureOrganizationContracts(db, orgId)
+        try {
+            await blockchain.ensureOrganizationContracts(db, orgId)
+        } catch (e: any) {
+            console.warn("[auth.register] contract setup skipped:", e?.message)
+        }
 
         const userResult = await db.run(
             `

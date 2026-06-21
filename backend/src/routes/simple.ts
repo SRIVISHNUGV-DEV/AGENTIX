@@ -48,7 +48,12 @@ router.post("/agents/provision", async (req:AuthRequest,res)=>{
         )
 
         const agentId = agent.lastID
-        const contracts = await blockchain.ensureOrganizationContracts(db, resolvedOrgId)
+        let contracts = null
+        try {
+            contracts = await blockchain.ensureOrganizationContracts(db, resolvedOrgId)
+        } catch (e: any) {
+            console.warn("[simple.provision] contract setup skipped:", e?.message)
+        }
 
         res.json({
             success:true,

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { BACKEND_API_BASE } from '@/lib/api-base'
-import { AUTH_COOKIE_NAME } from '@/lib/auth'
+import { AUTH_COOKIE_NAME } from './auth'
 
 export async function createBackendAuthHeaders(request: Request) {
   const headers = new Headers()

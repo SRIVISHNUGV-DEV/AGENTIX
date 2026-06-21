@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
 import { getAuthToken } from '@/lib/auth-server'
-import { DashboardOverview } from '@/components/dashboard/overview'
+import { WhitelistManager } from '@/components/dashboard/whitelist-manager'
 
-export default async function DashboardPage() {
+export default async function WhitelistPage() {
     const token = await getAuthToken()
     if (!token) redirect('/login')
 
-    return <DashboardOverview />
+    return <WhitelistManager />
 }

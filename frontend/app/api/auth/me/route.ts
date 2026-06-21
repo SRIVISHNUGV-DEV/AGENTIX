@@ -1,5 +1,5 @@
 import { BACKEND_API_BASE } from '@/lib/api-base'
-import { getAuthToken } from '@/lib/auth'
+import { getAuthToken } from '@/lib/auth-server'
 
 export async function GET() {
   const token = await getAuthToken()
