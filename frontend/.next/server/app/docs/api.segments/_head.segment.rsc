@@ -1,6 +1,0 @@
-1:"$Sreact.fragment"
-2:I[1872,[],"ViewportBoundary"]
-3:I[1872,[],"MetadataBoundary"]
-4:"$Sreact.suspense"
-5:I[2569,[],"IconMark"]
-0:{"rsc":["$","$1","h",{"children":[null,["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes"}],["$","meta","2",{"name":"theme-color","content":"#000000"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"API Reference - Agentix"}],["$","meta","1",{"name":"description","content":"Complete REST API documentation for Agentix Protocol."}],["$","meta","2",{"name":"keywords","content":"zero-knowledge,credentials,autonomous agents,blockchain,ZK proofs"}],["$","link","3",{"rel":"icon","href":"/icon-light-32x32.png","media":"(prefers-color-scheme: light)"}],["$","link","4",{"rel":"icon","href":"/icon-dark-32x32.png","media":"(prefers-color-scheme: dark)"}],["$","link","5",{"rel":"icon","href":"/icon.svg","type":"image/svg+xml"}],["$","link","6",{"rel":"apple-touch-icon","href":"/apple-icon.png"}],["$","$L5","7",{}]]}]}]}],null]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"f_SccNsBUoMMSqC1wtsNd"}
