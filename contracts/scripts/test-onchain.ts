@@ -3,16 +3,18 @@ import { ethers } from "hardhat";
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const DEPLOYED = {
-  verifier: "0x2520AA0d05d841a878432CB5af10911454b5ef1d",
-  credentialRegistry: "0xEAE8Bb4d4FfcddE9a3D31Ce6A146b483A33B63f1",
-  sessionManager: "0xC11663bc720F4C9dfed07BBfe08DC60Bdb0aE9d1",
-  agentWalletImplementation: "0x50544798E104D71D09832BD664728C216D554A1b",
-  agentWalletFactory: "0xef1926946b4C5b97B42e8A7315d95a5847786DAC",
-  capabilityRegistry: "0x0445262Fa344ECd3A381FeB6CF247f36889D8bea",
-  delegationManager: "0x546311d1dcC6192113Bbaf13F3d43d772a4226D2",
+  verifier: "0x06A08E7E06296eBdA8d7Ea467e412aD75c2f2424",
+  credentialRegistry: "0xC3F474e08Fe68bBa39daCCE52FC4F11262364701",
+  sessionManager: "0x98b4516fbf913c7fD94E87dE98788d4dD1da06E2",
+  agentWalletImplementation: "0xB00c0a6A821D054098D3a9D87A93c1fE2A76b4e8",
+  agentWalletFactory: "0x36ECC27acd245dbac23Ca1bC72798E75BfbA4a84",
+  capabilityRegistry: "0xa3166c63920305B7fBE11f97683B99F239bC7975",
+  delegationManager: "0x355b30477125c6a2F1323095baf99D3781bABd3B",
 };
 
-async function sendAndWait(txPromise: Promise<any>, delay = 5000): Promise<any> {
+const EP = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+
+async function sendAndWait(txPromise: Promise<any>, delay = 8000): Promise<any> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tx = await txPromise;
@@ -20,13 +22,12 @@ async function sendAndWait(txPromise: Promise<any>, delay = 5000): Promise<any> 
       if (tx?.wait) {
         receipt = await tx.wait(1);
       }
-      await ethers.provider.getBlock("latest");
       await sleep(delay);
       return receipt || tx;
     } catch (e: any) {
-      if (e.message?.includes("in-flight") || e.message?.includes("underpriced")) {
-        console.log(`    (retrying, attempt ${attempt + 1}: ${e.message.substring(0, 60)})`);
-        await sleep(12000);
+      if (e.message?.includes("in-flight") || e.message?.includes("underpriced") || e.message?.includes("nonce")) {
+        console.log(`    (retrying, attempt ${attempt + 1}: ${e.message.substring(0, 80)})`);
+        await sleep(15000);
         continue;
       }
       throw e;
@@ -43,10 +44,11 @@ async function main() {
   const worker = signers[3];
   const other = signers[4];
 
+  console.log(`Deployer: ${deployer.address}`);
   const bal = await ethers.provider.getBalance(deployer.address);
-  console.log(`Deployer: ${deployer.address} (${ethers.formatEther(bal)} ETH)`);
+  console.log(`Balance: ${ethers.formatEther(bal)} ETH\n`);
 
-  console.log("\nResetting paused states...");
+  console.log("Resetting paused states...");
   for (const [name, addr] of [
     ["CredentialRegistry", DEPLOYED.credentialRegistry],
     ["SessionManager", DEPLOYED.sessionManager],
@@ -55,7 +57,6 @@ async function main() {
   ]) {
     try {
       const c = await ethers.getContractAt(name, addr);
-      await ethers.provider.getBlock("latest");
       if (await c.paused()) {
         await sendAndWait(c.unpause());
         console.log(`  Unpaused ${name}`);
@@ -73,19 +74,21 @@ async function main() {
       console.log(`  PASS  ${name}`);
       passed++;
     } catch (e: any) {
-      const msg = e?.reason || e?.message?.substring(0, 120) || String(e);
+      const msg = e?.reason || e?.message?.substring(0, 150) || String(e);
       console.log(`  FAIL  ${name}: ${msg}`);
       failures.push(`${name}: ${msg}`);
       failed++;
     }
   }
 
-  // === CredentialRegistry ===
+  // ═══════════════════════════════════════════════════════
+  // CredentialRegistry
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — CredentialRegistry\n${"=".repeat(60)}`);
   const credReg = await ethers.getContractAt("CredentialRegistry", DEPLOYED.credentialRegistry);
 
   await test("CR: owner is deployer", async () => {
-    if (await credReg.owner() !== deployer.address) throw new Error("owner mismatch");
+    if ((await credReg.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("owner mismatch");
   });
   await test("CR: add issuer (oracle)", async () => {
     await sendAndWait(credReg.addIssuer(oracle.address));
@@ -127,18 +130,23 @@ async function main() {
     if (await credReg.issuers(oracle.address)) throw new Error("still exists");
   });
 
-  // === SessionManager ===
+  // ═══════════════════════════════════════════════════════
+  // SessionManager
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — SessionManager\n${"=".repeat(60)}`);
   const sessMgr = await ethers.getContractAt("SessionManager", DEPLOYED.sessionManager);
 
   await test("SM: owner is deployer", async () => {
-    if (await sessMgr.owner() !== deployer.address) throw new Error("owner mismatch");
+    if ((await sessMgr.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("owner mismatch");
   });
   await test("SM: verifier set", async () => {
     if ((await sessMgr.verifier()).toLowerCase() !== DEPLOYED.verifier.toLowerCase()) throw new Error("mismatch");
   });
   await test("SM: registry set", async () => {
     if ((await sessMgr.registry()).toLowerCase() !== DEPLOYED.credentialRegistry.toLowerCase()) throw new Error("mismatch");
+  });
+  await test("SM: walletFactory set", async () => {
+    if ((await sessMgr.walletFactory()).toLowerCase() !== DEPLOYED.agentWalletFactory.toLowerCase()) throw new Error("mismatch");
   });
   await test("SM: pause/unpause", async () => {
     await sendAndWait(sessMgr.pause());
@@ -147,13 +155,14 @@ async function main() {
     if (await sessMgr.paused()) throw new Error("still paused");
   });
 
-  // === AgentWalletFactory ===
+  // ═══════════════════════════════════════════════════════
+  // AgentWalletFactory
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — AgentWalletFactory\n${"=".repeat(60)}`);
   const factory = await ethers.getContractAt("AgentWalletFactory", DEPLOYED.agentWalletFactory);
-  const EP = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
   await test("AWF: owner is deployer", async () => {
-    if (await factory.owner() !== deployer.address) throw new Error("mismatch");
+    if ((await factory.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("mismatch");
   });
   await test("AWF: implementation set", async () => {
     if ((await factory.implementation()).toLowerCase() !== DEPLOYED.agentWalletImplementation.toLowerCase()) throw new Error("mismatch");
@@ -165,7 +174,9 @@ async function main() {
     if ((await factory.entryPoint()).toLowerCase() !== EP.toLowerCase()) throw new Error("mismatch");
   });
 
-  // === AgentWallet ===
+  // ═══════════════════════════════════════════════════════
+  // AgentWallet
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — AgentWallet\n${"=".repeat(60)}`);
 
   const createTx = await sendAndWait(factory.createWallet(deployer.address));
@@ -222,12 +233,14 @@ async function main() {
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });
 
-  // === CapabilityRegistry ===
+  // ═══════════════════════════════════════════════════════
+  // CapabilityRegistry
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — CapabilityRegistry\n${"=".repeat(60)}`);
   const capReg = await ethers.getContractAt("CapabilityRegistry", DEPLOYED.capabilityRegistry);
 
   await test("CR2: owner is deployer", async () => {
-    if (await capReg.owner() !== deployer.address) throw new Error("mismatch");
+    if ((await capReg.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("mismatch");
   });
   const capId = ethers.keccak256(ethers.toUtf8Bytes("cap-" + Date.now()));
   await test("CR2: register capability", async () => {
@@ -241,14 +254,10 @@ async function main() {
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });
-  await test("CR2: set root updater", async () => {
-    await sendAndWait(capReg.setRootUpdater(oracle.address, true));
-    if (!(await capReg.rootUpdaters(oracle.address))) throw new Error("not set");
-  });
   await test("CR2: update grant root", async () => {
     const r = ethers.keccak256(ethers.toUtf8Bytes("grant-root-1"));
-    await sendAndWait(capReg.connect(oracle).updateGrantRoot(client.address, r));
-    if ((await capReg.grantRoots(client.address)) !== r) throw new Error("root mismatch");
+    await sendAndWait(capReg.connect(deployer).updateGrantRoot(client.address, r));
+    if ((await capReg.grantRoots(deployer.address, client.address)) !== r) throw new Error("root mismatch");
   });
   await test("CR2: revoke capability", async () => {
     await sendAndWait(capReg.revokeCapability(capId));
@@ -261,27 +270,55 @@ async function main() {
     if (await capReg.paused()) throw new Error("still paused");
   });
 
-  // === DelegationManager ===
+  // ═══════════════════════════════════════════════════════
+  // DelegationManager (AccessControl-based)
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — DelegationManager\n${"=".repeat(60)}`);
   const delMgr = await ethers.getContractAt("DelegationManager", DEPLOYED.delegationManager);
+  const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
+  const ROOT_UPDATER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ROOT_UPDATER"));
 
-  await test("DM: owner is deployer", async () => {
-    if (await delMgr.owner() !== deployer.address) throw new Error("mismatch");
+  await test("DM: admin is deployer", async () => {
+    if (!(await delMgr.hasRole(DEFAULT_ADMIN_ROLE, deployer.address))) throw new Error("not admin");
   });
-  await test("DM: set root updater", async () => {
+  await test("DM: ROOT_UPDATER granted to deployer", async () => {
+    if (!(await delMgr.hasRole(ROOT_UPDATER_ROLE, deployer.address))) throw new Error("not root updater");
+  });
+  await test("DM: grant ROOT_UPDATER to oracle", async () => {
     await sendAndWait(delMgr.setRootUpdater(oracle.address, true));
-    if (!(await delMgr.rootUpdaters(oracle.address))) throw new Error("not set");
+    if (!(await delMgr.hasRole(ROOT_UPDATER_ROLE, oracle.address))) throw new Error("not granted");
   });
-  await test("DM: update delegation root", async () => {
+  await test("DM: register scope", async () => {
+    const action = "scope-reg-" + Date.now();
+    await sendAndWait(delMgr.registerScope(action));
+    const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(action));
+    if ((await delMgr.getScopeAction(scopeHash)) !== action) throw new Error("scope not registered");
+  });
+  await test("DM: delegator updates own root", async () => {
+    const scopeAction = "scope-root-" + Date.now();
+    const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
+    await sendAndWait(delMgr.registerScope(scopeAction));
     const r = ethers.keccak256(ethers.toUtf8Bytes("deleg-root-1"));
-    await sendAndWait(delMgr.updateDelegationRoot(deployer.address, r));
-    if ((await delMgr.delegationRoots(deployer.address)) !== r) throw new Error("root mismatch");
+    await sendAndWait(delMgr.connect(deployer).updateDelegationRoot(deployer.address, scopeHash, r, 0));
+    const rootInfo = await delMgr.getDelegationRoot(deployer.address, scopeHash);
+    if (rootInfo.root !== r) throw new Error("root mismatch");
   });
-  await test("DM: non-delegator cannot update root", async () => {
+  await test("DM: non-delegator cannot update OTHER's root", async () => {
     try {
-      await sendAndWait(delMgr.connect(client).updateDelegationRoot(deployer.address, ethers.ZeroHash));
+      const scopeAction = "scope-auth-" + Date.now();
+      await sendAndWait(delMgr.registerScope(scopeAction));
+      const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
+      await sendAndWait(delMgr.connect(client).updateDelegationRoot(deployer.address, scopeHash, ethers.ZeroHash, 0));
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
+  });
+  await test("DM: emergency revoke all", async () => {
+    await sendAndWait(delMgr.emergencyRevokeAll(deployer.address));
+    if (!(await delMgr.revokedDelegators(deployer.address))) throw new Error("not revoked");
+  });
+  await test("DM: re-authorize delegator", async () => {
+    await sendAndWait(delMgr.reAuthorizeDelegator(deployer.address));
+    if (await delMgr.revokedDelegators(deployer.address)) throw new Error("still revoked");
   });
   await test("DM: pause/unpause", async () => {
     await sendAndWait(delMgr.pause());
@@ -290,7 +327,9 @@ async function main() {
     if (await delMgr.paused()) throw new Error("still paused");
   });
 
-  // === Summary ===
+  // ═══════════════════════════════════════════════════════
+  // Summary
+  // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nTEST SUMMARY\n${"=".repeat(60)}`);
   console.log(`  Passed: ${passed}`);
   console.log(`  Failed: ${failed}`);

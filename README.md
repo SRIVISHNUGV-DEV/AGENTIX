@@ -37,13 +37,13 @@ All contracts deployed and **verified on [Basescan](https://sepolia.basescan.org
 
 | Contract | Proxy | Implementation | Role |
 |----------|-------|----------------|------|
-| **Groth16Verifier** | [`0x6cBb...EB61f`](https://sepolia.basescan.org/address/0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f) | (non-upgradeable) | Groth16 ZK proof verification |
-| **CredentialRegistry** | [`0x83e0...65F5c`](https://sepolia.basescan.org/address/0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c) | [`0x6CF1...fbeC8`](https://sepolia.basescan.org/address/0x6CF1D9a456aeD678a8057E49248aAe808B2fbeC8) | Credential Merkle roots |
-| **SessionManager** | [`0xcC0a...4C58`](https://sepolia.basescan.org/address/0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58) | [`0x98aB...B17f`](https://sepolia.basescan.org/address/0x98aB9cb51B939E32F5a4831330a0eb6443B3B17f) | ZK + lightweight sessions |
-| **AgentWalletFactory** | [`0x6313...1677`](https://sepolia.basescan.org/address/0x6313d16266FB2e60c8Ef142274e317878ba71677) | [`0xEE1A...29F2`](https://sepolia.basescan.org/address/0xEE1AB568CFe99C9113eF4abABf6dE9314aF729F2) | Deterministic wallet deploy |
-| **AgentWallet** | — | [`0x3144...1e9A`](https://sepolia.basescan.org/address/0x31448C7ca90c675F7f0631AF8A6a8627758E1e9A) | ERC-4337 smart account |
-| **CapabilityRegistry** | [`0xA562...98297`](https://sepolia.basescan.org/address/0xA5624939Fd99ed689Bc564FB2a09B3bc59198297) | [`0xaf73...83024`](https://sepolia.basescan.org/address/0xaf733b08541A6040A7704AB55340469498a83024) | Capability definitions & grants |
-| **DelegationManager** | [`0xa52e...02DA`](https://sepolia.basescan.org/address/0xa52e7C76811FAAC1514712eb0137d8f1631202DA) | [`0x301f...88aD`](https://sepolia.basescan.org/address/0x301f5a115f5EC84396875312Af0fB231EC7988aD) | Trust delegation chains |
+| **Groth16Verifier** | [`0x6cBb...EB61f`](https://sepolia.basescan.org/address/0x06A08E7E06296eBdA8d7Ea467e412aD75c2f2424) | (non-upgradeable) | Groth16 ZK proof verification |
+| **CredentialRegistry** | [`0x83e0...65F5c`](https://sepolia.basescan.org/address/0xC3F474e08Fe68bBa39daCCE52FC4F11262364701) | [`0x6CF1...fbeC8`](https://sepolia.basescan.org/address/0xee90ca74f7ACB71Df399B5141f1477dB2Aa009DC) | Credential Merkle roots |
+| **SessionManager** | [`0xcC0a...4C58`](https://sepolia.basescan.org/address/0x98b4516fbf913c7fD94E87dE98788d4dD1da06E2) | [`0x98aB...B17f`](https://sepolia.basescan.org/address/0xA40cD41aB090B58ba441c8Dd60dB514724b76229) | ZK + lightweight sessions |
+| **AgentWalletFactory** | [`0x6313...1677`](https://sepolia.basescan.org/address/0x36ECC27acd245dbac23Ca1bC72798E75BfbA4a84) | [`0xEE1A...29F2`](https://sepolia.basescan.org/address/0xa57FEeB3BCC47e5Ac684E825a68B695B9356a907) | Deterministic wallet deploy |
+| **AgentWallet** | — | [`0x3144...1e9A`](https://sepolia.basescan.org/address/0xB00c0a6A821D054098D3a9D87A93c1fE2A76b4e8) | ERC-4337 smart account |
+| **CapabilityRegistry** | [`0xA562...98297`](https://sepolia.basescan.org/address/0xa3166c63920305B7fBE11f97683B99F239bC7975) | [`0xaf73...83024`](https://sepolia.basescan.org/address/0xb9eA3648ad157e5EAeE043526Dacc0E9087B168b) | Capability definitions & grants |
+| **DelegationManager** | [`0xa52e...02DA`](https://sepolia.basescan.org/address/0x355b30477125c6a2F1323095baf99D3781bABd3B) | [`0x301f...88aD`](https://sepolia.basescan.org/address/0x7A6556C295c07F85bCb0B63f73b3c21eaB40B2ea) | Trust delegation chains |
 | **EntryPoint** | [`0x4337...F108`](https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108) | (ERC-4337 singleton) | UserOperation relay |
 
 **Deployer:** [`0xE2e3...ADAcC`](https://sepolia.basescan.org/address/0xE2e34Dceb7dAFCd63257C5cbE69Fcb06571ADAcC)
@@ -238,17 +238,17 @@ import { AgentVerifier } from "@agentix/sdk"
 const verifier = new AgentVerifier({
   chainId: 84532,
   rpcUrl: "https://base-sepolia.g.alchemy.com/v2/YOUR_KEY",
-  credentialRegistry: "0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c",
-  sessionManager: "0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58",
-  capabilityRegistry: "0xA5624939Fd99ed689Bc564FB2a09B3bc59198297",
-  delegationManager: "0xa52e7C76811FAAC1514712eb0137d8f1631202DA",
+  credentialRegistry: "0xC3F474e08Fe68bBa39daCCE52FC4F11262364701",
+  sessionManager: "0x98b4516fbf913c7fD94E87dE98788d4dD1da06E2",
+  capabilityRegistry: "0xa3166c63920305B7fBE11f97683B99F239bC7975",
+  delegationManager: "0x355b30477125c6a2F1323095baf99D3781bABd3B",
 })
 
 await verifier.init()
 
 // Verify a ZK credential proof
 const result = await verifier.verifyCredentialProof(proof, publicSignals, {
-  verifierAddress: "0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f",
+  verifierAddress: "0x06A08E7E06296eBdA8d7Ea467e412aD75c2f2424",
 })
 
 // Verify an agent capability
@@ -299,14 +299,14 @@ const delResult = await verifier.verifyDelegation({
 | `REDIS_URL` | `redis://localhost:6379` | Redis for BullMQ queues (optional) |
 | `ENCRYPTION_KEY` | `64 hex chars` | AES-256-GCM key for stored secrets |
 | `SESSION_ENCRYPTION_KEY` | `64 hex chars` | Session key encryption key |
-| `VERIFIER_ADDRESS` | `0x6cBbB06df8Ddc8D28992F5149C755aAe0E0EB61f` | Groth16 verifier contract |
-| `CREDENTIAL_REGISTRY_ADDRESS` | `0x83e0e671c0D31a288B93B9F04B7c4e116a065F5c` | Credential registry contract |
-| `SESSION_MANAGER_ADDRESS` | `0xcC0a3400397F8A54e54DA2c7A703bC5B27354C58` | Session manager contract |
-| `AGENT_WALLET_FACTORY_ADDRESS` | `0x6313d16266FB2e60c8Ef142274e317878ba71677` | Wallet factory contract |
-| `AGENT_WALLET_IMPLEMENTATION_ADDRESS` | `0x31448C7ca90c675F7f0631AF8A6a8627758E1e9A` | Wallet implementation contract |
+| `VERIFIER_ADDRESS` | `0x06A08E7E06296eBdA8d7Ea467e412aD75c2f2424` | Groth16 verifier contract |
+| `CREDENTIAL_REGISTRY_ADDRESS` | `0xC3F474e08Fe68bBa39daCCE52FC4F11262364701` | Credential registry contract |
+| `SESSION_MANAGER_ADDRESS` | `0x98b4516fbf913c7fD94E87dE98788d4dD1da06E2` | Session manager contract |
+| `AGENT_WALLET_FACTORY_ADDRESS` | `0x36ECC27acd245dbac23Ca1bC72798E75BfbA4a84` | Wallet factory contract |
+| `AGENT_WALLET_IMPLEMENTATION_ADDRESS` | `0xB00c0a6A821D054098D3a9D87A93c1fE2A76b4e8` | Wallet implementation contract |
 | `ENTRY_POINT_ADDRESS` | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` | ERC-4337 EntryPoint |
-| `CAPABILITY_REGISTRY_ADDRESS` | `0xA5624939Fd99ed689Bc564FB2a09B3bc59198297` | Capability registry contract |
-| `DELEGATION_MANAGER_ADDRESS` | `0xa52e7C76811FAAC1514712eb0137d8f1631202DA` | Delegation manager contract |
+| `CAPABILITY_REGISTRY_ADDRESS` | `0xa3166c63920305B7fBE11f97683B99F239bC7975` | Capability registry contract |
+| `DELEGATION_MANAGER_ADDRESS` | `0x355b30477125c6a2F1323095baf99D3781bABd3B` | Delegation manager contract |
 | `CHAIN_ID` | `84532` | Network chain ID (Base Sepolia) |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origins |
 
@@ -421,6 +421,19 @@ npm run dev:backend
 - Deploy `backend/` as a long-running Node service
 - **Railway** / **Fly.io** provide the simplest deployment path
 - Requires: PostgreSQL, Redis (optional), Alchemy RPC + Bundler, funded wallet
+
+---
+
+## V1 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Implementation Plan](agentix_v1_implementation_plan.md) | V1 deployment plan with all fixes applied |
+| [Runtime Integrity](agentix_runtime_integrity.md) | Data flow and integrity verification report |
+| [Architecture](agentix_architecture.md) | System architecture and design decisions |
+| [Test Plan](agentix_test_plan.md) | Comprehensive testing strategy |
+| [Developer Guide](agentix_developer_guide.md) | Quickstart, SDK reference, API docs |
+| [Production Checklist](agentix_production_checklist.md) | Pre-deployment verification steps |
 
 ---
 

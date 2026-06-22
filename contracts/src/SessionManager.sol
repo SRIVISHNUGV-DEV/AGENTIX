@@ -30,6 +30,8 @@ error DailyTxLimitExceeded();
 error NotAuthorizedToRevoke();
 error NotAgentWallet();
 error NotBoundWallet();
+error InvalidSessionManager();
+error TooManySessions();
 
 /// @notice Interface for the Groth16 ZK proof verifier.
 interface IVerifier {
@@ -37,7 +39,7 @@ interface IVerifier {
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[5] calldata publicSignals
+        uint256[6] calldata publicSignals
     ) external view returns (bool);
 }
 
@@ -105,6 +107,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     mapping(bytes32 => LightweightSession) public lightSessions;
     /// @notice Maps each wallet to its list of session IDs for enumeration/pruning.
     mapping(address => bytes32[]) public walletSessions;
+    uint256 public constant MAX_SESSIONS_PER_WALLET = 100;
 
     IVerifier public verifier;
     ICredentialRegistry public registry;
@@ -125,9 +128,8 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param registry_ The CredentialRegistry contract.
     /// @param walletFactory_ The AgentWalletFactory contract.
     function initialize(address verifier_, address registry_, address walletFactory_) public initializer {
-        __Ownable_init();
+        __Ownable_init(msg.sender);
         __Pausable_init();
-        __UUPSUpgradeable_init();
         verifier = IVerifier(verifier_);
         registry = ICredentialRegistry(registry_);
         walletFactory = IAgentWalletFactory(walletFactory_);
@@ -146,6 +148,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @notice Updates the AgentWalletFactory reference.
     /// @param walletFactory_ The new AgentWalletFactory address.
     function setWalletFactory(address walletFactory_) external onlyOwner {
+        if (walletFactory_ == address(0)) revert InvalidSessionManager();
         walletFactory = IAgentWalletFactory(walletFactory_);
     }
 
@@ -159,7 +162,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param a Groth16 proof component A.
     /// @param b Groth16 proof component B.
     /// @param c Groth16 proof component C.
-    /// @param publicSignals [nullifier, activeRoot, revokedSecretRoot, maxValue, expiry].
+    /// @param publicSignals [nullifier, activeRoot, revokedSecretRoot, maxValue, expiry, wallet].
     function createSession(
         bytes32 sessionId,
         address wallet,
@@ -170,7 +173,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[5] calldata publicSignals
+        uint256[6] calldata publicSignals
     ) external nonReentrant whenNotPaused {
         if (!walletFactory.isAgentWallet(wallet)) revert NotAgentWallet();
         if (sessionKey == address(0)) revert InvalidSessionKey();
@@ -182,6 +185,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (uint256(registry.revokedSecretRoot()) != publicSignals[2]) revert RevokedRootMismatch();
         if (uint256(maxValue) != publicSignals[3]) revert MaxValueMismatch();
         if (uint256(expiry) != publicSignals[4]) revert ExpiryMismatch();
+        if (address(uint160(publicSignals[5])) != wallet) revert NotAgentWallet();
         if (registry.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
 
         bool valid = verifier.verifyProof(a, b, c, publicSignals);
@@ -197,6 +201,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         s.expiry = expiry;
         s.revoked = false;
 
+        if (walletSessions[wallet].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
         walletSessions[wallet].push(sessionId);
         emit SessionCreated(sessionId, wallet, sessionKey, expiry, maxValue);
     }
@@ -220,6 +225,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
         uint256 newValue = s.valueUsed + value;
         if (newValue > s.maxValue) revert LimitExceeded();
+        if (newValue > type(uint128).max) revert LimitExceeded();
 
         s.valueUsed = uint128(newValue);
         emit SessionUsed(sessionId, value, newValue);
@@ -273,7 +279,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
 
         bytes32 messageHash = keccak256(abi.encode(
-            block.chainid, address(this), sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry
+            block.chainid, address(this), msg.sender, sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry
         ));
         bytes32 digest = keccak256(abi.encodePacked(
             "\x19Ethereum Signed Message:\n32", messageHash
@@ -294,6 +300,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
             revoked: false
         });
 
+        if (walletSessions[msg.sender].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
         walletSessions[msg.sender].push(sessionId);
         emit LightSessionCreated(sessionId, msg.sender, sessionKey, dailySpendLimit, dailyTxLimit, expiry);
     }
@@ -381,12 +388,21 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @notice Removes expired sessions from a wallet's session list (gas-efficient pruning).
     /// @param wallet The wallet whose sessions to prune.
     /// @param limit Maximum number of sessions to prune in this call.
-    function pruneExpiredSessions(address wallet, uint256 limit) external {
+    function pruneExpiredSessions(address wallet, uint256 limit) external onlyWallet {
         bytes32[] storage sessionIds = walletSessions[wallet];
         uint256 pruned;
         for (int256 i = int256(sessionIds.length) - 1; i >= 0 && pruned < limit; i--) {
             bytes32 sid = sessionIds[uint256(i)];
-            if (sessions[sid].expiry <= block.timestamp || lightSessions[sid].expiry <= block.timestamp) {
+            bool expired = false;
+            // Check standard session
+            if (sessions[sid].sessionKey != address(0)) {
+                expired = sessions[sid].expiry <= block.timestamp || sessions[sid].revoked;
+            }
+            // Check lightweight session
+            if (!expired && lightSessions[sid].sessionKey != address(0)) {
+                expired = lightSessions[sid].expiry <= block.timestamp || lightSessions[sid].revoked;
+            }
+            if (expired) {
                 sessionIds[uint256(i)] = sessionIds[sessionIds.length - 1];
                 sessionIds.pop();
                 pruned++;

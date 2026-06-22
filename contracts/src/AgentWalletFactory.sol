@@ -15,6 +15,7 @@ error WalletAlreadyExistsWithDifferentOwner();
 /// @notice Minimal interface for AgentWallet initialization.
 interface IAgentWallet {
     function initialize(address owner, address sessionManager, address entryPoint) external;
+    function owner() external view returns (address);
 }
 
 /// @title AgentWalletFactory
@@ -52,8 +53,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
         address sessionManager_,
         address entryPoint_
     ) public initializer {
-        __Ownable_init();
-        __UUPSUpgradeable_init();
+        __Ownable_init(msg.sender);
         if (implementation_ == address(0)) revert InvalidImplementationError();
         if (sessionManager_ == address(0)) revert InvalidSessionManagerError();
         if (entryPoint_ == address(0)) revert InvalidEntryPointError();
@@ -124,11 +124,10 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
             wallet = implementation.cloneDeterministic(salt);
             IAgentWallet(wallet).initialize(owner, sessionManager, entryPoint);
             agentWallets[wallet] = true;
+            emit WalletCreated(wallet, owner, salt, entryPoint);
         } else if (IAgentWallet(wallet).owner() != owner) {
             revert WalletAlreadyExistsWithDifferentOwner();
         }
-
-        emit WalletCreated(wallet, owner, salt, entryPoint);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

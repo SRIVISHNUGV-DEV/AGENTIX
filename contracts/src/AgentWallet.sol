@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 error NotOwnerError();
@@ -57,6 +58,7 @@ interface ISessionManager {
 /// @dev Non-upgradeable (constructed via factory clones). Uses 2FA-style ownership transfer.
 contract AgentWallet is ReentrancyGuard {
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     bytes4 private constant EXECUTE_SELECTOR = bytes4(keccak256("execute(address,uint256,bytes)"));
     bytes4 private constant EXECUTE_BATCH_SELECTOR = bytes4(keccak256("executeBatch(address[],uint256[],bytes[])"));
