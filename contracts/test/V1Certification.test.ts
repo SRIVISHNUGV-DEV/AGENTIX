@@ -2794,8 +2794,10 @@ describe("CapabilityRegistry — Unit & Security", function () {
       );
 
       const leafHash = ethers.keccak256(ethers.toUtf8Bytes("leaf"));
+      const mockRoot = ethers.keccak256(ethers.toUtf8Bytes("mock-root"));
+      await capabilityRegistry.updateGrantRoot(agent.address, capId, mockRoot);
       await expect(
-        capabilityRegistry.revokeGrant(leafHash, capId)
+        capabilityRegistry.revokeGrant(leafHash, capId, owner.address, agent.address)
       )
         .to.emit(capabilityRegistry, "GrantRevoked")
         .withArgs(leafHash);
@@ -2813,13 +2815,15 @@ describe("CapabilityRegistry — Unit & Security", function () {
       );
 
       const leafHash = ethers.keccak256(ethers.toUtf8Bytes("leaf"));
-      await capabilityRegistry.revokeGrant(leafHash, capId);
+      const mockRoot = ethers.keccak256(ethers.toUtf8Bytes("mock-root"));
+      await capabilityRegistry.updateGrantRoot(agent.address, capId, mockRoot);
+      await capabilityRegistry.revokeGrant(leafHash, capId, owner.address, agent.address);
 
       await expect(
-        capabilityRegistry.revokeGrant(leafHash, capId)
+        capabilityRegistry.revokeGrant(leafHash, capId, owner.address, agent.address)
       ).to.be.revertedWithCustomError(
         capabilityRegistry,
-        "AlreadyRevokedCapability"
+        "AlreadyRevokedGrant"
       );
     });
   });
@@ -2983,12 +2987,13 @@ describe("CapabilityRegistry — Unit & Security", function () {
         )
       );
 
+      const mockRoot = ethers.keccak256(ethers.toUtf8Bytes("mock-root"));
       await capabilityRegistry
         .connect(owner)
-        .updateGrantRoot(agent.address, grantLeaf);
+        .updateGrantRoot(agent.address, capId, mockRoot);
 
       // Revoke the grant
-      await capabilityRegistry.revokeGrant(grantLeaf, capId);
+      await capabilityRegistry.revokeGrant(grantLeaf, capId, owner.address, agent.address);
 
       const valid = await capabilityRegistry.verifyCapability(
         agent.address,

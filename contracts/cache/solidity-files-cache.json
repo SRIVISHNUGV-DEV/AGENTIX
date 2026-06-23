@@ -203,8 +203,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\SessionManager.sol": {
-      "lastModificationDate": 1782144828260,
-      "contentHash": "6f424430915da4964ba9f2f1dad4b28e",
+      "lastModificationDate": 1782212655131,
+      "contentHash": "fb3b5363a8d64ac692c6a5e99b3d12b6",
       "sourceName": "src/SessionManager.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -251,8 +251,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\DelegationManager.sol": {
-      "lastModificationDate": 1782132933972,
-      "contentHash": "d65d3b0311ebe0212804647050fd89d3",
+      "lastModificationDate": 1782213976778,
+      "contentHash": "4c000bb09e9fea3dc2c2c82d94c4b26d",
       "sourceName": "src/DelegationManager.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -332,8 +332,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CapabilityRegistry.sol": {
-      "lastModificationDate": 1782062032807,
-      "contentHash": "b95c5bde4a4cdfff016a171b808d83a7",
+      "lastModificationDate": 1782213994649,
+      "contentHash": "17478fe12b369542c483c3e59523adf7",
       "sourceName": "src/CapabilityRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -499,46 +499,9 @@
         "Clones"
       ]
     },
-    "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\Credentialverifier.sol": {
-      "lastModificationDate": 1780924501819,
-      "contentHash": "c5d996d8dbd86ead1a30b2d64d0ab0c7",
-      "sourceName": "src/Credentialverifier.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "viaIR": true,
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
-      "versionPragmas": [
-        ">=0.7.0 <0.9.0"
-      ],
-      "artifacts": [
-        "Groth16Verifier"
-      ]
-    },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\mocks\\MockVerifier.sol": {
-      "lastModificationDate": 1782139415970,
-      "contentHash": "5cd92c351450ef7b31599275043215b1",
+      "lastModificationDate": 1782210994162,
+      "contentHash": "d1e816618a898f46fab25e26c788bafe",
       "sourceName": "src/mocks/MockVerifier.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1688,8 +1651,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\mocks\\MockV2.sol": {
-      "lastModificationDate": 1782120387410,
-      "contentHash": "d5c69eaaaaaab738245f552eed67bb52",
+      "lastModificationDate": 1782210994161,
+      "contentHash": "469f28656e794dd3ab4f68d0ffc7da29",
       "sourceName": "src/mocks/MockV2.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1736,8 +1699,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\OrganizationRegistry.sol": {
-      "lastModificationDate": 1782114317218,
-      "contentHash": "a019bd4d8fe46ea5fc2fbe3a7962ea48",
+      "lastModificationDate": 1782212073719,
+      "contentHash": "14662c87e8b73e77815fdec859e49089",
       "sourceName": "src/OrganizationRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1780,8 +1743,8 @@
       ]
     },
     "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\OrganizationCredentialAnchor.sol": {
-      "lastModificationDate": 1782114203557,
-      "contentHash": "a7989bffc6b84bf246016999f5bcb322",
+      "lastModificationDate": 1782210994158,
+      "contentHash": "71a3bc0f43ce5bd47931b68d91d7d6a3",
       "sourceName": "src/OrganizationCredentialAnchor.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1895,6 +1858,43 @@
       ],
       "artifacts": [
         "IERC1820Registry"
+      ]
+    },
+    "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\contracts\\src\\CredentialVerifierV1.sol": {
+      "lastModificationDate": 1782210994158,
+      "contentHash": "c256dae92a3c5ef21954b58f653bd9b3",
+      "sourceName": "src/CredentialVerifierV1.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.0 <0.9.0"
+      ],
+      "artifacts": [
+        "Groth16Verifier"
       ]
     }
   }

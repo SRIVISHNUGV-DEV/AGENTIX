@@ -26,7 +26,9 @@ describe("Migration — CapabilityRegistry V1 → V2", function () {
     await capReg.registerCapability(
       ethers.keccak256(ethers.toUtf8Bytes("cap-2")), "action-2", 0
     );
-    await capReg.connect(owner).updateGrantRoot(signers[1].address, ethers.keccak256(ethers.toUtf8Bytes("root-1")));
+    const cap1Id = ethers.keccak256(ethers.toUtf8Bytes("cap-1"));
+    const mockRoot = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
+    await capReg.connect(owner).updateGrantRoot(signers[1].address, cap1Id, mockRoot);
   });
 
   it("Should preserve capabilities after upgrade", async function () {
@@ -44,7 +46,8 @@ describe("Migration — CapabilityRegistry V1 → V2", function () {
     const v2Impl = await V2Impl.deploy();
     await capReg.upgradeToAndCall(await v2Impl.getAddress(), "0x");
 
-    const root = await capReg.grantRoots(owner.address, signers[1].address);
+    const cap1Id = ethers.keccak256(ethers.toUtf8Bytes("cap-1"));
+    const root = await capReg.grantRoots(owner.address, signers[1].address, cap1Id);
     expect(root).to.equal(ethers.keccak256(ethers.toUtf8Bytes("root-1")));
   });
 

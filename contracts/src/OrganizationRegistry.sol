@@ -14,6 +14,11 @@ error OrganizationInactive();
 error InvalidOwnerAddress();
 error InvalidName();
 error ZeroAddressNotAllowed();
+error InvalidAnchor();
+error OrganizationAlreadyInactive();
+error OrganizationAlreadyActive();
+error AnchorTimelockNotReady();
+error AnchorTimelockActive();
 
 /// @title OrganizationRegistry
 /// @notice Source of truth for organizations onboarded to AgentIX. Creates and tracks
@@ -35,11 +40,17 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     event OrganizationDeactivated(bytes32 indexed organizationId);
     event OrganizationReactivated(bytes32 indexed organizationId);
     event CredentialAnchorUpdated(bytes32 indexed organizationId, address oldAnchor, address newAnchor);
+    event CredentialAnchorProposed(bytes32 indexed organizationId, address previousAnchor, address newAnchor, uint256 activationTime);
 
     mapping(bytes32 => Organization) private _organizations;
     mapping(address => bytes32[]) private _ownerOrganizations;
 
     address public anchorImplementation;
+
+    uint256 public constant TIMELOCK_DELAY = 24 hours;
+
+    mapping(bytes32 => address) public pendingAnchor;
+    mapping(bytes32 => uint256) public anchorActivationTime;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -80,24 +91,37 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
 
     function deactivateOrganization(bytes32 organizationId) external onlyOwner {
         Organization storage org = _getOrg(organizationId);
-        if (!org.active) revert OrganizationNotFound();
+        if (!org.active) revert OrganizationAlreadyInactive();
         org.active = false;
         emit OrganizationDeactivated(organizationId);
     }
 
     function reactivateOrganization(bytes32 organizationId) external onlyOwner {
         Organization storage org = _getOrg(organizationId);
-        if (org.active) revert OrganizationNotFound();
+        if (org.active) revert OrganizationAlreadyActive();
         org.active = true;
         emit OrganizationReactivated(organizationId);
     }
 
-    function setCredentialAnchor(bytes32 organizationId, address newAnchor) external onlyOwner {
+    function proposeCredentialAnchor(bytes32 organizationId, address newAnchor) external onlyOwner {
         if (newAnchor == address(0)) revert ZeroAddressNotAllowed();
+        if (newAnchor.code.length == 0) revert InvalidAnchor();
+        _getOrg(organizationId);
+        if (pendingAnchor[organizationId] != address(0)) revert AnchorTimelockActive();
+        pendingAnchor[organizationId] = newAnchor;
+        anchorActivationTime[organizationId] = block.timestamp + TIMELOCK_DELAY;
+        emit CredentialAnchorProposed(organizationId, _organizations[organizationId].credentialAnchor, newAnchor, anchorActivationTime[organizationId]);
+    }
+
+    function acceptCredentialAnchor(bytes32 organizationId) external onlyOwner {
+        if (pendingAnchor[organizationId] == address(0)) revert InvalidAnchor();
+        if (block.timestamp < anchorActivationTime[organizationId]) revert AnchorTimelockNotReady();
         Organization storage org = _getOrg(organizationId);
         address old = org.credentialAnchor;
-        org.credentialAnchor = newAnchor;
-        emit CredentialAnchorUpdated(organizationId, old, newAnchor);
+        org.credentialAnchor = pendingAnchor[organizationId];
+        pendingAnchor[organizationId] = address(0);
+        anchorActivationTime[organizationId] = 0;
+        emit CredentialAnchorUpdated(organizationId, old, org.credentialAnchor);
     }
 
     function getOrganization(bytes32 organizationId) external view returns (Organization memory) {

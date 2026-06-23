@@ -23,7 +23,7 @@ error ScopeLimitExceeded();
 /// @dev Upgradeable (UUPS). Uses OZ MerkleProof, AccessControl, and EnumerableSet.
 contract DelegationManager is Initializable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable {
     bytes32 public constant ROOT_UPDATER_ROLE = keccak256("ROOT_UPDATER");
-    uint8 public constant MAX_DELEGATION_DEPTH = 10;
+    uint8 public constant MAX_DELEGATION_DEPTH = 10; // Protocol limit — do not increase without migration
 
     // ──────────────────────────────────────────────
     //  Structs
@@ -42,6 +42,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     event DelegationRootUpdated(address indexed delegator, bytes32 indexed scopeHash, bytes32 newRoot, uint64 expiresAt);
     event DelegationRevoked(bytes32 indexed delegationLeafHash, address indexed delegator);
     event DelegatorRevoked(address indexed delegator);
+    event DelegatorReAuthorized(address indexed delegator);
     event ScopeRegistered(string action, bytes32 indexed scopeHash);
 
     // ──────────────────────────────────────────────
@@ -107,9 +108,21 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
         emit DelegatorRevoked(delegator);
     }
 
-    /// @notice Re-authorizes a previously revoked delegator.
+    /// @notice Re-authorizes a previously revoked delegator. Clears all delegation roots
+    ///         to prevent stale roots from becoming active again. The delegator must publish
+    ///         fresh roots after re-authorization.
     function reAuthorizeDelegator(address delegator) external onlyRole(DEFAULT_ADMIN_ROLE) {
         revokedDelegators[delegator] = false;
+        uint256 len = EnumerableSet.length(_delegatorScopes[delegator]);
+        bytes32[] memory scopes = new bytes32[](len);
+        for (uint256 i = 0; i < len; i++) {
+            scopes[i] = EnumerableSet.at(_delegatorScopes[delegator], i);
+        }
+        for (uint256 i = 0; i < len; i++) {
+            delete delegationRoots[delegator][scopes[i]];
+            EnumerableSet.remove(_delegatorScopes[delegator], scopes[i]);
+        }
+        emit DelegatorReAuthorized(delegator);
     }
 
     // ──────────────────────────────────────────────

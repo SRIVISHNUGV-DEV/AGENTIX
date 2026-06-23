@@ -32,6 +32,10 @@ error NotAgentWallet();
 error NotBoundWallet();
 error InvalidSessionManager();
 error TooManySessions();
+error UnsupportedCredentialVersion();
+error WalletFactoryTimelockNotReady();
+error WalletFactoryTimelockActive();
+error InvalidNullifier();
 
 /// @notice Interface for the Groth16 ZK proof verifier.
 interface IVerifier {
@@ -108,10 +112,15 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @notice Maps each wallet to its list of session IDs for enumeration/pruning.
     mapping(address => bytes32[]) public walletSessions;
     uint256 public constant MAX_SESSIONS_PER_WALLET = 100;
+    uint256 public constant TIMELOCK_DELAY = 24 hours;
+    uint256 public constant SUPPORTED_CREDENTIAL_VERSION = 1;
 
     IVerifier public verifier;
     ICredentialRegistry public registry;
     IAgentWalletFactory public walletFactory;
+
+    address public pendingWalletFactory;
+    uint256 public walletFactoryActivationTime;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -145,11 +154,22 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         _unpause();
     }
 
-    /// @notice Updates the AgentWalletFactory reference.
-    /// @param walletFactory_ The new AgentWalletFactory address.
-    function setWalletFactory(address walletFactory_) external onlyOwner {
+    /// @notice Proposes a new AgentWalletFactory with a 24-hour timelock.
+    /// @param walletFactory_ The proposed new AgentWalletFactory address.
+    function proposeWalletFactory(address walletFactory_) external onlyOwner {
         if (walletFactory_ == address(0)) revert InvalidSessionManager();
-        walletFactory = IAgentWalletFactory(walletFactory_);
+        if (pendingWalletFactory != address(0)) revert WalletFactoryTimelockActive();
+        pendingWalletFactory = walletFactory_;
+        walletFactoryActivationTime = block.timestamp + TIMELOCK_DELAY;
+    }
+
+    /// @notice Activates the pending AgentWalletFactory after the timelock has elapsed.
+    function acceptWalletFactory() external onlyOwner {
+        if (pendingWalletFactory == address(0)) revert InvalidSessionManager();
+        if (block.timestamp < walletFactoryActivationTime) revert WalletFactoryTimelockNotReady();
+        walletFactory = IAgentWalletFactory(pendingWalletFactory);
+        pendingWalletFactory = address(0);
+        walletFactoryActivationTime = 0;
     }
 
     /// @notice Creates a standard (ZK-proof-based) session for an AgentWallet.
@@ -173,24 +193,29 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         uint256[2] calldata c,
         uint256[7] calldata publicSignals
     ) external nonReentrant whenNotPaused {
+        if (msg.sender != wallet) revert NotBoundWallet();
+        if (wallet.code.length == 0) revert NotAgentWallet();
         if (!walletFactory.isAgentWallet(wallet)) revert NotAgentWallet();
         if (sessionKey == address(0)) revert InvalidSessionKey();
+        if (sessionKey == wallet) revert InvalidSessionKey();
         if (expiry <= block.timestamp) revert InvalidExpiry();
         if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
         if (lightSessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
 
+        if (walletSessions[wallet].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
+
         bytes32 nullifier = bytes32(publicSignals[6]);
+        if (nullifier == bytes32(0)) revert InvalidNullifier();
         if (uint256(registry.activeRoot()) != publicSignals[0]) revert RootMismatch();
         if (uint256(registry.revokedSecretRoot()) != publicSignals[1]) revert RevokedRootMismatch();
         if (uint256(maxValue) != publicSignals[2]) revert MaxValueMismatch();
         if (uint256(expiry) != publicSignals[3]) revert ExpiryMismatch();
         if (address(uint160(publicSignals[4])) != wallet) revert NotAgentWallet();
+        if (publicSignals[5] != SUPPORTED_CREDENTIAL_VERSION) revert UnsupportedCredentialVersion();
         if (registry.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
 
         bool valid = verifier.verifyProof(a, b, c, publicSignals);
         if (!valid) revert InvalidProof();
-
-        registry.markNullifierUsed(nullifier);
 
         Session storage s = sessions[sessionId];
         s.wallet = wallet;
@@ -200,8 +225,10 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         s.expiry = expiry;
         s.revoked = false;
 
-        if (walletSessions[wallet].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
         walletSessions[wallet].push(sessionId);
+
+        registry.markNullifierUsed(nullifier);
+
         emit SessionCreated(sessionId, wallet, sessionKey, expiry, maxValue, nullifier);
     }
 
@@ -273,6 +300,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     ) external whenNotPaused {
         if (!walletFactory.isAgentWallet(msg.sender)) revert NotAgentWallet();
         if (sessionKey == address(0)) revert InvalidSessionKey();
+        if (sessionKey == msg.sender) revert InvalidSessionKey();
         if (expiry <= block.timestamp) revert InvalidExpiry();
         if (lightSessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
         if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
@@ -388,6 +416,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param wallet The wallet whose sessions to prune.
     /// @param limit Maximum number of sessions to prune in this call.
     function pruneExpiredSessions(address wallet, uint256 limit) external onlyWallet {
+        if (wallet != msg.sender) revert NotBoundWallet();
         bytes32[] storage sessionIds = walletSessions[wallet];
         uint256 pruned;
         for (int256 i = int256(sessionIds.length) - 1; i >= 0 && pruned < limit; i--) {

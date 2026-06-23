@@ -54,10 +54,16 @@ describe("Fuzz — CapabilityRegistry", function () {
   it("Fuzz: random grant root updates", async function () {
     const grantors = Array.from({ length: 10 }, (_, i) => signers[i % signers.length]);
     const grantees = Array.from({ length: 10 }, (_, i) => signers[(i + 5) % signers.length]);
+    const capIds: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = ethers.keccak256(ethers.toUtf8Bytes(`grant-cap-${i}-${Date.now()}`));
+      await capReg.registerCapability(id, `action-${i}`, 0);
+      capIds.push(id);
+    }
     for (let i = 0; i < 10; i++) {
       const root = randBytes32();
-      await capReg.connect(grantors[i]).updateGrantRoot(grantees[i].address, root);
-      expect(await capReg.grantRoots(grantors[i].address, grantees[i].address)).to.equal(root);
+      await capReg.connect(grantors[i]).updateGrantRoot(grantees[i].address, capIds[i], root);
+      expect(await capReg.grantRoots(grantors[i].address, grantees[i].address, capIds[i])).to.equal(root);
     }
   });
 

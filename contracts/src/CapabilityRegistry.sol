@@ -12,6 +12,10 @@ error ActionRequired();
 error CapabilityNotFound();
 error NotAuthorizedForCapability();
 error AlreadyRevokedCapability();
+error AlreadyRevokedGrant();
+error GrantNotRevocable();
+error InvalidRecipient();
+error InvalidRoot();
 
 /// @title CapabilityRegistry
 /// @notice Registry for agent capabilities (named actions). Grantors delegate specific capabilities
@@ -21,7 +25,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     event CapabilityRegistered(bytes32 indexed capabilityId, bytes32 indexed actionHash, address indexed registrar);
     event CapabilityRevoked(bytes32 indexed capabilityId);
-    event GrantRootUpdated(address indexed grantor, address indexed grantee, bytes32 newRoot);
+    event GrantRootUpdated(address indexed grantor, address indexed grantee, bytes32 indexed capabilityId, bytes32 newRoot);
     event GrantRevoked(bytes32 indexed grantLeafHash);
 
     struct CapabilityDef {
@@ -35,7 +39,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     mapping(bytes32 => CapabilityDef) public capabilities;
     bytes32[] private capabilityList;
     mapping(bytes32 => uint256) private capabilityIndex;
-    mapping(address => mapping(address => bytes32)) public grantRoots;
+    mapping(address => mapping(address => mapping(bytes32 => bytes32))) public grantRoots;
     mapping(bytes32 => bool) public revokedGrants;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -85,14 +89,18 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
         emit CapabilityRevoked(capabilityId);
     }
 
-    function updateGrantRoot(address grantee, bytes32 newRoot) external {
-        grantRoots[msg.sender][grantee] = newRoot;
-        emit GrantRootUpdated(msg.sender, grantee, newRoot);
+    function updateGrantRoot(address grantee, bytes32 capabilityId, bytes32 newRoot) external whenNotPaused {
+        if (grantee == address(0)) revert InvalidRecipient();
+        if (capabilities[capabilityId].createdAt == 0) revert CapabilityNotFound();
+        if (newRoot == bytes32(0)) revert InvalidRoot();
+        grantRoots[msg.sender][grantee][capabilityId] = newRoot;
+        emit GrantRootUpdated(msg.sender, grantee, capabilityId, newRoot);
     }
 
-    function revokeGrant(bytes32 grantLeafHash, bytes32 capabilityId) external {
-        if (capabilities[capabilityId].registrar != msg.sender && msg.sender != owner()) revert NotAuthorizedForCapability();
-        if (revokedGrants[grantLeafHash]) revert AlreadyRevokedCapability();
+    function revokeGrant(bytes32 grantLeafHash, bytes32 capabilityId, address grantor, address grantee) external {
+        if (capabilities[capabilityId].registrar != msg.sender && msg.sender != owner() && msg.sender != grantor) revert GrantNotRevocable();
+        if (grantRoots[grantor][grantee][capabilityId] == bytes32(0)) revert GrantNotRevocable();
+        if (revokedGrants[grantLeafHash]) revert AlreadyRevokedGrant();
         revokedGrants[grantLeafHash] = true;
         emit GrantRevoked(grantLeafHash);
     }
@@ -114,7 +122,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
         bytes32 expectedLeaf = keccak256(abi.encode(capabilityId, grantor, agent, constraintsHash, expiresAt));
         if (expectedLeaf != grantLeaf) return false;
 
-        bytes32 root = grantRoots[grantor][agent];
+        bytes32 root = grantRoots[grantor][agent][capabilityId];
         if (root == bytes32(0)) return false;
         if (revokedGrants[grantLeaf]) return false;
         if (expiresAt != 0 && expiresAt < block.timestamp) return false;
