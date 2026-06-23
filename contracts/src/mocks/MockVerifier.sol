@@ -22,7 +22,7 @@ contract MockVerifier {
         uint256[2] calldata,
         uint256[2][2] calldata,
         uint256[2] calldata,
-        uint256[5] calldata
+        uint256[7] calldata
     ) external view returns (bool) {
         return expectedResult;
     }

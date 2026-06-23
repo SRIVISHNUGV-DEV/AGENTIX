@@ -39,7 +39,7 @@ interface IVerifier {
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[6] calldata publicSignals
+        uint256[7] calldata publicSignals
     ) external view returns (bool);
 }
 
@@ -70,7 +70,7 @@ interface IAgentWalletFactory {
 contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
     using ECDSA for bytes32;
 
-    event SessionCreated(bytes32 indexed sessionId, address indexed wallet, address indexed sessionKey, uint64 expiry, uint128 maxValue);
+    event SessionCreated(bytes32 indexed sessionId, address indexed wallet, address indexed sessionKey, uint64 expiry, uint128 maxValue, bytes32 nullifier);
     event SessionUsed(bytes32 indexed sessionId, uint256 value, uint256 totalUsed);
     event SessionRevoked(bytes32 indexed sessionId);
     event LightSessionCreated(bytes32 indexed sessionId, address indexed wallet, address indexed sessionKey, uint256 dailySpendLimit, uint256 dailyTxLimit, uint64 expiry);
@@ -158,34 +158,33 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param sessionKey The address authorised to sign transactions under this session.
     /// @param maxValue Maximum cumulative value this session may spend.
     /// @param expiry Unix timestamp when the session expires.
-    /// @param nullifier Nullifier hash (must match publicSignals[0]).
     /// @param a Groth16 proof component A.
     /// @param b Groth16 proof component B.
     /// @param c Groth16 proof component C.
-    /// @param publicSignals [nullifier, activeRoot, revokedSecretRoot, maxValue, expiry, wallet].
+    /// @param publicSignals [activeRoot, revokedRoot, maxValue, sessionExpiry, wallet, credentialVersion, nullifier].
     function createSession(
         bytes32 sessionId,
         address wallet,
         address sessionKey,
         uint128 maxValue,
         uint64 expiry,
-        bytes32 nullifier,
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[6] calldata publicSignals
+        uint256[7] calldata publicSignals
     ) external nonReentrant whenNotPaused {
         if (!walletFactory.isAgentWallet(wallet)) revert NotAgentWallet();
         if (sessionKey == address(0)) revert InvalidSessionKey();
         if (expiry <= block.timestamp) revert InvalidExpiry();
         if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
         if (lightSessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
-        if (uint256(nullifier) != publicSignals[0]) revert NullifierMismatch();
-        if (uint256(registry.activeRoot()) != publicSignals[1]) revert RootMismatch();
-        if (uint256(registry.revokedSecretRoot()) != publicSignals[2]) revert RevokedRootMismatch();
-        if (uint256(maxValue) != publicSignals[3]) revert MaxValueMismatch();
-        if (uint256(expiry) != publicSignals[4]) revert ExpiryMismatch();
-        if (address(uint160(publicSignals[5])) != wallet) revert NotAgentWallet();
+
+        bytes32 nullifier = bytes32(publicSignals[6]);
+        if (uint256(registry.activeRoot()) != publicSignals[0]) revert RootMismatch();
+        if (uint256(registry.revokedSecretRoot()) != publicSignals[1]) revert RevokedRootMismatch();
+        if (uint256(maxValue) != publicSignals[2]) revert MaxValueMismatch();
+        if (uint256(expiry) != publicSignals[3]) revert ExpiryMismatch();
+        if (address(uint160(publicSignals[4])) != wallet) revert NotAgentWallet();
         if (registry.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
 
         bool valid = verifier.verifyProof(a, b, c, publicSignals);
@@ -203,7 +202,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
         if (walletSessions[wallet].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
         walletSessions[wallet].push(sessionId);
-        emit SessionCreated(sessionId, wallet, sessionKey, expiry, maxValue);
+        emit SessionCreated(sessionId, wallet, sessionKey, expiry, maxValue, nullifier);
     }
 
     /// @notice Validates a standard session for a transaction. Called by the AgentWallet before execution.

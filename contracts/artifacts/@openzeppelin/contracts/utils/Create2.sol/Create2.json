@@ -1,0 +1,16 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "Create2",
+  "sourceName": "@openzeppelin/contracts/utils/Create2.sol",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "Create2EmptyBytecode",
+      "type": "error"
+    }
+  ],
+  "bytecode": "0x60808060405234601757603a9081601d823930815050f35b600080fdfe600080fdfea2646970667358221220a63f81bedf9d5f6884f6df25c1cb078f84e2b9757f05368e009016a784a5880b64736f6c63430008180033",
+  "deployedBytecode": "0x600080fdfea2646970667358221220a63f81bedf9d5f6884f6df25c1cb078f84e2b9757f05368e009016a784a5880b64736f6c63430008180033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

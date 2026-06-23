@@ -53,8 +53,8 @@ describe("SessionManager", function () {
     const expiry: bigint = BigInt(block!.timestamp) + 7200n;
     const activeRoot = await credentialRegistry.activeRoot();
     const revokedSecretRoot = await credentialRegistry.revokedSecretRoot();
-    const publicSignals: [bigint, bigint, bigint, bigint, bigint] = [
-      BigInt(nullifier), BigInt(activeRoot), BigInt(revokedSecretRoot), maxValue, expiry
+    const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint, bigint] = [
+      BigInt(activeRoot), BigInt(revokedSecretRoot), maxValue, expiry, BigInt(agentAddr), 1n, BigInt(nullifier)
     ];
     const a: [bigint, bigint] = [0n, 0n];
     const b: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
@@ -84,7 +84,7 @@ describe("SessionManager", function () {
 
       await expect(
         sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.sessionId, agentAddr, p.maxValue, p.expiry,
           p.a, p.b, p.c, p.publicSignals
         )
       ).to.emit(sessionManager, "SessionCreated");
@@ -97,7 +97,7 @@ describe("SessionManager", function () {
 
       await expect(
         sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.sessionId, agentAddr, p.maxValue, p.expiry,
           p.a, p.b, p.c, p.publicSignals
         )
       ).to.be.revertedWithCustomError(sessionManager, "InvalidProof");
@@ -111,7 +111,7 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
@@ -125,7 +125,7 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
@@ -145,7 +145,7 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
@@ -160,7 +160,7 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
@@ -177,14 +177,14 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
       const sessionId2 = ethers.keccak256(ethers.toUtf8Bytes("other-session"));
       await expect(
         sessionManager.connect(operator).createSession(
-          sessionId2, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          sessionId2, agentAddr, p.maxValue, p.expiry,
           p.a, p.b, p.c, p.publicSignals
         )
       ).to.be.revertedWithCustomError(sessionManager, "NullifierAlreadyUsed");
@@ -196,7 +196,7 @@ describe("SessionManager", function () {
       await mockVerifier.setResult(true);
 
       await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+        p.sessionId, agentAddr, p.maxValue, p.expiry,
         p.a, p.b, p.c, p.publicSignals
       );
 
@@ -237,7 +237,7 @@ describe("SessionManager", function () {
 
       await expect(
         sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry, p.nullifier,
+          p.sessionId, agentAddr, p.maxValue, p.expiry,
           p.a, p.b, p.c, p.publicSignals
         )
       ).to.be.revertedWith("Pausable: paused");

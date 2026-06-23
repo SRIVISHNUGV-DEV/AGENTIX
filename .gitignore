@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 build/
+!circuits/build/
 .next/
 out/
 
@@ -52,6 +53,14 @@ typechain-types/
 # Claude memory
 .claude/
 .openclaude/
+
+# ZK proving artifacts — never commit (large binaries, reproducible from source)
+*.zkey
+*.r1cs
+*.sym
+*.ptau
+*.wasm
+circuits/prover/
 
 # Temporary files
 *.tmp
