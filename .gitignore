@@ -8,10 +8,25 @@ build/
 .next/
 out/
 
-# Environment files
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+!circuits/build/
+.next/
+out/
+
+# Environment files — never commit secrets
 .env
 .env.local
 .env.*.local
+.env.*.secret
+.env.production
+.env.staging
+.env.development.local
+*.env
 runtime-local/.env
 runtime-local/node_modules/
 
@@ -44,15 +59,26 @@ typechain-types/
 # Generated files
 *.generated.ts
 
-# Secrets
+# Secrets and credentials — never commit
 *.pem
 *.key
+*.p12
+*.pfx
+*.keystore
+*.secret
 .npmrc
 **/.npmrc
+*.openclaude-profile.json
+.openclaude-profile.json
+**/openclaude-profile.json
+service-account*.json
+credentials*.json
+*.cred
 
-# Claude memory
+# Claude / AI tooling memory
 .claude/
 .openclaude/
+.memory/
 
 # ZK proving artifacts — never commit (large binaries, reproducible from source)
 *.zkey
@@ -65,3 +91,7 @@ circuits/prover/
 # Temporary files
 *.tmp
 *.temp
+
+# Docker
+.docker/
+docker-compose.override.yml

@@ -1,0 +1,84 @@
+# Gitleaks config — blocks secrets from being committed
+# Install: https://github.com/gitleaks/gitleaks
+# Run: gitleaks detect --source . --verbose
+# Pre-commit: gitleaks protect --staged --verbose
+
+title = "AgentIX Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "agentix-private-keys"
+description = "Ethereum / blockchain private key"
+regex = '''0x[a-fA-F0-9]{64}'''
+tags = ["crypto", "blockchain", "private-key"]
+
+[[rules]]
+id = "agentix-alchemy-key"
+description = "Alchemy API Key"
+regex = '''[a-zA-Z0-9]{32}'''
+tags = ["api-key", "alchemy"]
+
+[[rules]]
+id = "agentix-rpc-url-with-key"
+description = "RPC URL containing embedded API key (e.g. alchemy, infura)"
+regex = '''https?://[a-zA-Z0-9.-]+\.(alchemy|infura|moralis|quicknode)\.(com|io)/v[12]/\w{32,}'''
+tags = ["rpc", "api-key", "blockchain"]
+
+[[rules]]
+id = "agentix-etherscan-key"
+description = "Etherscan API Key"
+regex = '''[A-Z0-9]{34}'''
+tags = ["api-key", "etherscan", "blockchain"]
+
+[[rules]]
+id = "agentix-aws-key"
+description = "AWS Access Key"
+regex = '''AKIA[0-9A-Z]{16}'''
+tags = ["aws", "access-key"]
+
+[[rules]]
+id = "agentix-bearer-token"
+description = "Bearer token / JWT"
+regex = '''Bearer [a-zA-Z0-9_\-\.]{20,}'''
+tags = ["jwt", "token", "auth"]
+
+[[rules]]
+id = "agentix-openai-key"
+description = "OpenAI API Key"
+regex = '''sk-[a-zA-Z0-9]{20,}'''
+tags = ["api-key", "openai"]
+
+[[rules]]
+id = "agentix-pk-variable"
+description = "Hardcoded PRIVATE_KEY assignment"
+regex = '''PRIVATE_KEY[0-9_]*=['"][a-zA-Z0-9]{64,}['"]'''
+tags = ["private-key", "blockchain"]
+
+[[rules]]
+id = "agentix-slack-token"
+description = "Slack token"
+regex = '''xox[baprs]-[0-9a-zA-Z]{10,}'''
+tags = ["slack", "token"]
+
+[[rules]]
+id = "agentix-gh-token"
+description = "GitHub token"
+regex = '''(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,}'''
+tags = ["github", "token"]
+
+[allowlist]
+description = "Allowlisted patterns (false positive exceptions)"
+paths = [
+    # Don't flag the placeholder in example files
+    '''\.example$''',
+    # Don't flag the test placeholder key
+    '''test-placeholder''',
+    # Allow zero-address placeholder keys
+    '''0x000000000000000000000000000000000000000000000000000000000000000[01]''',
+    # Allow import paths / package lock files
+    '''node_modules''',
+    '''package-lock\.json''',
+    '''pnpm-lock\.yaml''',
+]
