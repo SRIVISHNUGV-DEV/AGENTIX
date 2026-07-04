@@ -1,0 +1,195 @@
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 98%;
+    --card-hover: 0 0% 95%;
+    --card-border: 0 0% 88%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 93%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 60% 42%;
+    --warning: 38 92% 50%;
+    --info: 210 100% 50%;
+    --border: 0 0% 88%;
+    --input: 0 0% 92%;
+    --ring: 0 0% 9%;
+    --radius: 0.5rem;
+    --sidebar-bg: 0 0% 97%;
+    --sidebar-border: 0 0% 88%;
+    --topbar-bg: 255 255 255;
+    --skeleton: 0 0% 90%;
+    --overlay: 0 0% 0% / 0.3;
+  }
+
+  .dark {
+    --background: 0 0% 3%;
+    --foreground: 0 0% 95%;
+    --card: 0 0% 6%;
+    --card-hover: 0 0% 9%;
+    --card-border: 0 0% 14%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 3%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 50%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 95%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 76% 36%;
+    --warning: 38 92% 50%;
+    --info: 210 80% 55%;
+    --border: 0 0% 14%;
+    --input: 0 0% 14%;
+    --ring: 0 0% 100%;
+    --sidebar-bg: 0 0% 4%;
+    --sidebar-border: 0 0% 12%;
+    --topbar-bg: 3 3 3;
+    --skeleton: 0 0% 10%;
+    --overlay: 0 0% 0% / 0.6;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1 { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+  h2 { font-size: 16px; font-weight: 500; letter-spacing: -0.01em; }
+  h3 { font-size: 14px; font-weight: 500; }
+  p  { font-size: 13px; line-height: 1.5; }
+  code, .font-mono {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  }
+}
+
+/* ── Layout ──────────────────────────────────── */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .sidebar-desktop { display: none; }
+}
+
+/* ── Sidebar ─────────────────────────────────── */
+
+.sidebar-link {
+  @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150;
+  color: hsl(var(--muted-foreground));
+}
+.sidebar-link:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.sidebar-link.active {
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground));
+}
+
+/* ── Glass ───────────────────────────────────── */
+
+.glass {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+.glass:hover {
+  border-color: hsl(var(--foreground) / 0.15);
+}
+
+/* ── Status dot ──────────────────────────────── */
+
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.status-dot.online { background: hsl(var(--success)); }
+.status-dot.warning { background: hsl(var(--warning)); }
+.status-dot.error { background: hsl(var(--destructive)); }
+.status-dot.offline { background: hsl(var(--muted-foreground)); }
+
+/* ── Data table ──────────────────────────────── */
+
+.data-table {
+  @apply w-full;
+}
+.data-table th {
+  @apply text-left text-[10px] font-medium uppercase tracking-widest pb-3;
+  color: hsl(var(--muted-foreground));
+}
+.data-table td {
+  @apply py-2.5 text-xs;
+}
+.data-table tr:not(:last-child) td {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+/* ── Scrollbar ───────────────────────────────── */
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+::selection {
+  background: hsl(var(--foreground) / 0.2);
+  color: hsl(var(--foreground));
+}
+
+*:focus-visible {
+  @apply outline-none ring-2 ring-offset-2;
+  ring-color: hsl(var(--ring));
+  ring-offset-color: hsl(var(--background));
+}
+
+/* ── Animations ──────────────────────────────── */
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot { animation: pulse-dot 2s infinite; }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.2s ease-out; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in { animation: fade-in 0.15s ease-out; }
+
+/* ── KBD ─────────────────────────────────────── */
+
+kbd {
+  @apply inline-flex items-center justify-center px-1.5 py-0.5 text-[9px] font-mono rounded;
+  min-width: 18px; height: 18px;
+  background: hsl(var(--accent));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@agentix/credential-service",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@agentix/database": "1.0.0",
+    "@agentix/eventbus": "1.0.0",
+    "@agentix/utils": "1.0.0",
+    "@agentix/types": "1.0.0"
+  },
+  "license": "MIT"
+}

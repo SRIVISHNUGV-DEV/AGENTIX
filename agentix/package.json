@@ -1,0 +1,45 @@
+{
+  "name": "agentix-v1",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/shared/*",
+    "packages/core/*",
+    "packages/services/*",
+    "packages/compiler",
+    "packages/indexer",
+    "packages/scheduler",
+    "packages/merkle-tree",
+    "packages/agent-manifest",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "build": "bun run build:shared && bun run build:core && bun run build:services && bun run build:cli && bun run build:dashboard",
+    "build:shared": "echo 'Shared packages are TS-source'",
+    "build:core": "echo 'Core packages are TS-source'",
+    "build:services": "echo 'Service packages are TS-source'",
+    "build:cli": "bun x tsc --project tsconfig.json",
+    "build:dashboard": "cd apps/dashboard && bun run build",
+    "bundle": "bun x tsx scripts/bundle.ts",
+    "dev": "bun run dev:api & bun run dev:dashboard",
+    "dev:api": "bun x tsx src/runtime/server.ts",
+    "dev:dashboard": "cd apps/dashboard && bun run dev",
+    "test": "bun x tsx tests/e2e.test.ts",
+    "init": "node dist/src/index.js init",
+    "doctor": "node dist/src/index.js doctor",
+    "diagnostics": "node dist/src/index.js diagnostics",
+    "setup": "node dist/src/index.js init && node dist/src/index.js config set rpcUrl https://sepolia.base.org && node dist/src/index.js doctor",
+    "publish:prep": "bun run bundle"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0",
+    "better-sqlite3": "^11.7.0",
+    "circomlibjs": "^0.1.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "vitest": "^4.1.9",
+    "@types/better-sqlite3": "^7.6.12"
+  }
+}

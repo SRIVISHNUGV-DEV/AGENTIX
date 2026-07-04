@@ -1,0 +1,12 @@
+{
+  "name": "@agentix/backup-engine",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@agentix/database": "1.0.0",
+    "@agentix/utils": "1.0.0",
+    "@agentix/types": "1.0.0"
+  },
+  "license": "MIT"
+}

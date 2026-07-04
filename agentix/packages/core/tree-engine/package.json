@@ -1,0 +1,12 @@
+{
+  "name": "@agentix/tree-engine",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@agentix/database": "1.0.0",
+    "@agentix/constants": "1.0.0",
+    "circomlibjs": "^0.1.7"
+  },
+  "license": "MIT"
+}

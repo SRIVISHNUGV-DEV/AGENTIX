@@ -1,0 +1,11 @@
+{
+  "name": "@agentix/ai-harness",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@agentix/constants": "1.0.0",
+    "@agentix/eventbus": "1.0.0"
+  },
+  "license": "MIT"
+}

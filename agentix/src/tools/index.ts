@@ -1,0 +1,15 @@
+export * from "./help";
+export * as organization from "./organization";
+export * as wallet from "./wallet";
+export * as credential from "./credential";
+export * as session from "./session";
+export * as proof from "./proof";
+export * as tree from "./tree";
+export * as delegation from "./delegation";
+export * as capability from "./capability";
+export * as backup from "./backup";
+export * as configTool from "./config-tool";
+export * as health from "./health";
+export * as rpcTool from "./rpc-tool";
+export * as diagnostics from "./diagnostics";
+export * as deployment from "./deployment";

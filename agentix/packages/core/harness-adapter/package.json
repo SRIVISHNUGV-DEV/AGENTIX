@@ -1,0 +1,7 @@
+{
+  "name": "@agentix/harness-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "dependencies": {}
+}

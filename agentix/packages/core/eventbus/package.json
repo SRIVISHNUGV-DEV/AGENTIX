@@ -1,0 +1,10 @@
+{
+  "name": "@agentix/eventbus",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@agentix/types": "1.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@agentix/database",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "@agentix/types": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12"
+  },
+  "license": "MIT"
+}
