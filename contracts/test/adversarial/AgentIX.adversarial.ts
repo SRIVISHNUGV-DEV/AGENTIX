@@ -101,7 +101,11 @@ describe("Adversarial Tests — AgentIX", function () {
       ])
     );
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    // Activate factory via timelock
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
 
     const tx = await factory.connect(owner)["createWallet(address)"](owner.address);
@@ -117,21 +121,25 @@ describe("Adversarial Tests — AgentIX", function () {
     it("BLOCKED: attacker cannot create sessions without valid proof", async function () {
       for (let i = 0; i < 100; i++) {
         const sessionId = ethers.keccak256(ethers.toUtf8Bytes(`attack-session-${i}`));
-        const nullifier = ethers.keccak256(ethers.toUtf8Bytes(`attack-null-${i}`));
         const walletAddr = await wallet.getAddress();
-        const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint] = [
-          BigInt(nullifier),
+        const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
+        const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint, bigint] = [
           BigInt(ethers.keccak256(ethers.toUtf8Bytes("root"))),
           BigInt(ethers.keccak256(ethers.toUtf8Bytes("revoked"))),
           1000000n,
-          BigInt(Math.floor(Date.now() / 1000) + 3600),
+          expiry,
           BigInt(walletAddr),
+          1n,
+          BigInt(ethers.keccak256(ethers.toUtf8Bytes(`attack-null-${i}`))),
         ];
         await expect(
           sessionManager.connect(attacker).createSession(
             sessionId, walletAddr, attacker.address, 1000000n,
-            BigInt(Math.floor(Date.now() / 1000) + 3600), nullifier, orgId,
-            { a: [0n, 0n], b: [[0n, 0n], [0n, 0n]], c: [0n, 0n], publicSignals }
+            expiry,
+            [0n, 0n],
+            [[0n, 0n], [0n, 0n]],
+            [0n, 0n],
+            publicSignals
           )
         ).to.be.reverted;
       }
@@ -283,13 +291,13 @@ describe("Adversarial Tests — AgentIX", function () {
   describe("Attack 9: Factory manipulation", function () {
     it("BLOCKED: non-owner cannot change factory implementation", async function () {
       await expect(
-        factory.connect(attacker).setImplementation(signers[9].address)
+        factory.connect(attacker).proposeImplementation(signers[9].address)
       ).to.be.reverted;
     });
 
     it("BLOCKED: non-owner cannot change factory sessionManager", async function () {
       await expect(
-        factory.connect(attacker).setSessionManager(signers[9].address)
+        factory.connect(attacker).proposeSessionManager(signers[9].address)
       ).to.be.reverted;
     });
   });

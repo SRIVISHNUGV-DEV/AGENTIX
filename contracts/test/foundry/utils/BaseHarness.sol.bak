@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+import "../../src/AgentWallet.sol";
+import "../../src/AgentWalletFactory.sol";
+import "../../src/AgentIdentity.sol";
+import "../../src/SessionManager.sol";
+import "../../src/CredentialRegistry.sol";
+import "../../src/CapabilityRegistry.sol";
+import "../../src/DelegationManager.sol";
+import "../../src/OrganizationRegistry.sol";
+import "../../src/OrganizationCredentialAnchor.sol";
+import "../../src/CredentialVerifierV1.sol";
+import "../../src/mocks/MockVerifier.sol";
+
+struct ProtocolDeployResult {
+    AgentWallet walletImpl;
+    MockVerifier verifier;
+    CredentialRegistry credReg;
+    SessionManager sessionManager;
+    AgentWalletFactory factory;
+    AgentIdentity identity;
+    CapabilityRegistry capReg;
+    DelegationManager delMgr;
+    OrganizationRegistry orgReg;
+    address entryPoint;
+}
+
+abstract contract BaseHarness is Test {
+    ProtocolDeployResult internal p;
+
+    address internal deployer = makeAddr("deployer");
+    address internal walletOwner = makeAddr("walletOwner");
+    address internal sessionKey = makeAddr("sessionKey");
+    address internal attacker = makeAddr("attacker");
+    address internal random = makeAddr("random");
+    address internal entryPoint = makeAddr("EntryPoint");
+
+    AgentWallet internal wallet;
+
+    function _deployProtocol() internal returns (ProtocolDeployResult memory) {
+        vm.startPrank(deployer);
+
+        MockVerifier verifier = new MockVerifier();
+
+        CredentialRegistry credReg = new CredentialRegistry();
+        credReg.initialize(deployer);
+
+        SessionManager smImpl = new SessionManager();
+        ERC1967Proxy smProxy = new ERC1967Proxy(
+            address(smImpl),
+            abi.encodeCall(SessionManager.initialize, (address(verifier), address(credReg), address(1)))
+        );
+        SessionManager sm = SessionManager(address(smProxy));
+
+        AgentWallet walletImpl = new AgentWallet();
+
+        AgentWalletFactory factoryImpl = new AgentWalletFactory();
+        ERC1967Proxy fProxy = new ERC1967Proxy(
+            address(factoryImpl),
+            abi.encodeCall(AgentWalletFactory.initialize, (address(walletImpl), address(sm), entryPoint))
+        );
+        AgentWalletFactory factory = AgentWalletFactory(address(fProxy));
+
+        sm.proposeWalletFactory(address(factory));
+        vm.warp(block.timestamp + 24 hours + 1);
+        sm.acceptWalletFactory();
+
+        credReg.setSessionManager(address(sm), true);
+
+        AgentIdentity identityImpl = new AgentIdentity();
+        ERC1967Proxy idProxy = new ERC1967Proxy(
+            address(identityImpl),
+            abi.encodeCall(AgentIdentity.initialize, (deployer, address(factory)))
+        );
+        AgentIdentity identity = AgentIdentity(address(idProxy));
+        factory.setAgentIdentity(address(identity));
+
+        CapabilityRegistry capImpl = new CapabilityRegistry();
+        ERC1967Proxy capProxy = new ERC1967Proxy(
+            address(capImpl),
+            abi.encodeCall(CapabilityRegistry.initialize, (deployer))
+        );
+        CapabilityRegistry capReg = CapabilityRegistry(address(capProxy));
+
+        DelegationManager delImpl = new DelegationManager();
+        ERC1967Proxy delProxy = new ERC1967Proxy(
+            address(delImpl),
+            abi.encodeCall(DelegationManager.initialize, (deployer))
+        );
+        DelegationManager delMgr = DelegationManager(address(delProxy));
+
+        OrganizationCredentialAnchor anchorImpl = new OrganizationCredentialAnchor();
+        OrganizationRegistry orgRegImpl = new OrganizationRegistry();
+        ERC1967Proxy orgProxy = new ERC1967Proxy(
+            address(orgRegImpl),
+            abi.encodeCall(OrganizationRegistry.initialize, (deployer, address(anchorImpl)))
+        );
+        OrganizationRegistry orgReg = OrganizationRegistry(address(orgProxy));
+
+        vm.stopPrank();
+
+        return ProtocolDeployResult(
+            walletImpl, verifier, credReg, sm, factory, identity,
+            capReg, delMgr, orgReg, entryPoint
+        );
+    }
+
+    function _createWallet(address owner_) internal returns (AgentWallet) {
+        vm.prank(deployer);
+        address w = p.factory.createWallet(owner_);
+        return AgentWallet(w);
+    }
+
+    function _createWalletAs(address caller, address owner_) internal returns (AgentWallet) {
+        vm.prank(caller);
+        address w = p.factory.createWallet(owner_);
+        return AgentWallet(w);
+    }
+
+    function _createWalletWithSalt(address owner_, bytes32 salt) internal returns (AgentWallet) {
+        vm.prank(deployer);
+        address w = p.factory.createWallet(owner_, salt);
+        return AgentWallet(w);
+    }
+
+    function _getWalletAddress(address owner_, bytes32 salt) internal view returns (address) {
+        return p.walletImpl.predictDeterministicAddress(salt, address(p.factory));
+    }
+
+    function _registerOrg(bytes32 orgId, string memory name, address owner_) internal {
+        vm.prank(deployer);
+        p.orgReg.registerOrganization(orgId, name, owner_);
+    }
+
+    function _registerCapability(bytes32 capId, string memory action) internal {
+        vm.prank(deployer);
+        p.capReg.registerCapability(capId, action, 0);
+    }
+
+    function _setupStandardSession(
+        AgentWallet w,
+        bytes32 sessionId,
+        address sKey,
+        uint128 maxValue,
+        uint64 expiry
+    ) internal {
+        uint256[7] memory pubSignals = [
+            uint256(p.credReg.activeRoot()),
+            uint256(p.credReg.revokedSecretRoot()),
+            uint256(maxValue),
+            uint256(expiry),
+            uint256(uint160(address(w))),
+            uint256(p.sessionManager.SUPPORTED_CREDENTIAL_VERSION()),
+            uint256(keccak256(abi.encode(sessionId)))
+        ];
+        p.verifier.setResult(true);
+        vm.prank(address(w));
+        p.sessionManager.createSession(
+            sessionId, address(w), sKey, maxValue, expiry,
+            [uint256(0), uint256(0)],
+            [[uint256(0), uint256(0)], [uint256(0), uint256(0)]],
+            [uint256(0), uint256(0)],
+            pubSignals
+        );
+    }
+
+    function _signLightweightSession(
+        address signer,
+        address smAddr,
+        address walletAddr,
+        bytes32 sessionId,
+        address sKey,
+        uint256 dailySpendLimit,
+        uint256 dailyTxLimit,
+        uint64 expiry,
+        address[] memory targets
+    ) internal returns (bytes memory) {
+        uint256 chainId = block.chainid;
+        bytes32 messageHash = keccak256(abi.encode(
+            chainId, smAddr, walletAddr, sessionId, sKey,
+            dailySpendLimit, dailyTxLimit, expiry, targets
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(vm.addr(signer), digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    receive() external payable {}
+}

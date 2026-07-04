@@ -6,6 +6,9 @@ describe("SessionManager", function () {
   let sessionManager: any;
   let credentialRegistry: any;
   let mockVerifier: any;
+  let walletImpl: any;
+  let agentWallet: any;
+  let operatorWallet: any;
   let owner: SignerWithAddress;
   let agent: SignerWithAddress;
   let operator: SignerWithAddress;
@@ -14,7 +17,6 @@ describe("SessionManager", function () {
   beforeEach(async function () {
     [owner, agent, operator, unauthorized] = await ethers.getSigners();
 
-    // Deploy CredentialRegistry (UUPS)
     const CredRegImpl = await ethers.getContractFactory("CredentialRegistry");
     const credRegImpl = await CredRegImpl.deploy();
     const CredRegProxy = await ethers.getContractFactory("ERC1967Proxy");
@@ -24,11 +26,13 @@ describe("SessionManager", function () {
     );
     credentialRegistry = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
 
-    // Deploy MockVerifier (non-upgradeable)
     const MockVerifierFactory = await ethers.getContractFactory("MockVerifier");
     mockVerifier = await MockVerifierFactory.deploy();
 
-    // Deploy SessionManager (UUPS)
+    const WalletImplF = await ethers.getContractFactory("AgentWallet");
+    walletImpl = await WalletImplF.deploy();
+    const placeholderAddr = "0x0000000000000000000000000000000000000001";
+
     const SessMgrImpl = await ethers.getContractFactory("SessionManager");
     const sessMgrImpl = await SessMgrImpl.deploy();
     const SessMgrProxy = await ethers.getContractFactory("ERC1967Proxy");
@@ -36,16 +40,54 @@ describe("SessionManager", function () {
       await sessMgrImpl.getAddress(),
       sessMgrImpl.interface.encodeFunctionData("initialize", [
         await mockVerifier.getAddress(),
-        await credentialRegistry.getAddress()
+        await credentialRegistry.getAddress(),
+        placeholderAddr,
       ])
     );
     sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
 
-    // Register SessionManager as allowed caller
+    const FactoryImpl = await ethers.getContractFactory("AgentWalletFactory");
+    const factoryImpl = await FactoryImpl.deploy();
+    const FactoryProxy = await ethers.getContractFactory("ERC1967Proxy");
+    const mockEntryPoint = ethers.Wallet.createRandom().address;
+    const factoryProxy = await FactoryProxy.deploy(
+      await factoryImpl.getAddress(),
+      factoryImpl.interface.encodeFunctionData("initialize", [
+        await walletImpl.getAddress(),
+        await sessionManager.getAddress(),
+        mockEntryPoint
+      ])
+    );
+    const factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
+
+    await sessionManager.proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.acceptWalletFactory();
+
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
+
+    const tx1 = await factory.connect(owner).createWallet(await agent.getAddress());
+    const receipt1 = await tx1.wait();
+    const event1 = receipt1?.logs.find((log: any) => {
+      try { return factory.interface.parseLog(log as any)?.name === "WalletCreated"; } catch { return false; }
+    });
+    const agentWalletAddr = (factory.interface.parseLog(event1 as any) as any).args.wallet;
+    agentWallet = await ethers.getContractAt("AgentWallet", agentWalletAddr);
+
+    const tx2 = await factory.connect(owner).createWallet(await operator.getAddress());
+    const receipt2 = await tx2.wait();
+    const event2 = receipt2?.logs.find((log: any) => {
+      try { return factory.interface.parseLog(log as any)?.name === "WalletCreated"; } catch { return false; }
+    });
+    const operatorWalletAddr = (factory.interface.parseLog(event2 as any) as any).args.wallet;
+    operatorWallet = await ethers.getContractAt("AgentWallet", operatorWalletAddr);
+
+    await owner.sendTransaction({ to: agentWalletAddr, value: ethers.parseEther("10.0") });
+    await owner.sendTransaction({ to: operatorWalletAddr, value: ethers.parseEther("10.0") });
   });
 
-  async function makeCreateParams(agentAddr: string, nullifierSeed?: string) {
+  async function makeCreateParams(walletAddress: string, nullifierSeed?: string) {
     const sessionId = ethers.keccak256(ethers.toUtf8Bytes("test-session-" + Math.random()));
     const nullifier = ethers.keccak256(ethers.toUtf8Bytes(nullifierSeed || "test-nullifier-" + Math.random()));
     const maxValue = 1000000n;
@@ -54,12 +96,23 @@ describe("SessionManager", function () {
     const activeRoot = await credentialRegistry.activeRoot();
     const revokedSecretRoot = await credentialRegistry.revokedSecretRoot();
     const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint, bigint] = [
-      BigInt(activeRoot), BigInt(revokedSecretRoot), maxValue, expiry, BigInt(agentAddr), 1n, BigInt(nullifier)
+      BigInt(activeRoot), BigInt(revokedSecretRoot), maxValue, expiry, BigInt(walletAddress), 1n, BigInt(nullifier)
     ];
     const a: [bigint, bigint] = [0n, 0n];
     const b: [[bigint, bigint], [bigint, bigint]] = [[0n, 0n], [0n, 0n]];
     const c: [bigint, bigint] = [0n, 0n];
     return { sessionId, nullifier, maxValue, expiry, publicSignals, a, b, c };
+  }
+
+  async function createSessionAsWallet(walletAddr: string, sessionKeyAddr: string, p: any) {
+    await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+    const walletSigner = await ethers.getSigner(walletAddr);
+    const tx = await sessionManager.connect(walletSigner).createSession(
+      p.sessionId, walletAddr, sessionKeyAddr, p.maxValue, p.expiry,
+      p.a, p.b, p.c, p.publicSignals
+    );
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
+    return tx;
   }
 
   describe("Deployment", function () {
@@ -78,127 +131,115 @@ describe("SessionManager", function () {
 
   describe("Session Creation", function () {
     it("Should create session with valid proof", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry,
-          p.a, p.b, p.c, p.publicSignals
-        )
+        createSessionAsWallet(walletAddr, sessionKeyAddr, p)
       ).to.emit(sessionManager, "SessionCreated");
     });
 
     it("Should reject session with invalid proof", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(false);
 
       await expect(
-        sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry,
-          p.a, p.b, p.c, p.publicSignals
-        )
+        createSessionAsWallet(walletAddr, sessionKeyAddr, p)
       ).to.be.revertedWithCustomError(sessionManager, "InvalidProof");
     });
   });
 
   describe("Session Validation", function () {
     it("Should validate active session", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
-      const valid = await sessionManager.validateSession.staticCall(p.sessionId, agentAddr, 1n);
+      await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+      const walletSigner = await ethers.getSigner(walletAddr);
+      const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(p.sessionId, sessionKeyAddr, 1n);
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
       expect(valid).to.be.true;
     });
 
     it("Should reject expired session", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
       await ethers.provider.send("evm_increaseTime", [7200]);
       await ethers.provider.send("evm_mine", []);
 
+      await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+      const walletSigner = await ethers.getSigner(walletAddr);
       await expect(
-        sessionManager.validateSession(p.sessionId, agentAddr, 1n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKeyAddr, 1n)
       ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
   });
 
   describe("Session Revocation", function () {
     it("Should allow session key to revoke session", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
-      await sessionManager.connect(agent).revokeSession(p.sessionId, ethers.ZeroAddress);
+      await sessionManager.connect(operator).revokeSession(p.sessionId, walletAddr);
       const session = await sessionManager.sessions(p.sessionId);
       expect(session.revoked).to.be.true;
     });
 
     it("Should prevent unauthorized revocation", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
       await expect(
-        sessionManager.connect(unauthorized).revokeSession(p.sessionId, ethers.ZeroAddress)
+        sessionManager.connect(unauthorized).revokeSession(p.sessionId, walletAddr)
       ).to.be.revertedWithCustomError(sessionManager, "NotAuthorizedToRevoke");
     });
   });
 
   describe("Nullifier Protection", function () {
     it("Should prevent nullifier reuse", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr, "reuse-nullifier");
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr, "reuse-nullifier");
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
       const sessionId2 = ethers.keccak256(ethers.toUtf8Bytes("other-session"));
+      const p2 = { ...p, sessionId: sessionId2 };
       await expect(
-        sessionManager.connect(operator).createSession(
-          sessionId2, agentAddr, p.maxValue, p.expiry,
-          p.a, p.b, p.c, p.publicSignals
-        )
+        createSessionAsWallet(walletAddr, sessionKeyAddr, p2)
       ).to.be.revertedWithCustomError(sessionManager, "NullifierAlreadyUsed");
     });
 
     it("Should mark nullifier as used in credential registry", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(operator).createSession(
-        p.sessionId, agentAddr, p.maxValue, p.expiry,
-        p.a, p.b, p.c, p.publicSignals
-      );
+      await createSessionAsWallet(walletAddr, sessionKeyAddr, p);
 
       expect(await credentialRegistry.isNullifierUsed(p.nullifier)).to.be.true;
     });
@@ -230,17 +271,15 @@ describe("SessionManager", function () {
     });
 
     it("Should prevent session creation when paused", async function () {
-      const agentAddr = await agent.getAddress();
-      const p = await makeCreateParams(agentAddr);
+      const walletAddr = await agentWallet.getAddress();
+      const sessionKeyAddr = await operator.getAddress();
+      const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
       await sessionManager.pause();
 
       await expect(
-        sessionManager.connect(operator).createSession(
-          p.sessionId, agentAddr, p.maxValue, p.expiry,
-          p.a, p.b, p.c, p.publicSignals
-        )
-      ).to.be.revertedWith("Pausable: paused");
+        createSessionAsWallet(walletAddr, sessionKeyAddr, p)
+      ).to.be.revertedWithCustomError(sessionManager, "EnforcedPause");
     });
   });
 });
@@ -311,7 +350,7 @@ describe("CredentialRegistry", function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
       await expect(
         credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
-      ).to.be.revertedWith("Pausable: paused");
+      ).to.be.revertedWithCustomError(credentialRegistry, "EnforcedPause");
 
       await credentialRegistry.unpause();
       await expect(

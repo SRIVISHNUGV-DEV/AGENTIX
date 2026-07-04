@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+import "../../src/AgentWallet.sol";
+import "../../src/AgentWalletFactory.sol";
+import "../../src/AgentIdentity.sol";
+import "../../src/SessionManager.sol";
+import "../../src/CredentialRegistry.sol";
+import "../../src/CapabilityRegistry.sol";
+import "../../src/DelegationManager.sol";
+import "../../src/OrganizationRegistry.sol";
+import "../../src/OrganizationCredentialAnchor.sol";
+
+contract StorageLayoutTest is Test {
+    struct SlotInfo {
+        uint256 slot;
+        string name;
+        uint256 size;
+    }
+
+    function test_AgentWallet_StorageLayout() public {
+        AgentWallet w = new AgentWallet();
+        vm.prank(address(0x1));
+        w.initialize(address(0xBEEF), address(0xCAFE), address(0xDEAD));
+
+        assertEq(w.owner(), address(0xBEEF));
+        assertEq(w.sessionManager(), address(0xCAFE));
+        assertEq(w.entryPoint(), address(0xDEAD));
+    }
+
+    function test_AgentWallet_Implementation_CannotBeInitialized() public {
+        AgentWallet w = new AgentWallet();
+        vm.expectRevert(AlreadyInitializedError.selector);
+        w.initialize(address(0xBEEF), address(0xCAFE), address(0xDEAD));
+    }
+
+    function test_AgentWallet_Clone_CanInitialize() public {
+        AgentWallet impl = new AgentWallet();
+        address clone = impl.clone();
+        AgentWallet w = AgentWallet(clone);
+
+        vm.expectReverts();
+        w.owner();
+
+        vm.prank(address(0x1));
+        w.initialize(address(0xBEEF), address(0xCAFE), address(0xDEAD));
+        assertEq(w.owner(), address(0xBEEF));
+    }
+
+    function test_AgentWalletFactory_StorageSlots() public {
+        MockVerifier v = new MockVerifier();
+        CredentialRegistry cr = new CredentialRegistry();
+        cr.initialize(address(this));
+
+        AgentWallet wi = new AgentWallet();
+        SessionManager smImpl = new SessionManager();
+        ERC1967Proxy smProxy = new ERC1967Proxy(
+            address(smImpl),
+            abi.encodeCall(SessionManager.initialize, (address(v), address(cr), address(1)))
+        );
+
+        AgentWalletFactory fi = new AgentWalletFactory();
+        ERC1967Proxy fProxy = new ERC1967Proxy(
+            address(fi),
+            abi.encodeCall(AgentWalletFactory.initialize, (wi, address(smProxy), address(this)))
+        );
+        AgentWalletFactory factory = AgentWalletFactory(address(fProxy));
+
+        assertEq(factory.implementation(), address(wi));
+        assertEq(factory.sessionManager(), address(smProxy));
+        assertEq(factory.entryPoint(), address(this));
+        assertEq(factory.walletCount(), 0);
+
+        factory.createWallet(address(0xBEEF));
+        assertEq(factory.walletCount(), 1);
+    }
+
+    function test_SessionManager_StorageLayout() public {
+        MockVerifier v = new MockVerifier();
+        CredentialRegistry cr = new CredentialRegistry();
+        cr.initialize(address(this));
+
+        SessionManager smImpl = new SessionManager();
+        ERC1967Proxy smProxy = new ERC1967Proxy(
+            address(smImpl),
+            abi.encodeCall(SessionManager.initialize, (address(v), address(cr), address(0x01)))
+        );
+        SessionManager sm = SessionManager(address(smProxy));
+
+        assertEq(address(sm.verifier()), address(v));
+        assertEq(address(sm.registry()), address(cr));
+        assertEq(sm.MAX_SESSIONS_PER_WALLET(), 100);
+        assertEq(sm.MAX_ALLOWED_TARGETS(), 32);
+        assertEq(sm.TIMELOCK_DELAY(), 24 hours);
+    }
+
+    function test_CredentialRegistry_StorageLayout() public {
+        CredentialRegistry cr = new CredentialRegistry();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(cr),
+            abi.encodeCall(CredentialRegistry.initialize, (address(this)))
+        );
+        CredentialRegistry reg = CredentialRegistry(address(proxy));
+
+        assertTrue(reg.issuers(address(this)));
+        assertFalse(reg.issuers(address(0xBEEF)));
+        assertEq(reg.activeRoot(), bytes32(0));
+        assertEq(reg.revokedSecretRoot(), bytes32(0));
+    }
+
+    function test_CapabilityRegistry_StorageLayout() public {
+        CapabilityRegistry cr = new CapabilityRegistry();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(cr),
+            abi.encodeCall(CapabilityRegistry.initialize, (address(this)))
+        );
+        CapabilityRegistry reg = CapabilityRegistry(address(proxy));
+
+        assertEq(reg.getCapabilityCount(), 0);
+    }
+
+    function test_DelegationManager_StorageLayout() public {
+        DelegationManager dm = new DelegationManager();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(dm),
+            abi.encodeCall(DelegationManager.initialize, (address(this)))
+        );
+        DelegationManager mgr = DelegationManager(address(proxy));
+
+        assertTrue(mgr.hasRole(mgr.DEFAULT_ADMIN_ROLE(), address(this)));
+        assertTrue(mgr.hasRole(mgr.ROOT_UPDATER_ROLE(), address(this)));
+        assertEq(mgr.MAX_DELEGATION_DEPTH(), 10);
+    }
+
+    function test_OrganizationRegistry_StorageLayout() public {
+        OrganizationCredentialAnchor anchorImpl = new OrganizationCredentialAnchor();
+        OrganizationRegistry orgImpl = new OrganizationRegistry();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(orgImpl),
+            abi.encodeCall(OrganizationRegistry.initialize, (address(this), address(anchorImpl)))
+        );
+        OrganizationRegistry reg = OrganizationRegistry(address(proxy));
+
+        assertEq(reg.anchorImplementation(), address(anchorImpl));
+    }
+
+    function test_OrganizationCredentialAnchor_StorageLayout() public {
+        OrganizationCredentialAnchor impl = new OrganizationCredentialAnchor();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(OrganizationCredentialAnchor.initialize, (bytes32(uint256(0x1234)), address(this)))
+        );
+        OrganizationCredentialAnchor anchor = OrganizationCredentialAnchor(address(proxy));
+
+        assertEq(anchor.organizationId(), bytes32(uint256(0x1234)));
+        assertEq(anchor.currentRoot(), bytes32(0));
+        assertEq(anchor.revokedRoot(), bytes32(0));
+        assertEq(anchor.currentEpoch(), 0);
+    }
+
+    function test_AllUpgradeableContracts_HaveGap() public {
+        MockVerifier v = new MockVerifier();
+        CredentialRegistry crImpl = new CredentialRegistry();
+        crImpl.initialize(address(this));
+
+        ERC1967Proxy crProxy = new ERC1967Proxy(
+            address(crImpl),
+            abi.encodeCall(CredentialRegistry.initialize, (address(this)))
+        );
+        CredentialRegistry cr = CredentialRegistry(address(crProxy));
+
+        CapabilityRegistry capImpl = new CapabilityRegistry();
+        ERC1967Proxy capProxy = new ERC1967Proxy(
+            address(capImpl),
+            abi.encodeCall(CapabilityRegistry.initialize, (address(this)))
+        );
+        CapabilityRegistry cap = CapabilityRegistry(address(capProxy));
+
+        DelegationManager dmImpl = new DelegationManager();
+        ERC1967Proxy dmProxy = new ERC1967Proxy(
+            address(dmImpl),
+            abi.encodeCall(DelegationManager.initialize, (address(this)))
+        );
+        DelegationManager dm = DelegationManager(address(dmProxy));
+
+        OrganizationCredentialAnchor ancImpl = new OrganizationCredentialAnchor();
+        OrganizationRegistry orgImpl = new OrganizationRegistry();
+        ERC1967Proxy orgProxy = new ERC1967Proxy(
+            address(orgImpl),
+            abi.encodeCall(OrganizationRegistry.initialize, (address(this), address(ancImpl)))
+        );
+        OrganizationRegistry org = OrganizationRegistry(address(orgProxy));
+
+        SessionManager smImpl = new SessionManager();
+        ERC1967Proxy smProxy = new ERC1967Proxy(
+            address(smImpl),
+            abi.encodeCall(SessionManager.initialize, (address(v), address(cr), address(1)))
+        );
+        SessionManager sm = SessionManager(address(smProxy));
+
+        assertTrue(address(cr) != address(0));
+        assertTrue(address(cap) != address(0));
+        assertTrue(address(dm) != address(0));
+        assertTrue(address(org) != address(0));
+        assertTrue(address(sm) != address(0));
+    }
+}
+
+contract MockVerifier {
+    bool public expectedResult = true;
+    function setResult(bool _r) external { expectedResult = _r; }
+    function verifyProof(uint256[2] calldata, uint256[2][2] calldata, uint256[2] calldata, uint256[7] calldata)
+        external view returns (bool) { return expectedResult; }
+}

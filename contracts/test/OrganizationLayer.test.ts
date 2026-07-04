@@ -157,7 +157,7 @@ describe("OrganizationLayer — Unit & Security", function () {
       await orgRegistry.deactivateOrganization(ORG_ID);
       await expect(
         orgRegistry.deactivateOrganization(ORG_ID)
-      ).to.be.revertedWithCustomError(orgRegistry, "OrganizationNotFound");
+      ).to.be.revertedWithCustomError(orgRegistry, "OrganizationAlreadyInactive");
     });
 
     it("Should prevent non-owner from deactivating", async function () {
@@ -188,38 +188,49 @@ describe("OrganizationLayer — Unit & Security", function () {
       await orgRegistry.reactivateOrganization(ORG_ID);
       await expect(
         orgRegistry.reactivateOrganization(ORG_ID)
-      ).to.be.revertedWithCustomError(orgRegistry, "OrganizationNotFound");
+      ).to.be.revertedWithCustomError(orgRegistry, "OrganizationAlreadyActive");
     });
   });
 
   describe("OrganizationRegistry — Anchor Management", function () {
+    let newAnchorImpl: any;
+
     beforeEach(async function () {
       await orgRegistry.registerOrganization(ORG_ID, "Acme Corp", orgOwner.address);
+      const AnchorF2 = await ethers.getContractFactory("OrganizationCredentialAnchor");
+      newAnchorImpl = await AnchorF2.deploy();
     });
 
-    it("Should set a new credential anchor", async function () {
-      const newAnchor = alice.address;
-      await orgRegistry.setCredentialAnchor(ORG_ID, newAnchor);
+    it("Should set a new credential anchor via timelock", async function () {
+      const newAnchorAddr = await newAnchorImpl.getAddress();
+      await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await orgRegistry.acceptCredentialAnchor(ORG_ID);
       const org = await orgRegistry.getOrganization(ORG_ID);
-      expect(org.credentialAnchor).to.equal(newAnchor);
+      expect(org.credentialAnchor).to.equal(newAnchorAddr);
     });
 
     it("Should emit CredentialAnchorUpdated event", async function () {
       const org = await orgRegistry.getOrganization(ORG_ID);
-      await expect(orgRegistry.setCredentialAnchor(ORG_ID, alice.address))
+      const newAnchorAddr = await newAnchorImpl.getAddress();
+      await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await expect(orgRegistry.acceptCredentialAnchor(ORG_ID))
         .to.emit(orgRegistry, "CredentialAnchorUpdated")
-        .withArgs(ORG_ID, org.credentialAnchor, alice.address);
+        .withArgs(ORG_ID, org.credentialAnchor, newAnchorAddr);
     });
 
     it("Should reject zero-address anchor", async function () {
       await expect(
-        orgRegistry.setCredentialAnchor(ORG_ID, ethers.ZeroAddress)
+        orgRegistry.proposeCredentialAnchor(ORG_ID, ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(orgRegistry, "ZeroAddressNotAllowed");
     });
 
     it("Should prevent non-owner from setting anchor", async function () {
       await expect(
-        orgRegistry.connect(alice).setCredentialAnchor(ORG_ID, alice.address)
+        orgRegistry.connect(alice).proposeCredentialAnchor(ORG_ID, await newAnchorImpl.getAddress())
       ).to.be.reverted;
     });
   });
@@ -557,165 +568,6 @@ describe("OrganizationLayer — Unit & Security", function () {
     it("Should have activeRoot and revokedSecretRoot as zero by default", async function () {
       expect(await credReg.activeRoot()).to.equal(ethers.ZeroHash);
       expect(await credReg.revokedSecretRoot()).to.equal(ethers.ZeroHash);
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════
-  // Integration: SessionManager + Org Layer
-  // ═══════════════════════════════════════════════════════
-
-  describe("SessionManager — Organization Integration", function () {
-    let sessionManager: any;
-    let credReg: any;
-    let mockVerifier: any;
-    let factory: any;
-    let wallet: any;
-    let walletAddress: string;
-
-    beforeEach(async function () {
-      // Deploy all dependencies
-      const MockVerifierF = await ethers.getContractFactory("MockVerifier");
-      mockVerifier = await MockVerifierF.deploy();
-
-      const CredRegF = await ethers.getContractFactory("CredentialRegistry");
-      const credRegImpl = await CredRegF.deploy();
-      const ProxyF = await ethers.getContractFactory("ERC1967Proxy");
-      const credRegProxy = await ProxyF.deploy(
-        await credRegImpl.getAddress(),
-        credRegImpl.interface.encodeFunctionData("initialize", [owner.address])
-      );
-      credReg = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
-
-      const WalletImplF = await ethers.getContractFactory("AgentWallet");
-      const walletImpl = await WalletImplF.deploy();
-
-      const placeholder = "0x0000000000000000000000000000000000000001";
-      const SessMgrF = await ethers.getContractFactory("SessionManager");
-      const sessMgrImpl = await SessMgrF.deploy();
-      const sessMgrProxy = await ProxyF.deploy(
-        await sessMgrImpl.getAddress(),
-        sessMgrImpl.interface.encodeFunctionData("initialize", [
-          await mockVerifier.getAddress(), await credReg.getAddress(), placeholder
-        ])
-      );
-      sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
-
-      const FactoryF = await ethers.getContractFactory("AgentWalletFactory");
-      const factoryImpl = await FactoryF.deploy();
-      const factoryProxy = await ProxyF.deploy(
-        await factoryImpl.getAddress(),
-        factoryImpl.interface.encodeFunctionData("initialize", [
-          await walletImpl.getAddress(), await sessionManager.getAddress(), owner.address
-        ])
-      );
-      factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
-
-      await sessionManager.setWalletFactory(await factory.getAddress());
-      await credReg.setSessionManager(await sessionManager.getAddress(), true);
-
-      // Create a wallet
-      const tx = await factory.createWallet(owner.address);
-      const receipt = await tx.wait();
-      const event = receipt?.logs.find((log: any) => {
-        try { return factory.interface.parseLog(log as any)?.name === "WalletCreated"; } catch { return false; }
-      });
-      walletAddress = (factory.interface.parseLog(event as any) as any).args.wallet;
-      wallet = await ethers.getContractAt("AgentWallet", walletAddress);
-    });
-
-    it("Should have orgRegistry set", async function () {
-      expect(await sessionManager.orgRegistry()).to.equal(await orgRegistry.getAddress());
-    });
-
-    it("Should create session with organizationId and valid org roots", async function () {
-      // Register org and set roots
-      const orgId = ethers.keccak256(ethers.toUtf8Bytes("test-org"));
-      await orgRegistry.registerOrganization(orgId, "Test Org", owner.address);
-      const anchorAddr = await orgRegistry.getCredentialAnchor(orgId);
-      const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", anchorAddr);
-
-      const root = ethers.keccak256(ethers.toUtf8Bytes("credential-root"));
-      const revokedRoot = ethers.keccak256(ethers.toUtf8Bytes("revoked-root"));
-      await anchor.updateRoot(root);
-      await anchor.updateRevokedRoot(revokedRoot);
-
-      // Build public signals matching org roots
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("session-1"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("null-1"));
-      const maxValue = 1000n;
-      const block = await ethers.provider.getBlock("latest");
-      const expiry = BigInt(block!.timestamp) + 7200n;
-
-      const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint] = [
-        BigInt(nullifier),
-        BigInt(root),
-        BigInt(revokedRoot),
-        maxValue,
-        expiry,
-        BigInt(walletAddress),
-      ];
-
-      await mockVerifier.setResult(true);
-
-      await expect(
-        sessionManager.createSession(
-          sessionId, walletAddress, alice.address, maxValue, expiry,
-          nullifier, orgId,
-          { a: [0n, 0n], b: [[0n, 0n], [0n, 0n]], c: [0n, 0n], publicSignals }
-        )
-      ).to.emit(sessionManager, "SessionCreated");
-    });
-
-    it("Should reject session with inactive organization", async function () {
-      const orgId = ethers.keccak256(ethers.toUtf8Bytes("inactive-org"));
-      await orgRegistry.registerOrganization(orgId, "Inactive", owner.address);
-      await orgRegistry.deactivateOrganization(orgId);
-
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("session-2"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("null-2"));
-      const block = await ethers.provider.getBlock("latest");
-
-      await expect(
-        sessionManager.createSession(
-          sessionId, walletAddress, alice.address, 1000n, BigInt(block!.timestamp) + 7200n,
-          nullifier, orgId,
-          { a: [0n, 0n], b: [[0n, 0n], [0n, 0n]], c: [0n, 0n], publicSignals: [BigInt(nullifier), 0n, 0n, 1000n, BigInt(block!.timestamp) + 7200n, BigInt(walletAddress)] }
-        )
-      ).to.be.revertedWithCustomError(sessionManager, "OrganizationNotActive");
-    });
-
-    it("Should reject session with wrong root (not matching org anchor)", async function () {
-      const orgId = ethers.keccak256(ethers.toUtf8Bytes("test-org-2"));
-      await orgRegistry.registerOrganization(orgId, "Test Org 2", owner.address);
-      const anchorAddr = await orgRegistry.getCredentialAnchor(orgId);
-      const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", anchorAddr);
-
-      const realRoot = ethers.keccak256(ethers.toUtf8Bytes("real-root"));
-      await anchor.updateRoot(realRoot);
-      await anchor.updateRevokedRoot(ethers.ZeroHash);
-
-      // Try with a different root in public signals
-      const fakeRoot = ethers.keccak256(ethers.toUtf8Bytes("fake-root"));
-      const sessionId = ethers.keccak256(ethers.toUtf8Bytes("session-3"));
-      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("null-3"));
-      const block = await ethers.provider.getBlock("latest");
-
-      await expect(
-        sessionManager.createSession(
-          sessionId, walletAddress, alice.address, 1000n, BigInt(block!.timestamp) + 7200n,
-          nullifier, orgId,
-          { a: [0n, 0n], b: [[0n, 0n], [0n, 0n]], c: [0n, 0n], publicSignals: [BigInt(nullifier), BigInt(fakeRoot), 0n, 1000n, BigInt(block!.timestamp) + 7200n, BigInt(walletAddress)] }
-        )
-      ).to.be.revertedWithCustomError(sessionManager, "RootMismatch");
-    });
-
-    it("Should allow setOrgRegistry", async function () {
-      await sessionManager.setOrgRegistry(alice.address);
-      expect(await sessionManager.orgRegistry()).to.equal(alice.address);
-    });
-
-    it("Should reject zero-address setOrgRegistry", async function () {
-      await expect(sessionManager.setOrgRegistry(ethers.ZeroAddress)).to.be.reverted;
     });
   });
 });

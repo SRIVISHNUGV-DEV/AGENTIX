@@ -30,6 +30,12 @@ describe("AgentWallet", function () {
     );
     credentialRegistry = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
 
+    // Deploy AgentWallet implementation (non-upgradeable clone source)
+    const AgentWalletFactory = await ethers.getContractFactory("AgentWallet");
+    walletImpl = await AgentWalletFactory.deploy();
+
+    const placeholderAddr = "0x0000000000000000000000000000000000000001";
+
     // Deploy SessionManager (UUPS)
     const SessMgrImpl = await ethers.getContractFactory("SessionManager");
     const sessMgrImpl = await SessMgrImpl.deploy();
@@ -38,14 +44,11 @@ describe("AgentWallet", function () {
       await sessMgrImpl.getAddress(),
       sessMgrImpl.interface.encodeFunctionData("initialize", [
         await mockVerifier.getAddress(),
-        await credentialRegistry.getAddress()
+        await credentialRegistry.getAddress(),
+        placeholderAddr,
       ])
     );
     sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
-
-    // Deploy AgentWallet implementation (non-upgradeable clone source)
-    const AgentWalletFactory = await ethers.getContractFactory("AgentWallet");
-    walletImpl = await AgentWalletFactory.deploy();
 
     // Deploy AgentWalletFactory (UUPS)
     const FactoryImpl = await ethers.getContractFactory("AgentWalletFactory");
@@ -60,6 +63,12 @@ describe("AgentWallet", function () {
       ])
     );
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
+
+    // Activate factory via timelock
+    await sessionManager.proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.acceptWalletFactory();
 
     const tx = await factory.connect(owner).createWallet(await owner.getAddress());
     const receipt = await tx.wait();
@@ -122,23 +131,27 @@ describe("AgentWallet", function () {
   });
 
   describe("Whitelist Management", function () {
+    const TEST_SELECTOR = "0x12345678";
+
     it("Should allow owner to whitelist an address", async function () {
-      await wallet.connect(owner).setWhiteListedParty(await attacker.getAddress(), true);
-      expect(await wallet.whiteListedParties(await attacker.getAddress())).to.be.true;
+      await wallet.connect(owner).setWhiteListedSelector(await attacker.getAddress(), TEST_SELECTOR, true);
+      expect(await wallet.whiteListedSelectors(await attacker.getAddress(), TEST_SELECTOR)).to.be.true;
     });
 
-    it("Should allow owner to batch whitelist", async function () {
-      const addrs = [await attacker.getAddress(), await sessionKey.getAddress()];
+    it("Should allow owner to batch whitelist selectors", async function () {
+      const target = await attacker.getAddress();
+      const selectors = ["0x12345678", "0xabcdef01"];
       const statuses = [true, true];
-      await wallet.connect(owner).setWhiteListedPartyBatch(addrs, statuses);
-      expect(await wallet.whiteListedParties(addrs[0])).to.be.true;
-      expect(await wallet.whiteListedParties(addrs[1])).to.be.true;
+      await wallet.connect(owner).setWhiteListedSelectorBatch(target, selectors, statuses);
+      expect(await wallet.whiteListedSelectors(target, selectors[0])).to.be.true;
+      expect(await wallet.whiteListedSelectors(target, selectors[1])).to.be.true;
     });
 
     it("Should reject batch with mismatched arrays", async function () {
       await expect(
-        wallet.connect(owner).setWhiteListedPartyBatch(
-          [await attacker.getAddress()],
+        wallet.connect(owner).setWhiteListedSelectorBatch(
+          await attacker.getAddress(),
+          ["0x12345678"],
           [true, false]
         )
       ).to.be.revertedWithCustomError(wallet, "LengthMismatchError");
@@ -146,15 +159,17 @@ describe("AgentWallet", function () {
 
     it("Should prevent non-owner from whitelisting", async function () {
       await expect(
-        wallet.connect(attacker).setWhiteListedParty(await attacker.getAddress(), true)
+        wallet.connect(attacker).setWhiteListedSelector(await attacker.getAddress(), TEST_SELECTOR, true)
       ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
     });
   });
 
   describe("Execution", function () {
+    const ZERO_SELECTOR = "0x00000000";
+
     it("Should allow owner to execute on whitelisted target", async function () {
       const target = await attacker.getAddress();
-      await wallet.connect(owner).setWhiteListedParty(target, true);
+      await wallet.connect(owner).setWhiteListedSelector(target, ZERO_SELECTOR, true);
       await expect(
         wallet.connect(owner).execute(target, 0, "0x")
       ).to.emit(wallet, "ExecutionPerformed");
@@ -163,12 +178,14 @@ describe("AgentWallet", function () {
     it("Should reject execute on non-whitelisted target", async function () {
       await expect(
         wallet.connect(owner).execute(await attacker.getAddress(), 0, "0x")
-      ).to.be.revertedWithCustomError(wallet, "NotWhiteListedError");
+      ).to.be.revertedWithCustomError(wallet, "SelectorNotWhitelistedError");
     });
 
     it("Should allow batch execution on whitelisted targets", async function () {
       const targets = [await attacker.getAddress(), await sessionKey.getAddress()];
-      await wallet.connect(owner).setWhiteListedPartyBatch(targets, [true, true]);
+      for (const t of targets) {
+        await wallet.connect(owner).setWhiteListedSelector(t, ZERO_SELECTOR, true);
+      }
       await expect(
         wallet.connect(owner).executeBatch(targets, [0, 0], ["0x", "0x"])
       ).to.emit(wallet, "BatchExecutionPerformed");

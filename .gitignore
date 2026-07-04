@@ -95,6 +95,9 @@ circuits/prover/
 # Build outputs (agentix)
 agentix/dist-publish/
 
+# Contract build artifacts (reproducible from source, ABIs in contracts/abis/)
+contracts/artifacts/
+
 # Contract build cache
 contracts/cache/
 

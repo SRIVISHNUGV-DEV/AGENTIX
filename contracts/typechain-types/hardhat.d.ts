@@ -18,6 +18,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.AccessControlUpgradeable__factory>;
     getContractFactory(
+      name: "Ownable2StepUpgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Ownable2StepUpgradeable__factory>;
+    getContractFactory(
       name: "OwnableUpgradeable",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.OwnableUpgradeable__factory>;
@@ -42,6 +46,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.PausableUpgradeable__factory>;
     getContractFactory(
+      name: "ReentrancyGuardUpgradeable",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.ReentrancyGuardUpgradeable__factory>;
+    getContractFactory(
       name: "IAccessControl",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IAccessControl__factory>;
@@ -62,6 +70,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IBeacon__factory>;
     getContractFactory(
+      name: "Clones",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Clones__factory>;
+    getContractFactory(
       name: "ERC1967Proxy",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.ERC1967Proxy__factory>;
@@ -74,9 +86,17 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.Proxy__factory>;
     getContractFactory(
+      name: "Address",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Address__factory>;
+    getContractFactory(
       name: "Create2",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.Create2__factory>;
+    getContractFactory(
+      name: "ECDSA",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.ECDSA__factory>;
     getContractFactory(
       name: "MerkleProof",
       signerOrOptions?: ethers.Signer | FactoryOptions
@@ -98,6 +118,18 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.ReentrancyGuard__factory>;
     getContractFactory(
+      name: "Strings",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Strings__factory>;
+    getContractFactory(
+      name: "AgentIdentity",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.AgentIdentity__factory>;
+    getContractFactory(
+      name: "IAgentWallet",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IAgentWallet__factory>;
+    getContractFactory(
       name: "AgentWallet",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.AgentWallet__factory>;
@@ -113,6 +145,10 @@ declare module "hardhat/types/runtime" {
       name: "AgentWalletFactory",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.AgentWalletFactory__factory>;
+    getContractFactory(
+      name: "IAgentIdentity",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IAgentIdentity__factory>;
     getContractFactory(
       name: "IAgentWallet",
       signerOrOptions?: ethers.Signer | FactoryOptions
@@ -192,6 +228,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.AccessControlUpgradeable>;
     getContractAt(
+      name: "Ownable2StepUpgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Ownable2StepUpgradeable>;
+    getContractAt(
       name: "OwnableUpgradeable",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -222,6 +263,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.PausableUpgradeable>;
     getContractAt(
+      name: "ReentrancyGuardUpgradeable",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.ReentrancyGuardUpgradeable>;
+    getContractAt(
       name: "IAccessControl",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -247,6 +293,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IBeacon>;
     getContractAt(
+      name: "Clones",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Clones>;
+    getContractAt(
       name: "ERC1967Proxy",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -262,10 +313,20 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.Proxy>;
     getContractAt(
+      name: "Address",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Address>;
+    getContractAt(
       name: "Create2",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.Create2>;
+    getContractAt(
+      name: "ECDSA",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.ECDSA>;
     getContractAt(
       name: "MerkleProof",
       address: string | ethers.Addressable,
@@ -292,6 +353,21 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.ReentrancyGuard>;
     getContractAt(
+      name: "Strings",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Strings>;
+    getContractAt(
+      name: "AgentIdentity",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.AgentIdentity>;
+    getContractAt(
+      name: "IAgentWallet",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IAgentWallet>;
+    getContractAt(
       name: "AgentWallet",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -311,6 +387,11 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.AgentWalletFactory>;
+    getContractAt(
+      name: "IAgentIdentity",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IAgentIdentity>;
     getContractAt(
       name: "IAgentWallet",
       address: string | ethers.Addressable,
@@ -407,6 +488,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AccessControlUpgradeable>;
     deployContract(
+      name: "Ownable2StepUpgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Ownable2StepUpgradeable>;
+    deployContract(
       name: "OwnableUpgradeable",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.OwnableUpgradeable>;
@@ -431,6 +516,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.PausableUpgradeable>;
     deployContract(
+      name: "ReentrancyGuardUpgradeable",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ReentrancyGuardUpgradeable>;
+    deployContract(
       name: "IAccessControl",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IAccessControl>;
@@ -451,6 +540,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IBeacon>;
     deployContract(
+      name: "Clones",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Clones>;
+    deployContract(
       name: "ERC1967Proxy",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ERC1967Proxy>;
@@ -463,9 +556,17 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.Proxy>;
     deployContract(
+      name: "Address",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Address>;
+    deployContract(
       name: "Create2",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.Create2>;
+    deployContract(
+      name: "ECDSA",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ECDSA>;
     deployContract(
       name: "MerkleProof",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -487,6 +588,18 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ReentrancyGuard>;
     deployContract(
+      name: "Strings",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Strings>;
+    deployContract(
+      name: "AgentIdentity",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.AgentIdentity>;
+    deployContract(
+      name: "IAgentWallet",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAgentWallet>;
+    deployContract(
       name: "AgentWallet",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AgentWallet>;
@@ -502,6 +615,10 @@ declare module "hardhat/types/runtime" {
       name: "AgentWalletFactory",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AgentWalletFactory>;
+    deployContract(
+      name: "IAgentIdentity",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAgentIdentity>;
     deployContract(
       name: "IAgentWallet",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -581,6 +698,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AccessControlUpgradeable>;
     deployContract(
+      name: "Ownable2StepUpgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Ownable2StepUpgradeable>;
+    deployContract(
       name: "OwnableUpgradeable",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -611,6 +733,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.PausableUpgradeable>;
     deployContract(
+      name: "ReentrancyGuardUpgradeable",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ReentrancyGuardUpgradeable>;
+    deployContract(
       name: "IAccessControl",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -636,6 +763,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IBeacon>;
     deployContract(
+      name: "Clones",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Clones>;
+    deployContract(
       name: "ERC1967Proxy",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -651,10 +783,20 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.Proxy>;
     deployContract(
+      name: "Address",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Address>;
+    deployContract(
       name: "Create2",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.Create2>;
+    deployContract(
+      name: "ECDSA",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ECDSA>;
     deployContract(
       name: "MerkleProof",
       args: any[],
@@ -681,6 +823,21 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ReentrancyGuard>;
     deployContract(
+      name: "Strings",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Strings>;
+    deployContract(
+      name: "AgentIdentity",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.AgentIdentity>;
+    deployContract(
+      name: "IAgentWallet",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAgentWallet>;
+    deployContract(
       name: "AgentWallet",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -700,6 +857,11 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.AgentWalletFactory>;
+    deployContract(
+      name: "IAgentIdentity",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAgentIdentity>;
     deployContract(
       name: "IAgentWallet",
       args: any[],

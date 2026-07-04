@@ -93,8 +93,11 @@ describe("AgentWallet — Unit & Security", function () {
       await factoryProxy.getAddress()
     );
 
-    // Update SessionManager's walletFactory reference
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    // Update SessionManager's walletFactory reference via timelock
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(
       await sessionManager.getAddress(),
       true
@@ -296,64 +299,90 @@ describe("AgentWallet — Unit & Security", function () {
   // ── Whitelist Management ──
 
   describe("Whitelist Management", function () {
+    const EXECUTE_SEL = "0x00000000";
+
     it("Should allow owner to whitelist", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
-      expect(await wallet.whiteListedParties(alice.address)).to.be.true;
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
+      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.true;
     });
 
     it("Should allow owner to remove from whitelist", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
-      await wallet.connect(owner).setWhiteListedParty(alice.address, false);
-      expect(await wallet.whiteListedParties(alice.address)).to.be.false;
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, false);
+      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.false;
     });
 
     it("Should emit WhiteListUpdated", async function () {
       await expect(
-        wallet.connect(owner).setWhiteListedParty(alice.address, true)
+        wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true)
       )
         .to.emit(wallet, "WhiteListUpdated")
-        .withArgs(alice.address, true);
+        .withArgs(alice.address, EXECUTE_SEL, true);
     });
 
     it("Should batch whitelist", async function () {
       await wallet
         .connect(owner)
-        .setWhiteListedPartyBatch(
-          [alice.address, bob.address],
-          [true, true]
+        .setWhiteListedSelectorBatch(
+          alice.address,
+          [EXECUTE_SEL],
+          [true]
         );
-      expect(await wallet.whiteListedParties(alice.address)).to.be.true;
-      expect(await wallet.whiteListedParties(bob.address)).to.be.true;
+      await wallet
+        .connect(owner)
+        .setWhiteListedSelectorBatch(
+          bob.address,
+          [EXECUTE_SEL],
+          [true]
+        );
+      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.true;
+      expect(await wallet.isWhiteListed(bob.address, EXECUTE_SEL)).to.be.true;
     });
 
     it("Should batch remove from whitelist", async function () {
       await wallet
         .connect(owner)
-        .setWhiteListedPartyBatch(
-          [alice.address, bob.address],
-          [true, true]
+        .setWhiteListedSelectorBatch(
+          alice.address,
+          [EXECUTE_SEL],
+          [true]
         );
       await wallet
         .connect(owner)
-        .setWhiteListedPartyBatch(
-          [alice.address, bob.address],
-          [false, false]
+        .setWhiteListedSelectorBatch(
+          bob.address,
+          [EXECUTE_SEL],
+          [true]
         );
-      expect(await wallet.whiteListedParties(alice.address)).to.be.false;
-      expect(await wallet.whiteListedParties(bob.address)).to.be.false;
+      await wallet
+        .connect(owner)
+        .setWhiteListedSelectorBatch(
+          alice.address,
+          [EXECUTE_SEL],
+          [false]
+        );
+      await wallet
+        .connect(owner)
+        .setWhiteListedSelectorBatch(
+          bob.address,
+          [EXECUTE_SEL],
+          [false]
+        );
+      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.false;
+      expect(await wallet.isWhiteListed(bob.address, EXECUTE_SEL)).to.be.false;
     });
 
     it("Should reject batch with mismatched lengths", async function () {
       await expect(
         wallet
           .connect(owner)
-          .setWhiteListedPartyBatch([alice.address], [true, false])
+          .setWhiteListedSelectorBatch(alice.address, [EXECUTE_SEL], [true, false])
       ).to.be.revertedWithCustomError(wallet, "LengthMismatchError");
     });
 
     it("Should prevent non-owner from whitelisting", async function () {
       await expect(
-        wallet.connect(attacker).setWhiteListedParty(attacker.address, true)
+        wallet.connect(attacker).setWhiteListedSelector(attacker.address, EXECUTE_SEL, true)
       ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
     });
 
@@ -361,20 +390,22 @@ describe("AgentWallet — Unit & Security", function () {
       await expect(
         wallet
           .connect(attacker)
-          .setWhiteListedPartyBatch([attacker.address], [true])
+          .setWhiteListedSelectorBatch(attacker.address, [EXECUTE_SEL], [true])
       ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
     });
 
     it("Should handle empty batch", async function () {
-      await wallet.connect(owner).setWhiteListedPartyBatch([], []);
+      await wallet.connect(owner).setWhiteListedSelectorBatch(alice.address, [], []);
     });
   });
 
   // ── Execution ──
 
   describe("Execution", function () {
+    const EXECUTE_SEL = "0x00000000";
+
     it("Should execute on whitelisted target", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
       await expect(
         wallet.connect(owner).execute(alice.address, 0, "0x")
       ).to.emit(wallet, "ExecutionPerformed");
@@ -383,7 +414,7 @@ describe("AgentWallet — Unit & Security", function () {
     it("Should reject non-whitelisted target", async function () {
       await expect(
         wallet.connect(owner).execute(alice.address, 0, "0x")
-      ).to.be.revertedWithCustomError(wallet, "NotWhiteListedError");
+      ).to.be.revertedWithCustomError(wallet, "SelectorNotWhitelistedError");
     });
 
     it("Should execute with ETH value", async function () {
@@ -391,7 +422,7 @@ describe("AgentWallet — Unit & Security", function () {
         to: await wallet.getAddress(),
         value: ethers.parseEther("1.0"),
       });
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
 
       const balanceBefore = await ethers.provider.getBalance(alice.address);
       await wallet
@@ -402,22 +433,26 @@ describe("AgentWallet — Unit & Security", function () {
     });
 
     it("Should revert on failed external call", async function () {
-      // Create a contract that always reverts
       const RevertFactory = await ethers.getContractFactory(
         "RevertContract"
       ).catch(() => null);
-      // If no RevertContract exists, use a different approach
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
-      // Send ETH to a contract that will revert (non-payable)
-      // This tests the ExecutionFailedError path
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
     });
 
     it("Should batch execute on whitelisted targets", async function () {
       await wallet
         .connect(owner)
-        .setWhiteListedPartyBatch(
-          [alice.address, bob.address],
-          [true, true]
+        .setWhiteListedSelectorBatch(
+          alice.address,
+          [EXECUTE_SEL],
+          [true]
+        );
+      await wallet
+        .connect(owner)
+        .setWhiteListedSelectorBatch(
+          bob.address,
+          [EXECUTE_SEL],
+          [true]
         );
       await expect(
         wallet
@@ -433,7 +468,7 @@ describe("AgentWallet — Unit & Security", function () {
     it("Should reject batch on non-whitelisted target", async function () {
       await wallet
         .connect(owner)
-        .setWhiteListedPartyBatch([alice.address], [true]);
+        .setWhiteListedSelectorBatch(alice.address, [EXECUTE_SEL], [true]);
       await expect(
         wallet
           .connect(owner)
@@ -442,7 +477,7 @@ describe("AgentWallet — Unit & Security", function () {
             [0, 0],
             ["0x", "0x"]
           )
-      ).to.be.revertedWithCustomError(wallet, "NotWhiteListedError");
+      ).to.be.revertedWithCustomError(wallet, "SelectorNotWhitelistedError");
     });
 
     it("Should reject batch with mismatched arrays", async function () {
@@ -454,14 +489,14 @@ describe("AgentWallet — Unit & Security", function () {
     });
 
     it("Should prevent non-owner from executing", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
       await expect(
         wallet.connect(attacker).execute(alice.address, 0, "0x")
       ).to.be.revertedWithCustomError(wallet, "NotAuthorizedError");
     });
 
     it("Should prevent non-owner from batch executing", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
       await expect(
         wallet
           .connect(attacker)
@@ -470,7 +505,9 @@ describe("AgentWallet — Unit & Security", function () {
     });
 
     it("Should execute empty batch without reverting", async function () {
-      await wallet.connect(owner).executeBatch([], [], []);
+      await expect(
+        wallet.connect(owner).executeBatch([], [], [])
+      ).to.be.revertedWithCustomError(wallet, "LengthMismatchError");
     });
   });
 
@@ -499,40 +536,46 @@ describe("AgentWallet — Unit & Security", function () {
   // ── EntryPoint Integration ──
 
   describe("EntryPoint Integration", function () {
-    it("Should allow owner to update sessionManager", async function () {
+    it("Should allow owner to propose and accept sessionManager", async function () {
       const newSM = alice.address;
-      await wallet.connect(owner).setSessionManager(newSM);
+      await wallet.connect(owner).proposeSessionManager(newSM);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await wallet.connect(owner).acceptSessionManager();
       expect(await wallet.sessionManager()).to.equal(newSM);
     });
 
     it("Should reject zero-address sessionManager update", async function () {
       await expect(
-        wallet.connect(owner).setSessionManager(ethers.ZeroAddress)
+        wallet.connect(owner).proposeSessionManager(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(wallet, "InvalidSessionManagerError");
     });
 
     it("Should prevent non-owner from updating sessionManager", async function () {
       await expect(
-        wallet.connect(attacker).setSessionManager(alice.address)
-      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
+        wallet.connect(attacker).proposeSessionManager(alice.address)
+      ).to.be.reverted;
     });
 
-    it("Should allow owner to update entryPoint", async function () {
+    it("Should allow owner to propose and accept entryPoint", async function () {
       const newEP = alice.address;
-      await wallet.connect(owner).setEntryPoint(newEP);
+      await wallet.connect(owner).proposeEntryPoint(newEP);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await wallet.connect(owner).acceptEntryPoint();
       expect(await wallet.entryPoint()).to.equal(newEP);
     });
 
     it("Should reject zero-address entryPoint update", async function () {
       await expect(
-        wallet.connect(owner).setEntryPoint(ethers.ZeroAddress)
+        wallet.connect(owner).proposeEntryPoint(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(wallet, "InvalidEntryPointError");
     });
 
     it("Should prevent non-owner from updating entryPoint", async function () {
       await expect(
-        wallet.connect(attacker).setEntryPoint(alice.address)
-      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
+        wallet.connect(attacker).proposeEntryPoint(alice.address)
+      ).to.be.reverted;
     });
   });
 
@@ -552,7 +595,8 @@ describe("AgentWallet — Unit & Security", function () {
 
   describe("Spend Value Extraction", function () {
     it("Should extract value from execute selector", async function () {
-      await wallet.connect(owner).setWhiteListedParty(alice.address, true);
+      const EXECUTE_SEL = "0x00000000";
+      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
 
       const data = wallet.interface.encodeFunctionData("execute", [
         alice.address,
@@ -663,7 +707,10 @@ describe("AgentWalletFactory — Unit & Security", function () {
       await factoryProxy.getAddress()
     );
 
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
   });
 
   // ── Initialization ──
@@ -780,43 +827,52 @@ describe("AgentWalletFactory — Unit & Security", function () {
   // ── Admin Functions ──
 
   describe("Admin Functions", function () {
-    it("Should allow owner to update implementation", async function () {
+    it("Should allow owner to update implementation via timelock", async function () {
       const newImpl = alice.address;
-      await factory.connect(owner).setImplementation(newImpl);
+      await factory.connect(owner).proposeImplementation(newImpl);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await factory.connect(owner).acceptImplementation();
       expect(await factory.implementation()).to.equal(newImpl);
     });
 
     it("Should reject zero-address implementation", async function () {
       await expect(
-        factory.connect(owner).setImplementation(ethers.ZeroAddress)
+        factory.connect(owner).proposeImplementation(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(factory, "InvalidImplementationError");
     });
 
-    it("Should prevent non-owner from updating implementation", async function () {
+    it("Should prevent non-owner from proposing implementation", async function () {
       await expect(
-        factory.connect(attacker).setImplementation(alice.address)
+        factory.connect(attacker).proposeImplementation(alice.address)
       ).to.be.reverted;
     });
 
-    it("Should allow owner to update sessionManager", async function () {
-      await factory.connect(owner).setSessionManager(alice.address);
+    it("Should allow owner to update sessionManager via timelock", async function () {
+      await factory.connect(owner).proposeSessionManager(alice.address);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await factory.connect(owner).acceptSessionManager();
       expect(await factory.sessionManager()).to.equal(alice.address);
     });
 
     it("Should reject zero-address sessionManager", async function () {
       await expect(
-        factory.connect(owner).setSessionManager(ethers.ZeroAddress)
+        factory.connect(owner).proposeSessionManager(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(factory, "InvalidSessionManagerError");
     });
 
-    it("Should allow owner to update entryPoint", async function () {
-      await factory.connect(owner).setEntryPoint(alice.address);
+    it("Should allow owner to update entryPoint via timelock", async function () {
+      await factory.connect(owner).proposeEntryPoint(alice.address);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await factory.connect(owner).acceptEntryPoint();
       expect(await factory.entryPoint()).to.equal(alice.address);
     });
 
     it("Should reject zero-address entryPoint", async function () {
       await expect(
-        factory.connect(owner).setEntryPoint(ethers.ZeroAddress)
+        factory.connect(owner).proposeEntryPoint(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(factory, "InvalidEntryPointError");
     });
   });
@@ -976,7 +1032,10 @@ describe("SessionManager — Unit & Security", function () {
       true
     );
 
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
   });
 
   async function createWallet(
@@ -996,6 +1055,35 @@ describe("SessionManager — Unit & Security", function () {
     const walletAddress = (factory.interface.parseLog(event as any) as any)
       .args.wallet;
     return ethers.getContractAt("AgentWallet", walletAddress);
+  }
+
+  async function createSessionAsWallet(
+    walletAddr: string,
+    sessionId: string,
+    sessionKeyAddr: string,
+    maxValue: bigint,
+    expiry: bigint,
+    a: [bigint, bigint],
+    b: [[bigint, bigint], [bigint, bigint]],
+    c: [bigint, bigint],
+    publicSignals: any[]
+  ) {
+    await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
+    await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+    const walletSigner = await ethers.getSigner(walletAddr);
+    const result = await sessionManager.connect(walletSigner).createSession(
+      sessionId,
+      walletAddr,
+      sessionKeyAddr,
+      maxValue,
+      expiry,
+      a,
+      b,
+      c,
+      publicSignals
+    );
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
+    return result;
   }
 
   // ── Initialization ──
@@ -1060,13 +1148,14 @@ describe("SessionManager — Unit & Security", function () {
       const expiry = BigInt(block!.timestamp) + 7200n;
       const activeRoot = await credentialRegistry.activeRoot();
       const revokedSecretRoot = await credentialRegistry.revokedSecretRoot();
-      const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint] = [
-        BigInt(nullifier),
+      const publicSignals: [bigint, bigint, bigint, bigint, bigint, bigint, bigint] = [
         BigInt(activeRoot),
         BigInt(revokedSecretRoot),
         maxValue,
         expiry,
         BigInt(walletAddr),
+        1n,
+        BigInt(nullifier),
       ];
       const a: [bigint, bigint] = [0n, 0n];
       const b: [[bigint, bigint], [bigint, bigint]] = [
@@ -1083,13 +1172,12 @@ describe("SessionManager — Unit & Security", function () {
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          p.sessionId,
+        createSessionAsWallet(
           walletAddr,
+          p.sessionId,
           sessionKey.address,
           p.maxValue,
           p.expiry,
-          p.nullifier,
           p.a,
           p.b,
           p.c,
@@ -1104,13 +1192,12 @@ describe("SessionManager — Unit & Security", function () {
       await mockVerifier.setResult(false);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          p.sessionId,
+        createSessionAsWallet(
           walletAddr,
+          p.sessionId,
           sessionKey.address,
           p.maxValue,
           p.expiry,
-          p.nullifier,
           p.a,
           p.b,
           p.c,
@@ -1130,7 +1217,6 @@ describe("SessionManager — Unit & Security", function () {
           sessionKey.address,
           p.maxValue,
           p.expiry,
-          p.nullifier,
           p.a,
           p.b,
           p.c,
@@ -1145,13 +1231,12 @@ describe("SessionManager — Unit & Security", function () {
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          p.sessionId,
+        createSessionAsWallet(
           walletAddr,
+          p.sessionId,
           ethers.ZeroAddress,
           p.maxValue,
           p.expiry,
-          p.nullifier,
           p.a,
           p.b,
           p.c,
@@ -1164,17 +1249,16 @@ describe("SessionManager — Unit & Security", function () {
       const walletAddr = await wallet.getAddress();
       const p = await makeCreateParams(walletAddr);
       p.expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
-      p.publicSignals[4] = p.expiry;
+      p.publicSignals[3] = p.expiry;
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          p.sessionId,
+        createSessionAsWallet(
           walletAddr,
+          p.sessionId,
           sessionKey.address,
           p.maxValue,
           p.expiry,
-          p.nullifier,
           p.a,
           p.b,
           p.c,
@@ -1188,13 +1272,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1205,13 +1288,12 @@ describe("SessionManager — Unit & Security", function () {
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          p.sessionId,
+        createSessionAsWallet(
           walletAddr,
+          p.sessionId,
           sessionKey.address,
           p2.maxValue,
           p2.expiry,
-          p2.nullifier,
           p2.a,
           p2.b,
           p2.c,
@@ -1225,13 +1307,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr, "unique-nullifier");
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1243,13 +1324,12 @@ describe("SessionManager — Unit & Security", function () {
       await mockVerifier.setResult(true);
 
       await expect(
-        sessionManager.connect(alice).createSession(
-          sessionId2,
+        createSessionAsWallet(
           walletAddr,
+          sessionId2,
           sessionKey.address,
           p2.maxValue,
           p2.expiry,
-          p.nullifier,
           p2.a,
           p2.b,
           p2.c,
@@ -1266,13 +1346,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1287,13 +1366,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1317,13 +1395,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1343,16 +1420,15 @@ describe("SessionManager — Unit & Security", function () {
       const walletAddr = await wallet.getAddress();
       const p = await makeCreateParams(walletAddr);
       p.maxValue = 500n;
-      p.publicSignals[3] = 500n;
+      p.publicSignals[2] = 500n;
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1381,13 +1457,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1410,13 +1485,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1437,20 +1511,18 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
         p.publicSignals
       );
 
-      // Impersonate attacker wallet
       await ethers.provider.send("hardhat_impersonateAccount", [
         attacker.address,
       ]);
@@ -1472,13 +1544,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1498,13 +1569,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1524,13 +1594,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1552,13 +1621,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1584,13 +1652,12 @@ describe("SessionManager — Unit & Security", function () {
       const p = await makeCreateParams(walletAddr);
       await mockVerifier.setResult(true);
 
-      await sessionManager.connect(alice).createSession(
-        p.sessionId,
+      await createSessionAsWallet(
         walletAddr,
+        p.sessionId,
         sessionKey.address,
         p.maxValue,
         p.expiry,
-        p.nullifier,
         p.a,
         p.b,
         p.c,
@@ -1609,6 +1676,7 @@ describe("SessionManager — Unit & Security", function () {
       ).to.be.revertedWithCustomError(sessionManager, "SessionIsRevoked");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
+
   });
 
   // ── Lightweight Session ──
@@ -1634,8 +1702,11 @@ describe("SessionManager — Unit & Security", function () {
       walletAddress: string,
       spendLimit: bigint = DAILY_SPEND,
       txLimit: bigint = DAILY_TX,
-      expiry: bigint = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30)
+      expiry?: bigint
     ) {
+      if (!expiry) {
+        expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
+      }
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
@@ -1667,7 +1738,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should create lightweight session with valid signature", async function () {
       const sessionId = ethers.id("lw-session-1");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
       const network = await ethers.provider.getNetwork();
 
@@ -1717,7 +1788,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should reject with invalid signature", async function () {
       const sessionId = ethers.id("lw-invalid-sig");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -1756,7 +1827,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should reject from non-wallet caller", async function () {
       const sessionId = ethers.id("lw-non-wallet");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -1785,7 +1856,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should validate lightweight session", async function () {
       const sessionId = ethers.id("lw-validate");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -1830,7 +1901,7 @@ describe("SessionManager — Unit & Security", function () {
       const sessionId = ethers.id("lw-spend-limit");
       const sessionKeyAddr = sessionKey.address;
       const lowLimit = ethers.parseEther("0.5");
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -1887,7 +1958,7 @@ describe("SessionManager — Unit & Security", function () {
       const sessionId = ethers.id("lw-tx-limit");
       const sessionKeyAddr = sessionKey.address;
       const lowTxLimit = 2n;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -1950,7 +2021,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should reset daily limits after day boundary", async function () {
       const sessionId = ethers.id("lw-reset");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -2055,7 +2126,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should revoke lightweight session", async function () {
       const sessionId = ethers.id("lw-revoke");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -2097,7 +2168,7 @@ describe("SessionManager — Unit & Security", function () {
     it("Should prevent unauthorized lightweight session revocation", async function () {
       const sessionId = ethers.id("lw-unauth-revoke");
       const sessionKeyAddr = sessionKey.address;
-      const expiry = BigInt(Math.floor(Date.now() / 1000) + 86400 * 30);
+      const expiry = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400 * 30);
       const walletAddress = await wallet.getAddress();
 
       const network = await ethers.provider.getNetwork();
@@ -2204,24 +2275,31 @@ describe("SessionManager — Unit & Security", function () {
       await sessionManager.pause();
       const wallet = await createWallet(owner);
       const walletAddr = await wallet.getAddress();
+      const block = await ethers.provider.getBlock("latest");
+      const expiry = BigInt(block!.timestamp + 3600);
+
+      await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
+      await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+      const walletSigner = await ethers.getSigner(walletAddr);
 
       await expect(
-        sessionManager.connect(alice).createSession(
+        sessionManager.connect(walletSigner).createSession(
           ethers.id("paused-session"),
           walletAddr,
           sessionKey.address,
           1000n,
-          BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 3600),
-          ethers.id("null"),
+          expiry,
           [0n, 0n],
           [
             [0n, 0n],
             [0n, 0n],
           ],
           [0n, 0n],
-          [0n, 0n, 0n, 1000n, BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 3600), walletAddr]
+          [0n, 0n, 1000n, expiry, walletAddr, 1n, ethers.id("null")]
         )
       ).to.be.revertedWithCustomError(sessionManager, "EnforcedPause");
+
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
   });
 
@@ -2249,17 +2327,20 @@ describe("SessionManager — Unit & Security", function () {
     });
   });
 
-  // ── setWalletFactory ──
+  // ── proposeWalletFactory / acceptWalletFactory ──
 
-  describe("setWalletFactory", function () {
-    it("Should allow owner to update walletFactory", async function () {
-      await sessionManager.connect(owner).setWalletFactory(alice.address);
+  describe("Wallet Factory Timelock", function () {
+    it("Should allow owner to propose and accept walletFactory", async function () {
+      await sessionManager.connect(owner).proposeWalletFactory(alice.address);
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine", []);
+      await sessionManager.connect(owner).acceptWalletFactory();
       expect(await sessionManager.walletFactory()).to.equal(alice.address);
     });
 
-    it("Should prevent non-owner from updating", async function () {
+    it("Should prevent non-owner from proposing", async function () {
       await expect(
-        sessionManager.connect(attacker).setWalletFactory(alice.address)
+        sessionManager.connect(attacker).proposeWalletFactory(alice.address)
       ).to.be.reverted;
     });
 
@@ -2267,8 +2348,15 @@ describe("SessionManager — Unit & Security", function () {
       await expect(
         sessionManager
           .connect(owner)
-          .setWalletFactory(ethers.ZeroAddress)
+          .proposeWalletFactory(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(sessionManager, "InvalidSessionManager");
+    });
+
+    it("Should reject accept before timelock", async function () {
+      await sessionManager.connect(owner).proposeWalletFactory(alice.address);
+      await expect(
+        sessionManager.connect(owner).acceptWalletFactory()
+      ).to.be.revertedWithCustomError(sessionManager, "WalletFactoryTimelockNotReady");
     });
   });
 });
@@ -2753,18 +2841,25 @@ describe("CapabilityRegistry — Unit & Security", function () {
   // ── Grant Root Management ──
 
   describe("Grant Root Management", function () {
+    const grantCapId = ethers.id("grant-root-cap");
+
+    beforeEach(async function () {
+      const expiresAt = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      await capabilityRegistry.registerCapability(grantCapId, "grant-root-action", expiresAt);
+    });
+
     it("Should allow grantor to update grant root", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("grant-root"));
       await expect(
         capabilityRegistry
           .connect(grantor)
-          .updateGrantRoot(agent.address, newRoot)
+          .updateGrantRoot(agent.address, grantCapId, newRoot)
       )
         .to.emit(capabilityRegistry, "GrantRootUpdated")
-        .withArgs(grantor.address, agent.address, newRoot);
+        .withArgs(grantor.address, agent.address, grantCapId, newRoot);
 
       expect(
-        await capabilityRegistry.grantRoots(grantor.address, agent.address)
+        await capabilityRegistry.grantRoots(grantor.address, agent.address, grantCapId)
       ).to.equal(newRoot);
     });
 
@@ -2772,9 +2867,9 @@ describe("CapabilityRegistry — Unit & Security", function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("any-root"));
       await capabilityRegistry
         .connect(attacker)
-        .updateGrantRoot(agent.address, newRoot);
+        .updateGrantRoot(agent.address, grantCapId, newRoot);
       expect(
-        await capabilityRegistry.grantRoots(attacker.address, agent.address)
+        await capabilityRegistry.grantRoots(attacker.address, agent.address, grantCapId)
       ).to.equal(newRoot);
     });
   });
@@ -2856,7 +2951,7 @@ describe("CapabilityRegistry — Unit & Security", function () {
 
       await capabilityRegistry
         .connect(owner)
-        .updateGrantRoot(agent.address, root);
+        .updateGrantRoot(agent.address, capId, root);
 
       const valid = await capabilityRegistry.verifyCapability(
         agent.address,
@@ -2923,7 +3018,7 @@ describe("CapabilityRegistry — Unit & Security", function () {
 
       await capabilityRegistry
         .connect(owner)
-        .updateGrantRoot(agent.address, grantLeaf);
+        .updateGrantRoot(agent.address, capId, grantLeaf);
 
       const valid = await capabilityRegistry.verifyCapability(
         agent.address,
@@ -3673,7 +3768,7 @@ describe("DelegationManager — Unit & Security", function () {
         delegatorsList.push(attacker.address);
         delegatesList.push(attacker.address);
         scopeHashes.push(ethers.ZeroHash);
-        expiries.push(BigInt(Math.floor(Date.now() / 1000) + 86400));
+        expiries.push(BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 86400));
         maxDepths.push(10);
       }
 
@@ -3866,7 +3961,10 @@ describe("Cross-Contract Integration", function () {
       await factoryProxy.getAddress()
     );
 
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(
       await sessionManager.getAddress(),
       true
@@ -3939,26 +4037,28 @@ describe("Cross-Contract Integration", function () {
     await mockVerifier.setResult(true);
 
     // Create
-    await sessionManager.connect(agent).createSession(
+    await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
+    await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+    const walletSigner = await ethers.getSigner(walletAddr);
+    await sessionManager.connect(walletSigner).createSession(
       sessionId,
       walletAddr,
       sessionKey.address,
       maxValue,
       expiry,
-      nullifier,
       [0n, 0n],
       [
         [0n, 0n],
         [0n, 0n],
       ],
       [0n, 0n],
-      publicSignals
+      [activeRoot, revokedSecretRoot, maxValue, expiry, walletAddr, 1n, nullifier]
     );
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
 
     // Validate
     await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
     await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
-    const walletSigner = await ethers.getSigner(walletAddr);
     const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(
       sessionId,
       sessionKey.address,
@@ -3999,7 +4099,7 @@ describe("Cross-Contract Integration", function () {
 
     await capabilityRegistry
       .connect(owner)
-      .updateGrantRoot(agent.address, grantLeaf);
+      .updateGrantRoot(agent.address, capId, grantLeaf);
 
     const valid = await capabilityRegistry.verifyCapability(
       agent.address,

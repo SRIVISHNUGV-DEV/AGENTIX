@@ -61,7 +61,11 @@ describe("Fuzz — AgentWallet", function () {
       ])
     );
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
-    await sessionManager.connect(owner).setWalletFactory(await factory.getAddress());
+    // Activate factory via timelock
+    await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.connect(owner).acceptWalletFactory();
 
     const tx = await factory.connect(owner)["createWallet(address)"](owner.address);
     const receipt = await tx.wait();
@@ -109,7 +113,7 @@ describe("Fuzz — AgentWallet", function () {
 
   it("Fuzz: zero-address always rejected", async function () {
     await expect(wallet.changeOwner(ethers.ZeroAddress)).to.be.reverted;
-    await expect(wallet.setSessionManager(ethers.ZeroAddress)).to.be.reverted;
+    await expect(wallet.proposeSessionManager(ethers.ZeroAddress)).to.be.reverted;
   });
 
   it("Fuzz: non-owner cannot change whitelist", async function () {

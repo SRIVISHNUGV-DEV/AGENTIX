@@ -65,10 +65,15 @@ describe("Fuzz — OrganizationRegistry", function () {
   it("Fuzz: credential anchor replacement", async function () {
     const id = ethers.keccak256(ethers.toUtf8Bytes("replace-anchor"));
     await orgReg.registerOrganization(id, "Replace", owner.address);
-    const newAnchor = signers[5].address;
-    await orgReg.setCredentialAnchor(id, newAnchor);
+    const AnchorF = await ethers.getContractFactory("OrganizationCredentialAnchor");
+    const newAnchorImpl = await AnchorF.deploy();
+    const newAnchorAddr = await newAnchorImpl.getAddress();
+    await orgReg.proposeCredentialAnchor(id, newAnchorAddr);
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await orgReg.acceptCredentialAnchor(id);
     const org = await orgReg.getOrganization(id);
-    expect(org.credentialAnchor).to.equal(newAnchor);
+    expect(org.credentialAnchor).to.equal(newAnchorAddr);
   });
 
   it("Fuzz: non-owner cannot register", async function () {

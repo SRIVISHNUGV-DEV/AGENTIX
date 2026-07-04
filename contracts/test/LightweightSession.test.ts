@@ -14,23 +14,30 @@ describe("LightweightSession", function () {
 
   const DAILY_SPEND_LIMIT = ethers.parseEther("1.0");
   const DAILY_TX_LIMIT = 10n;
-  const EXPIRY = BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60);
 
-  async function createSession(sessionId: string, walletOwner: SignerWithAddress, sessionKeyAddr: string, spendLimit: bigint = DAILY_SPEND_LIMIT, txLimit: bigint = DAILY_TX_LIMIT, expiry: bigint = EXPIRY) {
+  async function getExpiry(daysAhead = 30): Promise<bigint> {
+    const block = await ethers.provider.getBlock("latest");
+    return BigInt(block!.timestamp) + BigInt(daysAhead * 24 * 60 * 60);
+  }
+
+  async function createSession(sessionId: string, walletOwner: SignerWithAddress, sessionKeyAddr: string, spendLimit: bigint = DAILY_SPEND_LIMIT, txLimit: bigint = DAILY_TX_LIMIT, expiry?: bigint) {
+    if (!expiry) expiry = await getExpiry();
     const sessionIdBytes32 = ethers.id(sessionId);
+    const chainId = (await ethers.provider.getNetwork()).chainId;
+    const smAddr = await sessionManager.getAddress();
+    const walletAddr = await wallet.getAddress();
 
     const messageHash = ethers.keccak256(
       ethers.AbiCoder.defaultAbiCoder().encode(
-        ["bytes32", "address", "uint256", "uint256", "uint64"],
-        [sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry]
+        ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
+        [chainId, smAddr, walletAddr, sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry]
       )
     );
 
     const signature = await walletOwner.signMessage(ethers.getBytes(messageHash));
 
-    const walletAddress = await wallet.getAddress();
-    await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
-    const walletSigner = await ethers.getSigner(walletAddress);
+    await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+    const walletSigner = await ethers.getSigner(walletAddr);
 
     await sessionManager.connect(walletSigner).createLightweightSession(
       sessionIdBytes32,
@@ -41,7 +48,7 @@ describe("LightweightSession", function () {
       signature
     );
 
-    await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddress]);
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
 
     return sessionIdBytes32;
   }
@@ -64,6 +71,12 @@ describe("LightweightSession", function () {
     );
     credentialRegistry = await ethers.getContractAt("CredentialRegistry", await credRegProxy.getAddress());
 
+    // Deploy AgentWallet implementation
+    const AgentWalletFactory = await ethers.getContractFactory("AgentWallet");
+    const walletImpl = await AgentWalletFactory.deploy();
+
+    const placeholderAddr = "0x0000000000000000000000000000000000000001";
+
     // Deploy SessionManager (UUPS)
     const SessMgrImpl = await ethers.getContractFactory("SessionManager");
     const sessMgrImpl = await SessMgrImpl.deploy();
@@ -72,14 +85,11 @@ describe("LightweightSession", function () {
       await sessMgrImpl.getAddress(),
       sessMgrImpl.interface.encodeFunctionData("initialize", [
         await mockVerifier.getAddress(),
-        await credentialRegistry.getAddress()
+        await credentialRegistry.getAddress(),
+        placeholderAddr,
       ])
     );
     sessionManager = await ethers.getContractAt("SessionManager", await sessMgrProxy.getAddress());
-
-    // Deploy AgentWallet implementation
-    const AgentWalletFactory = await ethers.getContractFactory("AgentWallet");
-    const walletImpl = await AgentWalletFactory.deploy();
 
     // Deploy AgentWalletFactory (UUPS)
     const FactoryImpl = await ethers.getContractFactory("AgentWalletFactory");
@@ -94,6 +104,12 @@ describe("LightweightSession", function () {
       ])
     );
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
+
+    // Activate factory via timelock
+    await sessionManager.proposeWalletFactory(await factory.getAddress());
+    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_mine", []);
+    await sessionManager.acceptWalletFactory();
 
     // Create wallet
     const tx = await factory.connect(owner).createWallet(await owner.getAddress());
@@ -114,13 +130,18 @@ describe("LightweightSession", function () {
     it("should create session with valid owner signature", async function () {
       const sessionId = ethers.id("test-session-1");
       const sessionKey = await sessionKeySigner.getAddress();
+      const expiry = await getExpiry();
 
       const walletOwner = await wallet.owner();
 
+      const chainId = (await ethers.provider.getNetwork()).chainId;
+      const smAddr = await sessionManager.getAddress();
+      const walletAddress = await wallet.getAddress();
+
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["bytes32", "address", "uint256", "uint256", "uint64"],
-          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, expiry]
         )
       );
 
@@ -130,8 +151,6 @@ describe("LightweightSession", function () {
       expect(signingAddress).to.equal(actualOwner, "Wallet owner should match signer");
 
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
-
-      const walletAddress = await wallet.getAddress();
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
       const walletSigner = await ethers.getSigner(walletAddress);
 
@@ -140,7 +159,7 @@ describe("LightweightSession", function () {
         sessionKey,
         DAILY_SPEND_LIMIT,
         DAILY_TX_LIMIT,
-        EXPIRY,
+        expiry,
         signature
       );
 
@@ -156,17 +175,19 @@ describe("LightweightSession", function () {
     it("should reject session with invalid signature", async function () {
       const sessionId = ethers.id("test-session-2");
       const sessionKey = await sessionKeySigner.getAddress();
+      const chainId = (await ethers.provider.getNetwork()).chainId;
+      const smAddr = await sessionManager.getAddress();
+      const walletAddress = await wallet.getAddress();
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["bytes32", "address", "uint256", "uint256", "uint64"],
-          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
         )
       );
 
       const signature = await other.signMessage(ethers.getBytes(messageHash));
 
-      const walletAddress = await wallet.getAddress();
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
       const walletSigner = await ethers.getSigner(walletAddress);
 
@@ -176,7 +197,7 @@ describe("LightweightSession", function () {
           sessionKey,
           DAILY_SPEND_LIMIT,
           DAILY_TX_LIMIT,
-          EXPIRY,
+          expiry,
           signature
         )
       ).to.be.revertedWithCustomError(sessionManager, "NotWalletOwner");
@@ -190,15 +211,18 @@ describe("LightweightSession", function () {
 
       await createSession("test-session-3", owner, sessionKey);
 
+      const chainId = (await ethers.provider.getNetwork()).chainId;
+      const smAddr = await sessionManager.getAddress();
+      const walletAddress = await wallet.getAddress();
+
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["bytes32", "address", "uint256", "uint256", "uint64"],
-          [sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
 
-      const walletAddress = await wallet.getAddress();
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
       const walletSigner = await ethers.getSigner(walletAddress);
 
@@ -208,7 +232,7 @@ describe("LightweightSession", function () {
           sessionKey,
           DAILY_SPEND_LIMIT,
           DAILY_TX_LIMIT,
-          EXPIRY,
+          expiry,
           signature
         )
       ).to.be.revertedWithCustomError(sessionManager, "SessionAlreadyExists");
@@ -299,9 +323,13 @@ describe("LightweightSession", function () {
       const session = await sessionManager.getLightSession(sessionId);
       expect(session.revoked).to.be.true;
 
+      const walletAddress = await wallet.getAddress();
+      await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
+      const walletSigner = await ethers.getSigner(walletAddress);
       await expect(
-        sessionManager.validateLightweightSession(sessionId, sessionKey, ethers.parseEther("0.1"))
+        sessionManager.connect(walletSigner).validateLightweightSession(sessionId, sessionKey, ethers.parseEther("0.1"))
       ).to.be.revertedWithCustomError(sessionManager, "SessionIsRevoked");
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddress]);
     });
   });
 
