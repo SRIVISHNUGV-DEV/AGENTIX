@@ -1,0 +1,22 @@
+# Architecture
+- Separate owner-only contract functions into an `onlyOwner/` subdirectory to abstract blockchain complexity from external users. Confidence: 0.70
+- Merkle tree depth must be kept consistent across all tree-related files: constants/index.ts (TREE_DEPTH), src/utils/merkle.ts, src/trees/active-tree.ts, and src/trees/revoked-tree.ts. Currently set to 20 to match the ZK circuit's CredentialCircuit(20). Confidence: 0.75
+- Credential issuance requires an organization; standalone agents use lightweight sessions via AgentWallet instead of ZK credentials. Confidence: 0.70
+- Each harness adapter should include a logo URL (via HARNESS_LOGOS map), version detection via a getVersionCommand() CLI call, and detection results should persist to the harnesses DB table on scan. Confidence: 0.70
+- API server must only interact with proxy addresses, never implementation addresses, for UUPS upgradeable contracts. Confidence: 0.70
+- For AgentIX: generate agent keypairs client-side; the private key must never leave the user's machine. The agent secret is validated by the owner's wallet signature before use. Confidence: 0.75
+- Ship with a minimal local ERC-4337 bundler (~80-100 lines) that relays agent-signed UserOperations to the EntryPoint via handleOps(), removing the need for external bundler infrastructure. Confidence: 0.70
+- MCP tools exposed to AI agents should include autonomous transaction execution capabilities (wallet_create, wallet_execute, wallet_execute_batch) in addition to bundler_send and read-only queries. The agent should be able to create wallets and execute transactions on its own — that's the entire point of the protocol. Session management and read-only queries remain available as supporting tools. Confidence: 0.70
+- Compiler pipelines should use multi-stage Intermediate Representations (Intent IR → Capability Graph → Policy Graph → Execution Graph → Execution Plan) rather than direct intent-to-plan transformation. Confidence: 0.80
+- Capability resolution must precede policy generation in compiler pipelines; capabilities are stable while policies are generated from them. Confidence: 0.75
+- Execution plans must be DAGs (nodes, calls, dependencies, retry, rollback), not flat JSON arrays. Confidence: 0.75
+- Model system resources explicitly: Wallet, RPC, SQLite, Filesystem, Network, Compiler Cache, Policy Cache. Every subsystem declares what resources it consumes. Confidence: 0.70
+- Runtime should be a thin orchestration layer that delegates to a Service Registry; everything else moves into dedicated services (WalletService, IdentityService, SessionService, Indexer, Compiler). Confidence: 0.75
+- Every domain entity (Identity, Wallet, Session, Execution, Organization, Compiler, Plan) must explicitly define its states, valid transitions, and invariants as a state machine. Confidence: 0.80
+- Plugin systems should expose provider-level abstractions (Ethereum, Solana, Arweave, GitHub, Stripe, Filesystem, Browser) rather than pipeline-stage hooks (risk, policy, simulation). Capabilities become provider metadata. Confidence: 0.70
+- Every agent should have an agent.toml manifest defining name, identity, wallet, runtime, plugins, capabilities, organizations, permissions, and version. Confidence: 0.75
+- Separate storage by data type: SQLite for structured data, JSONL for append-only logs, TOML for configuration, Merkle tree snapshots for verifiable binary state. Don't put everything into SQLite. Confidence: 0.70
+- Merkle trees should be a generic verifiable storage primitive, not credential-specific. Execution Plans, Events, Credentials, and Attestations should all use Merkle trees for verifiability. Confidence: 0.70
+- Use an Event Bus as the central communication backbone; subsystems publish events rather than calling each other directly (Runtime → Event Bus → Compiler → Dashboard → Indexer → Logs → Diagnostics). Confidence: 0.75
+- Build a unified Scheduler for retry, delayed jobs, expired session cleanup, checkpoint writes, garbage collection, cache cleanup, replay, and background sync — not scattered setInterval timers. Confidence: 0.70
+- Before implementing major subsystems, produce an architecture.md defining for every component: single responsibility, data owned, data read, events published/subscribed, lifecycle/state machine, dependencies, and execution context (memory/disk/chain). Confidence: 0.85

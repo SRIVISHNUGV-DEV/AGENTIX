@@ -212,14 +212,14 @@ agentix/
 
 | Contract | Address |
 |----------|---------|
-| Verifier | `0x06A08E7E06296eBdA8d7Ea467e412aD75c2f2424` |
-| CredentialRegistry | `0xC3F474e08Fe68bBa39daCCE52FC4F11262364701` |
-| SessionManager | `0x98b4516fbf913c7fD94E87dE98788d4dD1da06E2` |
-| AgentWalletFactory | `0x36ECC27acd245dbac23Ca1bC72798E75BfbA4a84` |
-| AgentWallet Impl | `0xB00c0a6A821D054098D3a9D87A93c1fE2A76b4e8` |
+| Verifier | `0x1Baae590586170A8779b31186757DaDbcaE94f57` |
+| CredentialRegistry | `0xaC0A72FaAF2596DD55A20049F0ab7584b58b3DEE` |
+| SessionManager | `0x27532B3B2d0704715D5e81BDa8B0D272675751d1` |
+| AgentWalletFactory | `0x9e6B32F7da3ef2C2dD1337757FbC25Eb72FdFfE3` |
+| AgentWallet Impl | `0x0069aaBe2BCCE3Ef22D7104684f5d091b49f7A30` |
 | EntryPoint | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` |
-| CapabilityRegistry | `0xa3166c63920305B7fBE11f97683B99F239bC7975` |
-| DelegationManager | `0x355b30477125c6a2F1323095baf99D3781bABd3B` |
+| CapabilityRegistry | `0xa9ff494D1047bC9399858394B95aCf7066740aFC` |
+| DelegationManager | `0x73f8591ccCdBfE1595aA4d2160e8F166E0243E38` |
 
 ---
 

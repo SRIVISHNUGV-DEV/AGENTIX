@@ -92,6 +92,12 @@ circuits/prover/
 *.tmp
 *.temp
 
+# Build outputs (agentix)
+agentix/dist-publish/
+
+# Contract build cache
+contracts/cache/
+
 # Docker
 .docker/
 docker-compose.override.yml
