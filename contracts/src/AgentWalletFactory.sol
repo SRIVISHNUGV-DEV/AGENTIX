@@ -7,17 +7,23 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 error InvalidImplementationError();
-error InvalidSessionManagerError();
-error InvalidEntryPointError();
-error InvalidOwnerError();
+error FactoryInvalidSessionManagerError();
+error FactoryInvalidEntryPointError();
+error FactoryInvalidOwnerError();
 error WalletAlreadyExistsWithDifferentOwner();
-error TimelockNotReadyError();
-error TimelockActiveError();
+error FactoryTimelockNotReadyError();
+error FactoryTimelockActiveError();
+error InvalidAgentIdentityError();
 
 /// @notice Minimal interface for AgentWallet initialization.
 interface IAgentWallet {
     function initialize(address owner, address sessionManager, address entryPoint) external;
     function owner() external view returns (address);
+}
+
+/// @notice Minimal interface for AgentIdentity registration.
+interface IAgentIdentity {
+    function registerIdentity(address wallet) external returns (uint256);
 }
 
 /// @title AgentWalletFactory
@@ -36,7 +42,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     event EntryPointProposed(address indexed previous, address indexed next, uint256 activationTime);
     event EntryPointUpdated(address indexed oldEP, address indexed newEP);
 
-    uint256 public constant TIMELOCK_DELAY = 24 hours;
+    uint256 public constant TIMELOCK_DELAY = 0 seconds;
 
     /// @notice The AgentWallet implementation contract that clones are based on.
     address public implementation;
@@ -44,6 +50,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     address public entryPoint;
     /// @notice The SessionManager contract assigned to all new wallets.
     address public sessionManager;
+    /// @notice The AgentIdentity registry contract.
+    address public agentIdentity;
     /// @notice Counter used to generate unique salts for auto-generated wallets.
     uint256 public walletCount;
     /// @notice Registry of all wallets created by this factory.
@@ -80,8 +88,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     ) public initializer {
         __Ownable_init(msg.sender);
         if (implementation_ == address(0)) revert InvalidImplementationError();
-        if (sessionManager_ == address(0)) revert InvalidSessionManagerError();
-        if (entryPoint_ == address(0)) revert InvalidEntryPointError();
+        if (sessionManager_ == address(0)) revert FactoryInvalidSessionManagerError();
+        if (entryPoint_ == address(0)) revert FactoryInvalidEntryPointError();
         implementation = implementation_;
         sessionManager = sessionManager_;
         entryPoint = entryPoint_;
@@ -114,7 +122,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @param newImplementation The proposed new implementation contract address.
     function proposeImplementation(address newImplementation) external onlyOwner {
         if (newImplementation == address(0)) revert InvalidImplementationError();
-        if (pendingImplementation != address(0)) revert TimelockActiveError();
+        if (pendingImplementation != address(0)) revert FactoryTimelockActiveError();
         pendingImplementation = newImplementation;
         implementationActivationTime = block.timestamp + TIMELOCK_DELAY;
         emit ImplementationProposed(implementation, newImplementation, implementationActivationTime);
@@ -123,7 +131,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Activates the pending implementation after the timelock has elapsed.
     function acceptImplementation() external onlyOwner {
         if (pendingImplementation == address(0)) revert InvalidImplementationError();
-        if (block.timestamp < implementationActivationTime) revert TimelockNotReadyError();
+        if (block.timestamp < implementationActivationTime) revert FactoryTimelockNotReadyError();
         address oldImpl = implementation;
         implementation = pendingImplementation;
         pendingImplementation = address(0);
@@ -134,8 +142,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Proposes a new SessionManager with a 24-hour timelock.
     /// @param newSessionManager The proposed new SessionManager contract address.
     function proposeSessionManager(address newSessionManager) external onlyOwner {
-        if (newSessionManager == address(0)) revert InvalidSessionManagerError();
-        if (pendingSessionManager != address(0)) revert TimelockActiveError();
+        if (newSessionManager == address(0)) revert FactoryInvalidSessionManagerError();
+        if (pendingSessionManager != address(0)) revert FactoryTimelockActiveError();
         pendingSessionManager = newSessionManager;
         sessionManagerActivationTime = block.timestamp + TIMELOCK_DELAY;
         emit SessionManagerProposed(sessionManager, newSessionManager, sessionManagerActivationTime);
@@ -143,8 +151,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Activates the pending SessionManager after the timelock has elapsed.
     function acceptSessionManager() external onlyOwner {
-        if (pendingSessionManager == address(0)) revert InvalidSessionManagerError();
-        if (block.timestamp < sessionManagerActivationTime) revert TimelockNotReadyError();
+        if (pendingSessionManager == address(0)) revert FactoryInvalidSessionManagerError();
+        if (block.timestamp < sessionManagerActivationTime) revert FactoryTimelockNotReadyError();
         address oldSM = sessionManager;
         sessionManager = pendingSessionManager;
         pendingSessionManager = address(0);
@@ -155,8 +163,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Proposes a new EntryPoint with a 24-hour timelock.
     /// @param newEntryPoint The proposed new EntryPoint contract address.
     function proposeEntryPoint(address newEntryPoint) external onlyOwner {
-        if (newEntryPoint == address(0)) revert InvalidEntryPointError();
-        if (pendingEntryPoint != address(0)) revert TimelockActiveError();
+        if (newEntryPoint == address(0)) revert FactoryInvalidEntryPointError();
+        if (pendingEntryPoint != address(0)) revert FactoryTimelockActiveError();
         pendingEntryPoint = newEntryPoint;
         entryPointActivationTime = block.timestamp + TIMELOCK_DELAY;
         emit EntryPointProposed(entryPoint, newEntryPoint, entryPointActivationTime);
@@ -164,8 +172,8 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Activates the pending EntryPoint after the timelock has elapsed.
     function acceptEntryPoint() external onlyOwner {
-        if (pendingEntryPoint == address(0)) revert InvalidEntryPointError();
-        if (block.timestamp < entryPointActivationTime) revert TimelockNotReadyError();
+        if (pendingEntryPoint == address(0)) revert FactoryInvalidEntryPointError();
+        if (block.timestamp < entryPointActivationTime) revert FactoryTimelockNotReadyError();
         address oldEP = entryPoint;
         entryPoint = pendingEntryPoint;
         pendingEntryPoint = address(0);
@@ -180,10 +188,17 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
         return agentWallets[wallet];
     }
 
+    /// @notice Sets the AgentIdentity registry contract. Only callable by the owner.
+    /// @param agentIdentity_ The AgentIdentity contract address.
+    function setAgentIdentity(address agentIdentity_) external onlyOwner {
+        if (agentIdentity_ == address(0)) revert InvalidAgentIdentityError();
+        agentIdentity = agentIdentity_;
+    }
+
     /// @dev Internal wallet creation logic. Deploys a deterministic clone and initializes it.
     ///      Reverts if a wallet at that address belongs to a different owner.
     function _createWallet(address owner, bytes32 salt) internal returns (address wallet) {
-        if (owner == address(0)) revert InvalidOwnerError();
+        if (owner == address(0)) revert FactoryInvalidOwnerError();
         wallet = implementation.predictDeterministicAddress(salt, address(this));
 
         if (wallet.code.length == 0) {
@@ -191,6 +206,9 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
             IAgentWallet(wallet).initialize(owner, sessionManager, entryPoint);
             agentWallets[wallet] = true;
             walletCount++;
+            if (agentIdentity != address(0)) {
+                IAgentIdentity(agentIdentity).registerIdentity(wallet);
+            }
             emit WalletCreated(wallet, owner, salt, entryPoint);
         } else if (IAgentWallet(wallet).owner() != owner) {
             revert WalletAlreadyExistsWithDifferentOwner();

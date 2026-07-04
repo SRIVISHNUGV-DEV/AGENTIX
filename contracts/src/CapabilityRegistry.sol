@@ -91,7 +91,9 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     function updateGrantRoot(address grantee, bytes32 capabilityId, bytes32 newRoot) external whenNotPaused {
         if (grantee == address(0)) revert InvalidRecipient();
-        if (capabilities[capabilityId].createdAt == 0) revert CapabilityNotFound();
+        CapabilityDef storage cap = capabilities[capabilityId];
+        if (cap.createdAt == 0) revert CapabilityNotFound();
+        if (cap.registrar != msg.sender && msg.sender != owner()) revert NotAuthorizedForCapability();
         if (newRoot == bytes32(0)) revert InvalidRoot();
         grantRoots[msg.sender][grantee][capabilityId] = newRoot;
         emit GrantRootUpdated(msg.sender, grantee, capabilityId, newRoot);

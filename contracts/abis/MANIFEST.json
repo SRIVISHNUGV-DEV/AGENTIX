@@ -1,0 +1,80 @@
+{
+  "generated": "2026-07-04T08:03:22.264Z",
+  "solcVersion": "0.8.24",
+  "openZeppelin": "5.3.0",
+  "evmTarget": "paris",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "contracts": {
+    "AgentIdentity": {
+      "path": "abis/AgentIdentity.json",
+      "entries": 62
+    },
+    "AgentWallet": {
+      "path": "abis/AgentWallet.json",
+      "entries": 65
+    },
+    "AgentWalletFactory": {
+      "path": "abis/AgentWalletFactory.json",
+      "entries": 62
+    },
+    "CapabilityRegistry": {
+      "path": "abis/CapabilityRegistry.json",
+      "entries": 52
+    },
+    "CredentialRegistry": {
+      "path": "abis/CredentialRegistry.json",
+      "entries": 46
+    },
+    "DelegationManager": {
+      "path": "abis/DelegationManager.json",
+      "entries": 65
+    },
+    "Groth16Verifier": {
+      "path": "abis/Groth16Verifier.json",
+      "entries": 1
+    },
+    "OrganizationCredentialAnchor": {
+      "path": "abis/OrganizationCredentialAnchor.json",
+      "entries": 48
+    },
+    "OrganizationRegistry": {
+      "path": "abis/OrganizationRegistry.json",
+      "entries": 59
+    },
+    "SessionManager": {
+      "path": "abis/SessionManager.json",
+      "entries": 96
+    },
+    "IAgentIdentity": {
+      "path": "abis/IAgentIdentity.json",
+      "entries": 1
+    },
+    "IAgentWallet": {
+      "path": "abis/IAgentWallet.json",
+      "entries": 1
+    },
+    "ICredentialRegistry": {
+      "path": "abis/ICredentialRegistry.json",
+      "entries": 4
+    },
+    "IAgentWalletFactory": {
+      "path": "abis/IAgentWalletFactory.json",
+      "entries": 1
+    },
+    "ISessionManager": {
+      "path": "abis/ISessionManager.json",
+      "entries": 3
+    },
+    "IVerifier": {
+      "path": "abis/IVerifier.json",
+      "entries": 1
+    },
+    "IEntryPoint": {
+      "path": "abis/IEntryPoint.json",
+      "entries": 3
+    }
+  }
+}

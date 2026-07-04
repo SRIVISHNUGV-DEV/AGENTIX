@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 error InvalidOrganizationId();
 error RootAlreadyCurrent();
 error UnauthorizedUpdate();
+error RevokedRootCannotBeZero();
 
 /// @title OrganizationCredentialAnchor
 /// @notice Lightweight EIP1167 clone per organization. Stores credential roots, epochs,
@@ -54,6 +55,7 @@ contract OrganizationCredentialAnchor is Initializable, PausableUpgradeable, UUP
     }
 
     function updateRevokedRoot(bytes32 newRoot) external onlyOwner whenNotPaused {
+        if (newRoot == bytes32(0)) revert RevokedRootCannotBeZero();
         bytes32 old = revokedRoot;
         revokedRoot = newRoot;
         emit RevokedRootUpdated(organizationId, old, newRoot);

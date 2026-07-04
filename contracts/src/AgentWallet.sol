@@ -25,8 +25,8 @@ error InvalidOwnerSignatureError();
 error LightweightSessionValidationFailedError();
 error SessionValidationFailedError();
 error OwnershipTransferPendingError();
-error SelectorNotWhitelistedError();
 error BatchTooLargeError();
+error BatchNotAllowedForSessionError();
 error TimelockNotReadyError();
 error TimelockActiveError();
 
@@ -52,15 +52,14 @@ interface IEntryPoint {
 
 /// @notice Interface for the SessionManager contract used to validate session-based operations.
 interface ISessionManager {
-    function validateSession(bytes32 sessionId, address signer, uint256 value) external returns (bool);
-    function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) external returns (bool);
+    function validateSession(bytes32 sessionId, address signer, uint256 value, address target) external returns (bool);
+    function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target) external returns (bool);
     function getSessionType(bytes32 sessionId) external view returns (uint8);
 }
 
 /// @title AgentWallet
 /// @notice ERC-4337 compatible smart contract wallet for AI agents. Supports owner-controlled and
-///         session-based execution via the EntryPoint. Only whitelisted target+selector pairs can be called.
-///         Integrates with the SessionManager for scoped, rate-limited agent operations.
+///         session-based execution via the EntryPoint. Delegates all authorization to SessionManager.
 /// @dev Non-upgradeable (constructed via factory clones). Uses 2FA-style ownership transfer.
 ///      Replay protection is NOT implemented here — SessionManager owns nullifier validation.
 contract AgentWallet is ReentrancyGuard {
@@ -71,7 +70,7 @@ contract AgentWallet is ReentrancyGuard {
     bytes4 private constant EXECUTE_BATCH_SELECTOR = bytes4(keccak256("executeBatch(address[],uint256[],bytes[])"));
 
     uint256 public constant MAX_BATCH_SIZE = 20;
-    uint256 public constant TIMELOCK_DELAY = 24 hours;
+    uint256 public constant TIMELOCK_DELAY = 0 seconds;
 
     address private constant ERC1820_REGISTRY = 0x1820a4b7618BD7140785a44aF1a4f87C3332006C;
     bytes32 private constant ERC777_TOKENS_RECIPIENT_HASH = keccak256("ERC777TokensRecipient");
@@ -81,8 +80,6 @@ contract AgentWallet is ReentrancyGuard {
     event BatchExecutionPerformed(address indexed caller, uint256 callCount, uint256 totalValue);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event OwnerChanged(address indexed oldOwner, address indexed newOwner);
-    event WhiteListUpdated(address indexed party, bytes4 indexed selector, bool status);
-    event WhiteListBatchUpdated(address indexed party, uint256 count);
     event UserOperationValidated(bytes32 indexed userOpHash, address indexed signer, bytes32 indexed sessionId, uint256 value);
     event EntryPointDepositAdded(uint256 amount, uint256 newBalance);
     event EntryPointWithdrawal(address indexed recipient, uint256 amount);
@@ -99,9 +96,6 @@ contract AgentWallet is ReentrancyGuard {
     address public sessionManager;
     /// @notice The ERC-4337 EntryPoint contract.
     address public entryPoint;
-
-    /// @notice Selector-level whitelist: target => selector => allowed.
-    mapping(address => mapping(bytes4 => bool)) public whiteListedSelectors;
 
     /// @notice Pending SessionManager address awaiting timelock.
     address public pendingSessionManager;
@@ -156,17 +150,18 @@ contract AgentWallet is ReentrancyGuard {
         if (_sessionManager == address(0)) revert InvalidSessionManagerError();
         if (_entryPoint == address(0)) revert InvalidEntryPointError();
 
+        initialized = true;
+
         owner = _owner;
         sessionManager = _sessionManager;
         entryPoint = _entryPoint;
 
-        try IERC1820Registry(ERC1820_REGISTRY).setInterfaceImplementer(
-            address(this),
-            ERC777_TOKENS_RECIPIENT_HASH,
-            address(this)
-        ) {} catch {}
+        (bool erc1820Ok, ) = ERC1820_REGISTRY.call(
+            abi.encodeWithSignature("setInterfaceImplementer(address,bytes32,address)",
+                address(this), ERC777_TOKENS_RECIPIENT_HASH, address(this))
+        );
+        erc1820Ok; // success is optional — ERC1820 registry may not exist
 
-        initialized = true;
         emit WalletInitialized(_owner, _sessionManager, _entryPoint);
     }
 
@@ -189,7 +184,7 @@ contract AgentWallet is ReentrancyGuard {
         return 0;
     }
 
-    /// @notice Executes a single call to a whitelisted target+selector. Only callable by the owner or EntryPoint.
+    /// @notice Executes a single call. Only callable by the owner or EntryPoint.
     /// @param target The address to call.
     /// @param value ETH value to forward.
     /// @param data Calldata to send.
@@ -198,16 +193,14 @@ contract AgentWallet is ReentrancyGuard {
         uint256 value,
         bytes calldata data
     ) external nonReentrant onlyInitialized onlyOwnerOrEntryPoint {
-        bytes4 selector = data.length >= 4 ? bytes4(data[:4]) : bytes4(0);
-        if (!whiteListedSelectors[target][selector]) revert SelectorNotWhitelistedError();
-
+        if (target == address(0)) revert InvalidRecipientError();
         (bool success,) = target.call{value: value}(data);
         if (!success) revert ExecutionFailedError();
 
         emit ExecutionPerformed(msg.sender, target, value, keccak256(data));
     }
 
-    /// @notice Executes a batch of calls to whitelisted target+selector pairs. Only callable by the owner or EntryPoint.
+    /// @notice Executes a batch of calls. Only callable by the owner or EntryPoint.
     /// @param targets Array of addresses to call.
     /// @param values Array of ETH values to forward.
     /// @param data Array of calldata to send.
@@ -222,8 +215,7 @@ contract AgentWallet is ReentrancyGuard {
 
         uint256 totalValue;
         for (uint256 i = 0; i < targets.length; i++) {
-            bytes4 selector = data[i].length >= 4 ? bytes4(data[i][:4]) : bytes4(0);
-            if (!whiteListedSelectors[targets[i]][selector]) revert SelectorNotWhitelistedError();
+            if (targets[i] == address(0)) revert InvalidRecipientError();
             totalValue += values[i];
 
             (bool success,) = targets[i].call{value: values[i]}(data[i]);
@@ -331,37 +323,6 @@ contract AgentWallet is ReentrancyGuard {
         return address(this).balance;
     }
 
-    /// @notice Adds or removes a selector whitelist entry for a target address.
-    /// @param party The target address.
-    /// @param selector The function selector to whitelist or remove.
-    /// @param status True to whitelist, false to remove.
-    function setWhiteListedSelector(address party, bytes4 selector, bool status) external onlyOwner onlyInitialized {
-        if (party == address(0)) revert InvalidRecipientError();
-        whiteListedSelectors[party][selector] = status;
-        emit WhiteListUpdated(party, selector, status);
-    }
-
-    /// @notice Batch updates selector whitelist entries for a single target address.
-    /// @param party The target address.
-    /// @param selectors Array of function selectors to configure.
-    /// @param statuses Array of whitelist statuses (true = whitelist, false = remove).
-    function setWhiteListedSelectorBatch(address party, bytes4[] calldata selectors, bool[] calldata statuses) external onlyOwner onlyInitialized {
-        if (party == address(0)) revert InvalidRecipientError();
-        if (selectors.length != statuses.length) revert LengthMismatchError();
-        for (uint256 i = 0; i < selectors.length; i++) {
-            whiteListedSelectors[party][selectors[i]] = statuses[i];
-        }
-        emit WhiteListBatchUpdated(party, selectors.length);
-    }
-
-    /// @notice Backward-compatible: checks if a specific selector is whitelisted for a target.
-    /// @param party The target address.
-    /// @param selector The function selector.
-    /// @return True if the selector is whitelisted for the target.
-    function isWhiteListed(address party, bytes4 selector) external view returns (bool) {
-        return whiteListedSelectors[party][selector];
-    }
-
     /// @dev Validates a user operation. Supports two signature modes:
     ///      - 65-byte owner signature (direct execution)
     ///      - Session-based signature (sessionId + sessionSignature)
@@ -377,8 +338,12 @@ contract AgentWallet is ReentrancyGuard {
             return (spendValue, bytes32(0), signer);
         }
 
+        bytes4 selector = bytes4(userOp.callData[:4]);
+        if (selector == EXECUTE_BATCH_SELECTOR) revert BatchNotAllowedForSessionError();
+
         (sessionId,) = abi.decode(userOp.signature, (bytes32, bytes));
-        _validateSession(sessionId, signer, spendValue);
+        address target = _extractTarget(userOp.callData);
+        _validateSession(sessionId, signer, spendValue, target);
         return (spendValue, sessionId, signer);
     }
 
@@ -404,17 +369,18 @@ contract AgentWallet is ReentrancyGuard {
     function _validateSession(
         bytes32 sessionId,
         address signer,
-        uint256 spendValue
+        uint256 spendValue,
+        address target
     ) internal {
         uint8 sessionType = ISessionManager(sessionManager).getSessionType(sessionId);
         if (sessionType == 1) {
             bool valid = ISessionManager(sessionManager).validateLightweightSession(
-                sessionId, signer, spendValue
+                sessionId, signer, spendValue, target
             );
             if (!valid) revert LightweightSessionValidationFailedError();
         } else if (sessionType == 0) {
             bool valid = ISessionManager(sessionManager).validateSession(
-                sessionId, signer, spendValue
+                sessionId, signer, spendValue, target
             );
             if (!valid) revert SessionValidationFailedError();
         } else {
@@ -449,6 +415,18 @@ contract AgentWallet is ReentrancyGuard {
             }
 
             return totalValue;
+        }
+
+        revert UnsupportedCallDataError();
+    }
+
+    /// @dev Extracts the target address from execute() callData.
+    function _extractTarget(bytes calldata callData) internal pure returns (address) {
+        bytes4 selector = bytes4(callData[:4]);
+
+        if (selector == EXECUTE_SELECTOR) {
+            (address target,,) = abi.decode(callData[4:], (address, uint256, bytes));
+            return target;
         }
 
         revert UnsupportedCallDataError();

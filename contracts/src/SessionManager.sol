@@ -36,6 +36,8 @@ error UnsupportedCredentialVersion();
 error WalletFactoryTimelockNotReady();
 error WalletFactoryTimelockActive();
 error InvalidNullifier();
+error TargetNotAllowed();
+error TooManyTargets();
 
 /// @notice Interface for the Groth16 ZK proof verifier.
 interface IVerifier {
@@ -68,9 +70,10 @@ interface IAgentWalletFactory {
 /// @title SessionManager
 /// @notice Manages two types of agent sessions on AgentWallets:
 ///         1. **Standard sessions** - ZK proof-based with cumulative spend limits.
-///         2. **Lightweight sessions** - Owner-signed with daily spend/tx limits (no ZK proof needed).
+///         2. **Lightweight sessions** - Owner-signed with daily spend/tx limits and target restrictions.
 /// @dev Upgradeable (UUPS). Standard sessions require a Groth16 ZK proof verifying credential ownership
 ///      via the CredentialRegistry. Lightweight sessions use ECDSA owner signatures for simpler auth.
+///      All authorization policy (targets, budgets, limits) lives here — the wallet only executes.
 contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
     using ECDSA for bytes32;
 
@@ -81,6 +84,8 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     event LightSessionUsed(bytes32 indexed sessionId, uint256 value, uint256 newDailySpend);
     event LightSessionRevoked(bytes32 indexed sessionId);
     event DailyLimitsReset(bytes32 indexed sessionId, uint64 newDay);
+    event WalletFactoryProposed(address indexed previous, address indexed next, uint256 activationTime);
+    event WalletFactoryUpdated(address indexed oldFactory, address indexed newFactory);
 
     /// @notice Standard session with a cumulative max-value limit.
     struct Session {
@@ -92,7 +97,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         bool revoked;          // Whether the session has been revoked
     }
 
-    /// @notice Lightweight session with daily spend and transaction count limits.
+    /// @notice Lightweight session with daily spend, transaction count, and target restrictions.
     struct LightweightSession {
         address wallet;           // AgentWallet this session is bound to
         address sessionKey;       // Address authorised to sign for this session
@@ -109,10 +114,13 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     mapping(bytes32 => Session) public sessions;
     /// @notice Lightweight sessions keyed by session ID.
     mapping(bytes32 => LightweightSession) public lightSessions;
+    /// @notice Allowed targets for lightweight sessions. Empty array = any target allowed.
+    mapping(bytes32 => address[]) public sessionTargets;
     /// @notice Maps each wallet to its list of session IDs for enumeration/pruning.
     mapping(address => bytes32[]) public walletSessions;
     uint256 public constant MAX_SESSIONS_PER_WALLET = 100;
-    uint256 public constant TIMELOCK_DELAY = 24 hours;
+    uint256 public constant MAX_ALLOWED_TARGETS = 32;
+    uint256 public constant TIMELOCK_DELAY = 0 seconds;
     uint256 public constant SUPPORTED_CREDENTIAL_VERSION = 1;
 
     IVerifier public verifier;
@@ -161,15 +169,18 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (pendingWalletFactory != address(0)) revert WalletFactoryTimelockActive();
         pendingWalletFactory = walletFactory_;
         walletFactoryActivationTime = block.timestamp + TIMELOCK_DELAY;
+        emit WalletFactoryProposed(address(walletFactory), walletFactory_, walletFactoryActivationTime);
     }
 
     /// @notice Activates the pending AgentWalletFactory after the timelock has elapsed.
     function acceptWalletFactory() external onlyOwner {
         if (pendingWalletFactory == address(0)) revert InvalidSessionManager();
         if (block.timestamp < walletFactoryActivationTime) revert WalletFactoryTimelockNotReady();
+        IAgentWalletFactory oldFactory = walletFactory;
         walletFactory = IAgentWalletFactory(pendingWalletFactory);
         pendingWalletFactory = address(0);
         walletFactoryActivationTime = 0;
+        emit WalletFactoryUpdated(address(oldFactory), address(walletFactory));
     }
 
     /// @notice Creates a standard (ZK-proof-based) session for an AgentWallet.
@@ -206,8 +217,8 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
         bytes32 nullifier = bytes32(publicSignals[6]);
         if (nullifier == bytes32(0)) revert InvalidNullifier();
-        if (uint256(registry.activeRoot()) != publicSignals[0]) revert RootMismatch();
-        if (uint256(registry.revokedSecretRoot()) != publicSignals[1]) revert RevokedRootMismatch();
+        if (bytes32(registry.activeRoot()) != bytes32(publicSignals[0])) revert RootMismatch();
+        if (bytes32(registry.revokedSecretRoot()) != bytes32(publicSignals[1])) revert RevokedRootMismatch();
         if (uint256(maxValue) != publicSignals[2]) revert MaxValueMismatch();
         if (uint256(expiry) != publicSignals[3]) revert ExpiryMismatch();
         if (address(uint160(publicSignals[4])) != wallet) revert NotAgentWallet();
@@ -236,11 +247,13 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param sessionId The session to validate.
     /// @param signer The address that signed the transaction.
     /// @param value The value being spent in this transaction.
+    /// @param target The target contract being called.
     /// @return True if the session is valid and the spend limit is not exceeded.
     function validateSession(
         bytes32 sessionId,
         address signer,
-        uint256 value
+        uint256 value,
+        address target
     ) external onlyWallet whenNotPaused returns (bool) {
         Session storage s = sessions[sessionId];
 
@@ -248,6 +261,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (s.revoked) revert SessionIsRevoked();
         if (block.timestamp > s.expiry) revert SessionExpired();
         if (s.sessionKey != signer) revert InvalidSigner();
+        if (target == address(0)) revert TargetNotAllowed();
 
         uint256 newValue = s.valueUsed + value;
         if (newValue > s.maxValue) revert LimitExceeded();
@@ -289,6 +303,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param dailySpendLimit Maximum value spendable per day.
     /// @param dailyTxLimit Maximum transactions per day.
     /// @param expiry Unix timestamp when the session expires.
+    /// @param allowedTargets Array of contract addresses this session may call. Empty = any target.
     /// @param ownerSignature ECDSA signature from the wallet owner authorising this session.
     function createLightweightSession(
         bytes32 sessionId,
@@ -296,6 +311,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         uint256 dailySpendLimit,
         uint256 dailyTxLimit,
         uint64 expiry,
+        address[] calldata allowedTargets,
         bytes calldata ownerSignature
     ) external whenNotPaused {
         if (!walletFactory.isAgentWallet(msg.sender)) revert NotAgentWallet();
@@ -304,9 +320,11 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (expiry <= block.timestamp) revert InvalidExpiry();
         if (lightSessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
         if (sessions[sessionId].sessionKey != address(0)) revert SessionAlreadyExists();
+        if (allowedTargets.length > MAX_ALLOWED_TARGETS) revert TooManyTargets();
 
         bytes32 messageHash = keccak256(abi.encode(
-            block.chainid, address(this), msg.sender, sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry
+            block.chainid, address(this), msg.sender, sessionId, sessionKey,
+            dailySpendLimit, dailyTxLimit, expiry, allowedTargets
         ));
         bytes32 digest = keccak256(abi.encodePacked(
             "\x19Ethereum Signed Message:\n32", messageHash
@@ -327,6 +345,10 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
             revoked: false
         });
 
+        if (allowedTargets.length > 0) {
+            sessionTargets[sessionId] = allowedTargets;
+        }
+
         if (walletSessions[msg.sender].length >= MAX_SESSIONS_PER_WALLET) revert TooManySessions();
         walletSessions[msg.sender].push(sessionId);
         emit LightSessionCreated(sessionId, msg.sender, sessionKey, dailySpendLimit, dailyTxLimit, expiry);
@@ -336,11 +358,13 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param sessionId The session to validate.
     /// @param signer The address that signed the transaction.
     /// @param value The value being spent in this transaction.
-    /// @return True if the session is valid and daily limits are not exceeded.
+    /// @param target The target contract being called.
+    /// @return True if the session is valid, daily limits are not exceeded, and target is allowed.
     function validateLightweightSession(
         bytes32 sessionId,
         address signer,
-        uint256 value
+        uint256 value,
+        address target
     ) external onlyWallet whenNotPaused returns (bool) {
         LightweightSession storage s = lightSessions[sessionId];
 
@@ -349,6 +373,18 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (s.revoked) revert SessionIsRevoked();
         if (block.timestamp > s.expiry) revert SessionExpired();
         if (s.sessionKey != signer) revert InvalidSigner();
+
+        address[] storage allowed = sessionTargets[sessionId];
+        if (allowed.length > 0) {
+            bool found = false;
+            for (uint256 i = 0; i < allowed.length; i++) {
+                if (allowed[i] == target) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) revert TargetNotAllowed();
+        }
 
         _checkAndResetDaily(sessionId, s);
 
@@ -410,6 +446,12 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @param wallet The wallet address.
     function getWalletSessions(address wallet) external view returns (bytes32[] memory) {
         return walletSessions[wallet];
+    }
+
+    /// @notice Returns the allowed targets for a lightweight session.
+    /// @param sessionId The session to query.
+    function getSessionTargets(bytes32 sessionId) external view returns (address[] memory) {
+        return sessionTargets[sessionId];
     }
 
     /// @notice Removes expired sessions from a wallet's session list (gas-efficient pruning).

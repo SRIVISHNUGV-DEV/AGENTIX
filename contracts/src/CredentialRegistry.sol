@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 error OnlyIssuer();
 error NullifierUsed();
 error OnlySessionManager();
+error RootCannotBeZero();
 
 /// @title CredentialRegistry
 /// @notice Manages Merkle roots for credential trees and nullifier tracking to prevent double-use.
@@ -48,11 +49,13 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     function setSessionManager(address sessionManager, bool allowed) external onlyOwner { sessionManagers[sessionManager] = allowed; }
 
     function updateActiveRoot(bytes32 newRoot) external onlyIssuer whenNotPaused {
+        if (newRoot == bytes32(0)) revert RootCannotBeZero();
         activeRoot = newRoot;
         emit ActiveRootUpdated(newRoot);
     }
 
     function updateRevokedSecretRoot(bytes32 newRoot) external onlyIssuer whenNotPaused {
+        if (newRoot == bytes32(0)) revert RootCannotBeZero();
         revokedSecretRoot = newRoot;
         emit RevokedSecretRootUpdated(newRoot);
     }

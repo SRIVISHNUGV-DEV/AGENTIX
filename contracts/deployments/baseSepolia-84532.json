@@ -1,0 +1,16 @@
+{
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "deployer": "0xE2e34Dceb7dAFCd63257C5cbE69Fcb06571ADAcC",
+  "timestamp": "2026-07-01T13:36:41.235Z",
+  "groth16Verifier": "0x3056bB17323228d1829D2f6A2a96Af8e079095c2",
+  "capabilityRegistry": "0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A",
+  "delegationManager": "0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5",
+  "credentialRegistry": "0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E",
+  "organizationCredentialAnchor": "0x491aD666EFb0E79Ce8406a10914033eEdB6165b6",
+  "organizationRegistry": "0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443",
+  "agentWallet": "0x6C826A49aD8447FD94d61f515013ea93066e94C5",
+  "sessionManager": "0x9b7B7d631098f046eaFb4637DC859eBA51e238C0",
+  "agentWalletFactory": "0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1",
+  "agentIdentity": "0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71"
+}

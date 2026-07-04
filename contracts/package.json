@@ -5,13 +5,21 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost",
-    "deploy:baseSepolia": "hardhat run scripts/deploy-all.ts --network baseSepolia",
+    "deploy": "hardhat run scripts/deploy-v5.ts",
+    "deploy:localhost": "hardhat run scripts/deploy-v5.ts --network localhost",
+    "deploy:baseSepolia": "hardhat run scripts/deploy-v5.ts --network baseSepolia",
+    "activate-sm": "hardhat run scripts/activate-factory-sm.ts",
+    "activate-sm:baseSepolia": "hardhat run scripts/activate-factory-sm.ts --network baseSepolia",
+    "configure": "hardhat run scripts/configure.ts",
+    "configure:baseSepolia": "hardhat run scripts/configure.ts --network baseSepolia",
+    "check-wiring": "hardhat run scripts/check-wiring.ts",
+    "check-wiring:baseSepolia": "hardhat run scripts/check-wiring.ts --network baseSepolia",
+    "verify": "hardhat run scripts/verify-all.ts",
     "verify:baseSepolia": "hardhat run scripts/verify-all.ts --network baseSepolia"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.6",
-    "@openzeppelin/contracts-upgradeable": "^4.9.6",
+    "@openzeppelin/contracts": "^5.3.0",
+    "@openzeppelin/contracts-upgradeable": "^5.3.0",
     "run": "^1.5.0"
   },
   "devDependencies": {
