@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Building2, Plus, RefreshCw, CheckCircle2, XCircle, Bot, CreditCard, KeyRound, Wallet, User, Settings, ArrowRight, Loader2, ExternalLink, Cpu, Shield, Copy, Sparkles } from 'lucide-react';
+import { Building2, Plus, RefreshCw, CheckCircle2, XCircle, Bot, CreditCard, KeyRound, Wallet, User, Settings, ArrowRight, Loader2, ExternalLink, Cpu, Shield, Copy, Sparkles, Server, Globe, Trash2 } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Dialog, Input, Alert, StatusDot, Skeleton } from '@/components/ui';
-import { fetchJSON, postJSON, truncate, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress } from '@/lib/api';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 import { sendAndWaitForWalletCreation, getAccount, sendCreateLightweightSession } from '@/lib/tx-sender';
 import { getHarnessWallets, saveHarnessWallets, getAgentKey, setAgentKey } from '@/lib/storage';
@@ -14,10 +14,12 @@ const LOGO_MAP: Record<string, string> = {
   'opencode': '/provider-logos/deepseek.svg',
   'github-copilot': '/provider-logos/openai.svg',
   'hermes': '/provider-logos/google.svg',
-  'cursor': '/provider-logos/openai.svg',
+  'cursor': '/provider-logos/cursor.svg',
+  'gemini': '/provider-logos/gemini.svg',
+  'openclaude': '/provider-logos/openclaude.svg',
 };
 
-type Tab = 'overview' | 'agents' | 'credentials' | 'sessions';
+type Tab = 'overview' | 'agents' | 'runtimes' | 'credentials' | 'sessions';
 
 export function OrganizationsPage() {
   const { address, isConnected, openModal } = useWalletCtx();
@@ -58,18 +60,27 @@ export function OrganizationsPage() {
   const [credBudget, setCredBudget] = useState('0.1');
   const [credExpiry, setCredExpiry] = useState('30');
 
+  // Runtime state
+  const [runtimes, setRuntimes] = useState<any[]>([]);
+  const [showAddRuntime, setShowAddRuntime] = useState(false);
+  const [rtName, setRtName] = useState('');
+  const [rtEndpoint, setRtEndpoint] = useState('');
+  const [rtModel, setRtModel] = useState('');
+  const [rtApiKey, setRtApiKey] = useState('');
+
   useEffect(() => { saveHarnessWallets(harnessWalletMap); }, [harnessWalletMap]);
 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [orgData, reqData, h, w, s, c] = await Promise.allSettled([
+      const [orgData, reqData, h, w, s, c, r] = await Promise.allSettled([
         fetchJSON<any>('/api/organizations'),
         fetchJSON<any>('/api/organizations/requests'),
         fetchJSON<any>('/api/onboarding/harnesses'),
         fetchJSON<any>('/api/wallets'),
         fetchJSON<any>('/api/sessions/all'),
         fetchJSON<any>('/api/credentials'),
+        fetchJSON<any>('/api/runtimes'),
       ]);
       if (orgData.status === 'fulfilled') setOrgs(orgData.value.value || orgData.value || []);
       if (reqData.status === 'fulfilled') setRequests(reqData.value.value || reqData.value || []);
@@ -80,6 +91,7 @@ export function OrganizationsPage() {
       if (w.status === 'fulfilled') setWallets(w.value.value || w.value || []);
       if (s.status === 'fulfilled') setSessions(s.value.value || s.value || []);
       if (c.status === 'fulfilled') setCredentials(c.value.value || c.value || []);
+      if (r.status === 'fulfilled') setRuntimes(Array.isArray(r.value) ? r.value : []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -99,6 +111,38 @@ export function OrganizationsPage() {
 
   const approveRequest = async (id: string) => { try { await postJSON(`/api/organizations/requests/${id}`, { action: 'approve' }); fetchAll(); } catch {} };
   const rejectRequest = async (id: string) => { try { await postJSON(`/api/organizations/requests/${id}`, { action: 'reject' }); fetchAll(); } catch {} };
+
+  // Runtime CRUD
+  const orgRuntimes = runtimes.filter((r: any) => r.organization_id === selectedOrg?.id);
+
+  const addRuntime = async () => {
+    if (!rtName.trim() || !rtEndpoint.trim() || !selectedOrg) return;
+    try {
+      const result = await postJSON<any>('/api/runtimes', {
+        organizationId: selectedOrg.id,
+        name: rtName.trim(),
+        endpoint: rtEndpoint.trim(),
+        modelName: rtModel.trim(),
+        apiKeyHash: rtApiKey ? btoa(rtApiKey) : '',
+      });
+      if (result.success) {
+        setShowAddRuntime(false); setRtName(''); setRtEndpoint(''); setRtModel(''); setRtApiKey('');
+        setSuccess('Runtime registered'); fetchAll();
+      } else setError(result.error || 'Failed');
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const deleteRuntime = async (id: string) => {
+    try { await deleteJSON('/api/runtimes', { id }); fetchAll(); } catch {}
+  };
+
+  const checkRuntimeHealth = async (rt: any) => {
+    try {
+      const result = await postJSON<any>('/api/runtimes/health', { id: rt.id, endpoint: rt.endpoint });
+      setSuccess(`Runtime ${rt.name}: ${result.status}`);
+      fetchAll();
+    } catch (e: any) { setError(e.message); }
+  };
 
   // Org-scoped data
   const orgCredentials = credentials.filter((c: any) => c.organizationId === selectedOrg?.id || c.organization_id === selectedOrg?.id);
@@ -162,6 +206,7 @@ export function OrganizationsPage() {
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'overview', label: 'Overview', icon: Building2 },
     { id: 'agents', label: 'Agents', icon: Bot },
+    { id: 'runtimes', label: 'Runtimes', icon: Server },
     { id: 'credentials', label: 'Credentials', icon: CreditCard },
     { id: 'sessions', label: 'Sessions', icon: KeyRound },
   ];
@@ -234,6 +279,21 @@ export function OrganizationsPage() {
           <div className="flex gap-2">
             <Button onClick={handleIssueCred} icon={<CreditCard className="w-3.5 h-3.5" />}>Issue</Button>
             <Button variant="ghost" onClick={() => setShowIssueCred(false)}>Cancel</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Runtime Dialog */}
+      <Dialog open={showAddRuntime} onClose={() => setShowAddRuntime(false)} title="Register Runtime">
+        <div className="space-y-4">
+          <Input label="Runtime Name" value={rtName} onChange={e => setRtName(e.target.value)} placeholder="Production LLM Server" />
+          <Input label="Endpoint URL" value={rtEndpoint} onChange={e => setRtEndpoint(e.target.value)} placeholder="https://api.mycompany.com/v1" />
+          <Input label="Model Name" value={rtModel} onChange={e => setRtModel(e.target.value)} placeholder="gpt-4, llama-3, custom-model" />
+          <Input label="API Key (stored hashed)" value={rtApiKey} onChange={e => setRtApiKey(e.target.value)} type="password" placeholder="sk-..." />
+          <p className="text-[10px] text-muted-foreground/60">Register your company's self-hosted model runtime. The endpoint should expose a health check at /health.</p>
+          <div className="flex gap-2">
+            <Button onClick={addRuntime} icon={<Server className="w-3.5 h-3.5" />}>Register</Button>
+            <Button variant="ghost" onClick={() => setShowAddRuntime(false)}>Cancel</Button>
           </div>
         </div>
       </Dialog>
@@ -330,22 +390,41 @@ export function OrganizationsPage() {
                       <Card className="text-center py-4"><div className="text-lg font-bold">{orgSessions.length}</div><div className="text-[10px] text-muted-foreground/60">Sessions</div></Card>
                     </div>
 
-                    <Card>
-                      <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-2">Connected Harnesses</div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {harnesses.map((h: any) => (
-                          <div key={h.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
-                            <img src={LOGO_MAP[h.id] || ''} alt="" className="w-5 h-5 rounded object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-medium truncate">{h.name}</div>
-                              {harnessWalletMap[h.id] && <div className="text-[8px] font-mono text-muted-foreground/40">{truncate(harnessWalletMap[h.id], 8)}</div>}
+                    <div className="grid grid-cols-2 gap-4">
+                      <Card>
+                        <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-2">Connected Harnesses</div>
+                        <div className="space-y-1.5">
+                          {harnesses.map((h: any) => (
+                            <div key={h.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
+                              <img src={LOGO_MAP[h.id] || ''} alt="" className="w-5 h-5 rounded object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[11px] font-medium truncate">{h.name}</div>
+                                {harnessWalletMap[h.id] && <div className="text-[8px] font-mono text-muted-foreground/40">{truncate(harnessWalletMap[h.id], 8)}</div>}
+                              </div>
+                              <StatusDot status={h.status === 'connected' ? 'online' : 'warning'} />
                             </div>
-                            <StatusDot status={h.status === 'connected' ? 'online' : 'warning'} />
-                          </div>
-                        ))}
-                        {harnesses.length === 0 && <div className="text-[10px] text-muted-foreground/40 col-span-2">No harnesses detected</div>}
-                      </div>
-                    </Card>
+                          ))}
+                          {harnesses.length === 0 && <div className="text-[10px] text-muted-foreground/40">No harnesses detected</div>}
+                        </div>
+                      </Card>
+
+                      <Card>
+                        <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-2">Model Runtimes</div>
+                        <div className="space-y-1.5">
+                          {orgRuntimes.map((rt: any) => (
+                            <div key={rt.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
+                              <Server className="w-4 h-4 text-muted-foreground/40" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[11px] font-medium truncate">{rt.name}</div>
+                                <div className="text-[8px] text-muted-foreground/40">{rt.model_name || 'Custom'}</div>
+                              </div>
+                              <StatusDot status={rt.status === 'active' ? 'online' : 'error'} />
+                            </div>
+                          ))}
+                          {orgRuntimes.length === 0 && <div className="text-[10px] text-muted-foreground/40">No runtimes registered</div>}
+                        </div>
+                      </Card>
+                    </div>
                   </div>
                 )}
 
@@ -419,6 +498,78 @@ export function OrganizationsPage() {
                         </Card>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* Runtimes Tab */}
+                {activeTab === 'runtimes' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-medium">Model Runtimes ({orgRuntimes.length})</h3>
+                      <Button size="sm" icon={<Plus className="w-3.5 h-3.5" />}
+                        onClick={() => setShowAddRuntime(true)}>
+                        Register Runtime
+                      </Button>
+                    </div>
+
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Register your organization's self-hosted model endpoints. These are servers your company runs
+                      with custom or fine-tuned models, separate from third-party AI harnesses.
+                    </p>
+
+                    {orgRuntimes.length === 0 ? (
+                      <Card className="py-10 text-center">
+                        <Server className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
+                        <p className="text-xs text-muted-foreground/50">No runtimes registered yet. Add your company's model endpoints.</p>
+                      </Card>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {orgRuntimes.map((rt: any) => (
+                          <Card key={rt.id} className="p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-secondary/50 flex items-center justify-center">
+                                  <Server className="w-4 h-4 text-muted-foreground/60" />
+                                </div>
+                                <div>
+                                  <div className="text-xs font-medium">{rt.name}</div>
+                                  <div className="text-[9px] text-muted-foreground/60 mt-0.5">{rt.model_name || 'Custom Model'}</div>
+                                </div>
+                              </div>
+                              <StatusDot status={rt.status === 'active' ? 'online' : rt.status === 'unhealthy' ? 'warning' : 'error'} />
+                            </div>
+
+                            <div className="space-y-1.5 mb-3">
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-muted-foreground/60">Endpoint</span>
+                                <span className="font-mono text-muted-foreground truncate max-w-[200px]">{rt.endpoint}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-muted-foreground/60">Status</span>
+                                <Badge variant={rt.status === 'active' ? 'success' : rt.status === 'unhealthy' ? 'warning' : 'danger'}>
+                                  {rt.status}
+                                </Badge>
+                              </div>
+                              {rt.last_health_check && (
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-muted-foreground/60">Last Check</span>
+                                  <span className="text-muted-foreground">{new Date(rt.last_health_check * 1000).toLocaleString()}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex gap-1.5 pt-2 border-t border-border">
+                              <Button variant="ghost" size="sm" onClick={() => checkRuntimeHealth(rt)}>
+                                <Globe className="w-3 h-3 mr-1" /> Health Check
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => deleteRuntime(rt.id)}>
+                                <Trash2 className="w-3 h-3 mr-1 text-destructive/60" /> Remove
+                              </Button>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

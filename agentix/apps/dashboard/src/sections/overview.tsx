@@ -1,9 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Building2, CreditCard, Wallet, KeyRound, Activity, Shield, Clock, Network } from 'lucide-react';
+import { Building2, CreditCard, Wallet, KeyRound, Activity, Shield, Clock, Network, ChevronRight } from 'lucide-react';
 import { StatCard, PageHeader, Card, CardHeader, Badge, StatusDot, Skeleton, Timeline } from '@/components/ui';
 import { fetchJSON } from '@/lib/api';
+
+// Navigate without prop-drilling — page.tsx listens for this custom event
+// (see the 'agentix:navigate' handler in app/page.tsx) and swaps the section.
+function navigate(page: string) {
+  window.dispatchEvent(new CustomEvent('agentix:navigate', { detail: page }));
+}
+
+const QUICK_ACTIONS: { page: string; icon: React.ComponentType<{ className?: string }>; title: string; description: string }[] = [
+  { page: 'organizations', icon: Building2, title: 'Create Organization', description: 'Set up an org to issue credentials' },
+  { page: 'wallets', icon: Wallet, title: 'Create Wallet', description: 'Deploy an ERC-4337 smart wallet' },
+  { page: 'credentials', icon: CreditCard, title: 'Issue Credential', description: 'Create a ZK credential for an agent' },
+  { page: 'sessions', icon: KeyRound, title: 'Create Session', description: 'Authorize agent actions with limits' },
+];
 
 export function OverviewPage() {
   const [stats, setStats] = useState<any>(null);
@@ -18,7 +31,7 @@ export function OverviewPage() {
           fetchJSON<any>('/api/events?limit=8'),
         ]);
         if (s.status === 'fulfilled') setStats(s.value);
-        if (e.status === 'fulfilled') setEvents(e.value || []);
+        if (e.status === 'fulfilled') setEvents(Array.isArray(e.value) ? e.value : (e.value?.events || []));
       } catch {}
       setLoading(false);
     }
@@ -37,10 +50,11 @@ export function OverviewPage() {
       <PageHeader title="Overview" description="System status and live metrics" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Organizations" value={loading ? '...' : (stats?.organizations ?? 0)} icon={<Building2 className="w-4 h-4" />} />
-        <StatCard label="Credentials" value={loading ? '...' : (stats?.credentials ?? 0)} icon={<CreditCard className="w-4 h-4" />} />
-        <StatCard label="Wallets" value={loading ? '...' : (stats?.wallets ?? 0)} icon={<Wallet className="w-4 h-4" />} />
-        <StatCard label="Sessions" value={loading ? '...' : (stats?.sessions ?? 0)} icon={<KeyRound className="w-4 h-4" />} />
+        <StatCard loading={loading} label="Organizations" value={stats?.organizations ?? 0} icon={<Building2 className="w-4 h-4" />} />
+        <StatCard loading={loading} label="Credentials" value={stats?.credentials ?? 0} icon={<CreditCard className="w-4 h-4" />} />
+        <StatCard loading={loading} label="Wallets" value={stats?.wallets ?? 0} icon={<Wallet className="w-4 h-4" />} />
+        <StatCard loading={loading} label="Sessions" value={stats?.sessions ?? 0} icon={<KeyRound className="w-4 h-4" />}
+          trend={stats?.sessions ? `${stats.sessions} active` : undefined} trendDir={stats?.sessions ? 'up' : 'neutral'} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -81,46 +95,28 @@ export function OverviewPage() {
           )}
         </Card>
 
-        {/* Quick Actions / Activity */}
+        {/* Quick Actions — navigate to the most common workflows. Replaces the
+            old "Activity" card which just re-printed the four stat numbers
+            already shown above it. */}
         <Card>
-          <CardHeader title="Activity" />
+          <CardHeader title="Quick Actions" />
           <div className="space-y-2">
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50">
-              <div className="flex items-center gap-2.5">
-                <Activity className="w-4 h-4 text-muted-foreground/40" />
-                <div>
-                  <div className="text-xs font-medium">Organizations</div>
-                  <div className="text-[10px] text-muted-foreground/60">{stats?.organizations ?? 0} registered</div>
+            {QUICK_ACTIONS.map(action => (
+              <button
+                key={action.page}
+                onClick={() => navigate(action.page)}
+                className="w-full flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 card-interactive text-left group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <action.icon className="w-4 h-4 text-muted-foreground/50 group-hover:text-foreground transition-colors" />
+                  <div>
+                    <div className="text-xs font-medium">{action.title}</div>
+                    <div className="text-[10px] text-muted-foreground/60">{action.description}</div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50">
-              <div className="flex items-center gap-2.5">
-                <Shield className="w-4 h-4 text-muted-foreground/40" />
-                <div>
-                  <div className="text-xs font-medium">Credentials</div>
-                  <div className="text-[10px] text-muted-foreground/60">{stats?.credentials ?? 0} issued</div>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50">
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 text-muted-foreground/40" />
-                <div>
-                  <div className="text-xs font-medium">Active Sessions</div>
-                  <div className="text-[10px] text-muted-foreground/60">{stats?.sessions ?? 0} active</div>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50">
-              <div className="flex items-center gap-2.5">
-                <Network className="w-4 h-4 text-muted-foreground/40" />
-                <div>
-                  <div className="text-xs font-medium">Network</div>
-                  <div className="text-[10px] text-muted-foreground/60">Base Sepolia</div>
-                </div>
-              </div>
-            </div>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+              </button>
+            ))}
           </div>
         </Card>
       </div>

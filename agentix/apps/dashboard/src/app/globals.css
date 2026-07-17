@@ -184,6 +184,47 @@
 }
 .animate-fade-in { animation: fade-in 0.15s ease-out; }
 
+/* Shimmer sweep for skeletons — reads as "loading" more clearly than a flat
+   opacity pulse. A translucent highlight travels left→right across the block. */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--skeleton));
+}
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(var(--foreground) / 0.06), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* Staggered row entrance for tables/lists. */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-row-in { animation: row-in 0.24s ease-out both; }
+
+/* ── Elevation ───────────────────────────────── */
+/* Interactive cards lift slightly and cast a soft shadow on hover so clickable
+   surfaces are visually distinct from static ones. */
+.card-interactive {
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.card-interactive:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--foreground) / 0.18);
+  box-shadow: 0 4px 16px -6px hsl(var(--foreground) / 0.12);
+}
+
+/* Numeric values align cleanly when they change (no width jitter). */
+.tabular { font-variant-numeric: tabular-nums; }
+
 /* ── KBD ─────────────────────────────────────── */
 
 kbd {

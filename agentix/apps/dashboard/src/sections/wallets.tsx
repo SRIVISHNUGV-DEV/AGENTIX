@@ -37,12 +37,12 @@ export function WalletsPage() {
   };
 
   const columns = [
-    { key: 'address', header: 'Address', render: (w: any) => <span className="font-mono text-xs">{truncate(w.wallet_address, 8)}</span> },
-    { key: 'owner', header: 'Owner', render: (w: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(w.owner_address, 8)}</span> },
+    { key: 'address', header: 'Address', render: (w: any) => <span className="font-mono text-xs">{truncate(w.walletAddress || w.wallet_address, 8)}</span> },
+    { key: 'owner', header: 'Owner', render: (w: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(w.ownerAddress || w.owner_address, 8)}</span> },
     { key: 'status', header: 'Status', render: () => <Badge variant="success">Deployed</Badge> },
     { key: 'actions', header: '', render: (w: any) => (
       <div className="flex items-center gap-2">
-        <a href={explorerAddress(w.wallet_address)} target="_blank" rel="noopener noreferrer"
+        <a href={explorerAddress(w.walletAddress || w.wallet_address)} target="_blank" rel="noopener noreferrer"
           className="text-muted-foreground/40 hover:text-foreground transition-colors">
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
@@ -81,18 +81,18 @@ export function WalletsPage() {
             <div className="space-y-3">
               <div>
                 <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">Address</div>
-                <div className="text-xs font-mono break-all">{selected.wallet_address}</div>
+                <div className="text-xs font-mono break-all">{selected.walletAddress || selected.wallet_address}</div>
               </div>
               <div>
                 <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">Owner</div>
-                <div className="text-xs font-mono break-all">{selected.owner_address}</div>
+                <div className="text-xs font-mono break-all">{selected.ownerAddress || selected.owner_address}</div>
               </div>
               <div className="flex items-center gap-3 pt-2 border-t border-border">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
                   <KeyRound className="w-3.5 h-3.5" /> 0 sessions
                 </div>
               </div>
-              <a href={`https://sepolia.basescan.org/address/${selected.wallet_address}`} target="_blank" rel="noopener noreferrer"
+              <a href={explorerAddress(selected.walletAddress || selected.wallet_address)} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 text-xs text-muted-foreground/60 hover:text-foreground transition-colors">
                 <ExternalLink className="w-3.5 h-3.5" /> View on Explorer
               </a>

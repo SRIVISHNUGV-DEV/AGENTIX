@@ -7,18 +7,23 @@ import { CommandPalette } from '@/components/command-palette';
 import { Toast } from '@/components/ui';
 import { ClientProvider } from '@/lib/client-provider';
 import { useWalletCtx } from '@/lib/web3modal-provider';
-import { explorerAddress } from '@/lib/api';
+import { explorerAddress, API } from '@/lib/api';
 
 import { OverviewPage } from '@/sections/overview';
 import { WalletsPage } from '@/sections/wallets';
 import { AgentsPage } from '@/sections/agents';
+import { IdentitiesPage } from '@/sections/identities';
 import { OrganizationsPage } from '@/sections/organizations';
+import { CredentialsPage } from '@/sections/credentials';
+import { TreesPage } from '@/sections/trees';
 import { SessionsPage } from '@/sections/sessions';
 import { CapabilitiesPage } from '@/sections/capabilities';
 import { DelegationsPage } from '@/sections/delegations';
 import { TransactionsPage } from '@/sections/transactions';
 import { EventsPage } from '@/sections/events';
 import { ActionsPage } from '@/sections/actions';
+import { PlansPage } from '@/sections/plans';
+import { X402Page } from '@/sections/x402';
 import { AnalyticsPage } from '@/sections/analytics';
 import { DiagnosticsPage } from '@/sections/diagnostics';
 import { AnomaliesPage } from '@/sections/anomalies';
@@ -31,13 +36,18 @@ const PAGES: Record<string, React.FC> = {
   overview: OverviewPage,
   wallets: WalletsPage,
   agents: AgentsPage,
+  identities: IdentitiesPage,
   organizations: OrganizationsPage,
+  credentials: CredentialsPage,
+  trees: TreesPage,
   sessions: SessionsPage,
   capabilities: CapabilitiesPage,
   delegations: DelegationsPage,
   transactions: TransactionsPage,
   events: EventsPage,
   actions: ActionsPage,
+  plans: PlansPage,
+  x402: X402Page,
   analytics: AnalyticsPage,
   diagnostics: DiagnosticsPage,
   anomalies: AnomaliesPage,
@@ -48,9 +58,10 @@ const PAGES: Record<string, React.FC> = {
 };
 
 const PAGE_LABELS: Record<string, string> = {
-  overview: 'Overview', wallets: 'Wallets', agents: 'Agents', organizations: 'Organizations',
+  overview: 'Overview', wallets: 'Wallets', agents: 'Agents', identities: 'Identities', organizations: 'Organizations',
+  credentials: 'Credentials', trees: 'Merkle Trees',
   sessions: 'Sessions', capabilities: 'Capabilities', delegations: 'Delegations',
-  transactions: 'Transactions', events: 'Events', actions: 'Actions', analytics: 'Analytics',
+  transactions: 'Transactions', events: 'Events',   actions: 'Actions', plans: 'Execution Plans', x402: 'x402 Payments', analytics: 'Analytics',
   diagnostics: 'Diagnostics', anomalies: 'Anomalies', backups: 'Backups', developer: 'Developer', settings: 'Settings',
 };
 
@@ -154,7 +165,7 @@ function DashboardInner() {
       return;
     }
     const onboardingDone = localStorage.getItem('agentix_onboarding_done') === 'true';
-    fetch('http://localhost:3001/api/onboarding/status')
+    fetch(`${API}/api/onboarding/status`)
       .then(r => r.json())
       .then(d => {
         if (!d.initialized || !d.rpcConfigured) {
@@ -189,6 +200,17 @@ function DashboardInner() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Allow any child (e.g. quick-action buttons) to request navigation without
+  // prop-drilling setActivePage through every section.
+  useEffect(() => {
+    const nav = (e: Event) => {
+      const page = (e as CustomEvent<string>).detail;
+      if (page && PAGES[page]) setActivePage(page);
+    };
+    window.addEventListener('agentix:navigate', nav as EventListener);
+    return () => window.removeEventListener('agentix:navigate', nav as EventListener);
   }, []);
 
   if (onboardingLoading) {

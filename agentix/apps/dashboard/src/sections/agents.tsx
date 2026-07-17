@@ -14,7 +14,9 @@ const LOGO_MAP: Record<string, string> = {
   'opencode': '/provider-logos/deepseek.svg',
   'github-copilot': '/provider-logos/openai.svg',
   'hermes': '/provider-logos/google.svg',
-  'cursor': '/provider-logos/openai.svg',
+  'cursor': '/provider-logos/cursor.svg',
+  'gemini': '/provider-logos/gemini.svg',
+  'openclaude': '/provider-logos/openclaude.svg',
 };
 
 export function AgentsPage() {
@@ -60,7 +62,26 @@ export function AgentsPage() {
         const list = h.value?.harnesses || [];
         setHarnesses(list.filter((x: any) => x.detect?.found).map((x: any) => ({ ...x.detect.harness, adapter: x.adapter })));
       }
-      if (w.status === 'fulfilled') setWallets(w.value.value || w.value || []);
+      if (w.status === 'fulfilled') {
+        const rawWallets = w.value.value || w.value || [];
+        // Normalize API camelCase keys to snake_case used by JSX
+        const walletList = rawWallets.map((w: any) => ({
+          ...w,
+          wallet_address: w.walletAddress || w.wallet_address,
+          owner_address: w.ownerAddress || w.owner_address,
+          harness_id: w.harnessId || w.harness_id,
+        }));
+        setWallets(walletList);
+        // Rebuild harnessWalletMap from server data (source of truth)
+        const mapFromServer: Record<string, string> = {};
+        for (const wl of walletList) {
+          if (wl.harness_id && wl.wallet_address) {
+            mapFromServer[wl.harness_id] = wl.wallet_address;
+          }
+        }
+        // Server is source of truth — drop stale localStorage entries
+        setHarnessWalletMap(mapFromServer);
+      }
       if (s.status === 'fulfilled') setSessions(s.value.value || s.value || []);
       if (c.status === 'fulfilled') setCredentials(c.value.value || c.value || []);
       if (o.status === 'fulfilled') setOrgs(o.value.value || o.value || []);
@@ -90,7 +111,7 @@ export function AgentsPage() {
         return;
       }
     }
-    // No wallet for this harness yet — clear selection and await create
+    // No wallet for this harness yet — clear selection and await create/link
     setActiveWallet(null);
     setIdentity(null);
   }, [selectedHarness, harnessWalletMap, wallets]);
@@ -122,11 +143,11 @@ export function AgentsPage() {
     if (!activeWallet || !agentKey || !showBundlerExec) return;
     setExecuting(true); setError(null);
     try {
-      const sessionList = sessions.filter((s: any) => s.wallet_address === activeWallet.wallet_address && !s.revoked);
+      const sessionList = sessions.filter((s: any) => (s.walletAddress || s.wallet_address) === activeWallet.wallet_address && !s.revoked);
       if (sessionList.length === 0) { setError('No active session. Create one first.'); setExecuting(false); return; }
       const result = await bundleAgentExecute(
         activeWallet.wallet_address, execTarget, execValue || '0',
-        execData || '0x', sessionList[0].session_id, agentKey.privateKey
+        execData || '0x', sessionList[0].sessionId || sessionList[0].session_id, agentKey.privateKey
       );
       if (result.success) setSuccess(`Agent executed! Tx: ${result.txHash?.slice(0, 20)}...`);
       else setError(result.error || 'Execution failed');
@@ -149,8 +170,8 @@ export function AgentsPage() {
       const agent = await generateAgentKey();
       if (!agent.address) throw new Error('Failed to generate agent key');
 
-      // Create the wallet on-chain
-      const result = await sendAndWaitForWalletCreation(owner);
+      // Create the wallet on-chain (pass harnessId to enforce 1:1 constraint)
+      const result = await sendAndWaitForWalletCreation(owner, selectedHarness.id);
       // Save wallet for this harness (state + localStorage)
       setHarnessWalletMap(prev => ({ ...prev, [selectedHarness.id]: result.walletAddress }));
       await fetchAll();
@@ -206,7 +227,28 @@ export function AgentsPage() {
     } catch (e: any) { setError(e.message); }
   };
 
+  // Link an existing unlinked wallet to the selected harness
+  const linkWallet = async (walletAddress: string) => {
+    if (!selectedHarness) return;
+    try {
+      const result = await postJSON<any>('/api/wallets/link', {
+        walletAddress,
+        harnessId: selectedHarness.id,
+      });
+      if (result.success) {
+        setHarnessWalletMap(prev => ({ ...prev, [selectedHarness.id]: walletAddress }));
+        setSuccess(`Wallet linked to ${selectedHarness.name}`);
+        fetchAll();
+      } else {
+        setError(result.error || 'Failed to link');
+      }
+    } catch (e: any) { setError(e.message); }
+  };
 
+  // Only wallets with NO harness binding belong to the connected owner
+  const unlinkedWallets = wallets.filter((w: any) =>
+    !w.harness_id && isConnected && address && w.owner_address?.toLowerCase() === address.toLowerCase()
+  );
 
   return (
     <div>
@@ -298,6 +340,18 @@ export function AgentsPage() {
                         icon={creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wallet className="w-3.5 h-3.5" />}>
                         {creating ? 'Deploying...' : isConnected ? 'Create Wallet & Identity' : 'Connect Wallet First'}
                       </Button>
+                      {unlinkedWallets.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <div className="text-[10px] text-muted-foreground/60 mb-2">Or link an existing wallet:</div>
+                          {unlinkedWallets.map((w: any) => (
+                            <button key={w.wallet_address} onClick={() => linkWallet(w.wallet_address)}
+                              className="w-full text-left text-[10px] font-mono bg-secondary/50 hover:bg-secondary rounded px-2 py-1.5 mb-1 flex items-center justify-between">
+                              <span>{truncate(w.wallet_address, 16)}</span>
+                              <span className="text-muted-foreground/40">Link →</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -409,18 +463,18 @@ export function AgentsPage() {
               </Card>
 
               {/* Sessions List */}
-              {sessions.filter((s: any) => s.wallet_address === activeWallet.wallet_address).length > 0 && (
+              {sessions.filter((s: any) => (s.walletAddress || s.wallet_address) === activeWallet.wallet_address).length > 0 && (
                 <div className="mt-4">
                   <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-2">Active Sessions</div>
-                  {sessions.filter((s: any) => s.wallet_address === activeWallet.wallet_address).map((s: any) => (
-                    <Card key={s.session_id} className="py-2.5 mb-1">
+                  {sessions.filter((s: any) => (s.walletAddress || s.wallet_address) === activeWallet.wallet_address).map((s: any) => (
+                    <Card key={s.sessionId || s.session_id} className="py-2.5 mb-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-[10px]">{truncate(s.session_id, 10)}</span>
+                        <span className="font-mono text-[10px]">{truncate(s.sessionId || s.session_id, 10)}</span>
                         <Badge variant={s.revoked ? 'danger' : 'success'}>{s.revoked ? 'Revoked' : 'Active'}</Badge>
                       </div>
                       <div className="flex gap-3 mt-1 text-[9px] text-muted-foreground/60">
-                        <span>Spend: {s.daily_spend_limit || s.dailySpendLimit || '—'} ETH</span>
-                        <span>Tx: {s.daily_tx_limit || s.dailyTxLimit || '—'}/day</span>
+                        <span>Spend: {s.dailySpendLimit || s.daily_spend_limit || '—'} ETH</span>
+                        <span>Tx: {s.dailyTxLimit || s.daily_tx_limit || '—'}/day</span>
                       </div>
                     </Card>
                   ))}

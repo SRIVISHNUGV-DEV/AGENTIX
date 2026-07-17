@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { KeyRound, RefreshCw, Shield, ShieldOff, ExternalLink, Plus, Loader2, Check, Wallet, Clock, AlertTriangle } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Dialog, Input, Select, Alert, StatusDot, Skeleton } from '@/components/ui';
-import { fetchJSON, postJSON, truncate, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress } from '@/lib/api';
 import { sendCreateLightweightSession, getAccount } from '@/lib/tx-sender';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 
@@ -35,7 +35,7 @@ export function SessionsPage() {
       if (walletData.status === 'fulfilled') {
         const list = walletData.value.value || walletData.value || [];
         setWallets(list);
-        if (list.length > 0 && !form.walletAddress) setForm(f => ({ ...f, walletAddress: list[0].wallet_address }));
+        if (list.length > 0 && !form.walletAddress) setForm(f => ({ ...f, walletAddress: list[0].walletAddress || list[0].wallet_address }));
       }
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -74,16 +74,16 @@ export function SessionsPage() {
   const revokeSession = async (sessionId: string, walletAddress: string) => {
     if (!confirm('Revoke this session? This cannot be undone.')) return;
     try {
-      await postJSON('/api/sessions', { sessionId, walletAddress });
+      await deleteJSON('/api/sessions', { sessionId, walletAddress });
       fetchData();
     } catch (e: any) { console.error(e); }
   };
 
   const columns = [
-    { key: 'sessionId', header: 'Session', render: (s: any) => <span className="font-mono text-xs">{truncate(s.session_id, 10)}</span> },
-    { key: 'wallet', header: 'Wallet', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.wallet_address, 8)}</span> },
-    { key: 'key', header: 'Key', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.session_key, 8)}</span> },
-    { key: 'dailySpend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{s.daily_spend_limit || s.dailySpendLimit || '—'} ETH</span> },
+    { key: 'sessionId', header: 'Session', render: (s: any) => <span className="font-mono text-xs">{truncate(s.sessionId || s.session_id, 10)}</span> },
+    { key: 'wallet', header: 'Wallet', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.walletAddress || s.wallet_address, 8)}</span> },
+    { key: 'key', header: 'Key', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.sessionKey || s.session_key, 8)}</span> },
+    { key: 'dailySpend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{s.dailySpendLimit || s.daily_spend_limit || '—'} ETH</span> },
     { key: 'expires', header: 'Expires', render: (s: any) => (
       <div className="flex items-center gap-1.5">
         {s.expiry > 1e12 && (s.expiry * 1000 < Date.now() + 86400000) && <Clock className="w-3 h-3 text-warning" />}
@@ -94,7 +94,7 @@ export function SessionsPage() {
       <div className="flex items-center gap-2 justify-end">
         <Badge variant={s.revoked ? 'danger' : 'success'}>{s.revoked ? 'Revoked' : 'Active'}</Badge>
         {!s.revoked && (
-          <button onClick={() => revokeSession(s.session_id, s.wallet_address)}
+          <button onClick={() => revokeSession(s.sessionId || s.session_id, s.walletAddress || s.wallet_address)}
             className="text-[10px] text-muted-foreground/40 hover:text-destructive transition-colors">Revoke</button>
         )}
       </div>
@@ -127,8 +127,8 @@ export function SessionsPage() {
               <select value={form.walletAddress} onChange={e => setForm({ ...form, walletAddress: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-secondary border border-input text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
                 {wallets.map((w: any) => (
-                  <option key={w.wallet_address} value={w.wallet_address}>
-                    {truncate(w.wallet_address, 10)} — Owner: {truncate(w.owner_address, 6)}
+                  <option key={w.walletAddress || w.wallet_address} value={w.walletAddress || w.wallet_address}>
+                    {truncate(w.walletAddress || w.wallet_address, 10)} — Owner: {truncate(w.ownerAddress || w.owner_address, 6)}
                   </option>
                 ))}
               </select>

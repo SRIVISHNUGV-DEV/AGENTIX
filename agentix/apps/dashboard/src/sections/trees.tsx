@@ -60,7 +60,7 @@ export function TreesPage() {
                     <div className="flex justify-between text-xs"><span className="text-muted-foreground/60">Root</span><span className="font-mono text-[10px]">{truncateHash(tree.activeRoot, 14)}</span></div>
                     <div className="flex justify-between text-xs"><span className="text-muted-foreground/60">Epoch</span><span className="font-mono">{tree.activeEpoch}</span></div>
                     <div className="flex justify-between text-xs"><span className="text-muted-foreground/60">Leaves</span><span className="font-mono">{tree.activeLeaves}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-muted-foreground/60">Depth</span><span className="font-mono">10</span></div>
+                    <div className="flex justify-between text-xs"><span className="text-muted-foreground/60">Depth</span><span className="font-mono">20</span></div>
                   </div>
                 </div>
                 <div>

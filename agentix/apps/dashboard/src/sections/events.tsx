@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Activity, RefreshCw, ExternalLink, Search, Database, Wifi, HardDrive, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Select, Skeleton, StatusDot } from '@/components/ui';
-import { fetchJSON, truncate, explorerTx, explorerBlock, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, truncate, explorerTx, explorerBlock, explorerAddress } from '@/lib/api';
 
 const CONTRACT_NAMES = [
   'AgentWalletFactory', 'SessionManager', 'CredentialRegistry', 'AgentIdentity',
@@ -84,7 +84,23 @@ export function EventsPage() {
 
   const triggerIndex = async () => {
     try {
-      await fetchJSON('/api/events/indexer/run');
+      await postJSON('/api/events/indexer/run', {});
+      fetchEvents();
+      fetchIndexerStatus();
+    } catch {}
+  };
+
+  const triggerReindex = async () => {
+    try {
+      await postJSON('/api/events/indexer/reindex', { fromBlock: 43500000 });
+      fetchEvents();
+      fetchIndexerStatus();
+    } catch {}
+  };
+
+  const triggerReproduce = async () => {
+    try {
+      await postJSON('/api/events/indexer/reproduce', {});
       fetchEvents();
       fetchIndexerStatus();
     } catch {}
@@ -163,6 +179,12 @@ export function EventsPage() {
             </div>
             <Button variant="ghost" size="sm" onClick={triggerIndex}>
               Index Now
+            </Button>
+            <Button variant="ghost" size="sm" onClick={triggerReindex}>
+              Reindex All
+            </Button>
+            <Button variant="ghost" size="sm" onClick={triggerReproduce}>
+              Reproduce State
             </Button>
           </div>
         </Card>

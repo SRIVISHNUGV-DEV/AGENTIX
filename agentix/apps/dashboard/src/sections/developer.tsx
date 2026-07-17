@@ -76,7 +76,7 @@ AgentWalletFactory (proxy)
 - **Execute**: \`wallet.execute(target, value, data)\` — only owner or EntryPoint
 - **Batch Execute**: \`wallet.executeBatch(targets, values, datas)\` — atomic multi-call
 - **Deposit**: \`wallet.addDeposit()\` — fund EntryPoint gas (payable)
-- **Whitelist**: \`wallet.whitelistSelector(target, selector, allowed)\` — pre-approve selectors
+- **Execute**: \`wallet.execute(target, value, data)\` — owner-only execution
 
 ### Two-Phase Client Flow
 1. Client calls \`POST /api/wallets/create-tx\` → gets encoded factory calldata

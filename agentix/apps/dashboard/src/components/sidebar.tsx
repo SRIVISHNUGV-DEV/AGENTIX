@@ -1,9 +1,9 @@
 'use client';
 
 import {
-  Home, Wallet, Bot, Building2, KeyRound,
+  Home, Wallet, Bot, Building2, KeyRound, User, DollarSign,
   ScrollText, BarChart3, HardDrive, Stethoscope, AlertTriangle,
-  Settings, GitBranch, Layers, Wrench, Terminal
+  Settings, GitBranch, Layers, Wrench, Terminal, CreditCard, TreePine
 } from 'lucide-react';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 
@@ -17,13 +17,19 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: Home },
   { id: 'agents', label: 'Agents', icon: Bot, group: 'Protocol' },
+  { id: 'wallets', label: 'Wallets', icon: Wallet, group: 'Protocol' },
+  { id: 'identities', label: 'Identities', icon: User, group: 'Protocol' },
   { id: 'organizations', label: 'Organizations', icon: Building2, group: 'Protocol' },
+  { id: 'credentials', label: 'Credentials', icon: CreditCard, group: 'Protocol' },
+  { id: 'trees', label: 'Merkle Trees', icon: TreePine, group: 'Protocol' },
   { id: 'sessions', label: 'Sessions', icon: KeyRound, group: 'Protocol' },
   { id: 'capabilities', label: 'Capabilities', icon: Layers, group: 'Protocol' },
   { id: 'delegations', label: 'Delegations', icon: GitBranch, group: 'Protocol' },
   { id: 'transactions', label: 'Transactions', icon: ScrollText, group: 'Activity' },
   { id: 'events', label: 'Events', icon: ActivityIcon, group: 'Activity' },
   { id: 'actions', label: 'Actions', icon: Terminal, group: 'Activity' },
+  { id: 'plans', label: 'Execution Plans', icon: GitBranch, group: 'Activity' },
+  { id: 'x402', label: 'x402 Payments', icon: DollarSign, group: 'Activity' },
   { id: 'analytics', label: 'Analytics', icon: BarChart3, group: 'Observability' },
   { id: 'diagnostics', label: 'Diagnostics', icon: Stethoscope, group: 'Observability' },
   { id: 'anomalies', label: 'Anomalies', icon: AlertTriangle, group: 'Observability' },

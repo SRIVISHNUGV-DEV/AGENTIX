@@ -21,11 +21,12 @@ export function IdentitiesPage() {
       }
       const results = await Promise.allSettled(
         list.slice(0, 20).map(async (w: any) => {
+          const wAddr = w.walletAddress || w.wallet_address;
           try {
-            const info = await fetchJSON<any>(`/api/identity/${w.wallet_address}`);
-            return { wallet: w.wallet_address, ...info };
+            const info = await fetchJSON<any>(`/api/identity/${wAddr}`);
+            return { wallet: wAddr, ...info };
           } catch {
-            return { wallet: w.wallet_address, identityId: null };
+            return { wallet: wAddr, identityId: null };
           }
         })
       );
@@ -41,7 +42,7 @@ export function IdentitiesPage() {
     { key: 'identityId', header: 'Identity', render: (i: any) => i.identityId ? <span className="font-mono text-xs">{i.identityId.toString()}</span> : <span className="text-muted-foreground/50">—</span> },
     { key: 'status', header: 'Status', render: (i: any) => i.active !== undefined ? <Badge variant={i.active ? 'success' : 'danger'}>{i.active ? 'Active' : 'Inactive'}</Badge> : <Badge variant="default">Unknown</Badge> },
     { key: 'actions', header: '', render: (i: any) => i.wallet ? (
-      <a href={`https://sepolia.basescan.org/address/${i.wallet}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground/40 hover:text-foreground transition-colors"><ExternalLink className="w-3.5 h-3.5" /></a>
+      <a href={explorerAddress(i.wallet)} target="_blank" rel="noopener noreferrer" className="text-muted-foreground/40 hover:text-foreground transition-colors"><ExternalLink className="w-3.5 h-3.5" /></a>
     ) : null, className: 'text-right' },
   ];
 

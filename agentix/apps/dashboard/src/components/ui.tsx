@@ -69,18 +69,34 @@ interface StatCardProps {
   value: string | number;
   icon: React.ReactNode;
   trend?: string;
+  /** Direction of the trend — colors the trend text and shows an arrow. */
+  trendDir?: 'up' | 'down' | 'neutral';
+  /** When true, renders a shimmer placeholder instead of the value. */
+  loading?: boolean;
 }
 
-export function StatCard({ label, value, icon, trend }: StatCardProps) {
+export function StatCard({ label, value, icon, trend, trendDir = 'neutral', loading }: StatCardProps) {
+  const trendColor =
+    trendDir === 'up' ? 'text-success' : trendDir === 'down' ? 'text-destructive' : 'text-muted-foreground/50';
+  const trendArrow = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '';
   return (
-    <div className="glass p-4">
+    <div className="glass card-interactive p-4">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-[10px] text-muted-foreground/60 uppercase tracking-[0.15em] font-medium">{label}</p>
-          <p className="text-2xl font-light mt-1.5">{value}</p>
-          {trend && <p className="text-[10px] text-muted-foreground/50 mt-1">{trend}</p>}
+          {loading ? (
+            <Skeleton className="h-7 w-16 mt-2" />
+          ) : (
+            <p className="text-2xl font-light mt-1.5 tabular">{value}</p>
+          )}
+          {trend && !loading && (
+            <p className={`text-[10px] mt-1 flex items-center gap-1 ${trendColor}`}>
+              {trendArrow && <span className="font-medium">{trendArrow}</span>}
+              {trend}
+            </p>
+          )}
         </div>
-        <div className="text-muted-foreground/20">{icon}</div>
+        <div className="text-muted-foreground/25 bg-secondary/40 rounded-lg p-2">{icon}</div>
       </div>
     </div>
   );
@@ -141,7 +157,7 @@ export function PageHeader({ title, description, action }: PageHeaderProps) {
 // ── Skeleton ─────────────────────────────────────
 
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-[hsl(var(--skeleton))] ${className}`} />;
+  return <div className={`skeleton-shimmer rounded-md ${className}`} />;
 }
 
 // ── Empty State ──────────────────────────────────
@@ -236,14 +252,19 @@ export function Table<T extends Record<string, any>>({ columns, data, onRowClick
   return (
     <div className="overflow-x-auto">
       <table className="data-table">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-background/90 backdrop-blur-sm">
           <tr>
             {columns.map(col => <th key={col.key} className={col.className}>{col.header}</th>)}
           </tr>
         </thead>
         <tbody>
           {data.map((item, i) => (
-            <tr key={item.id || i} onClick={() => onRowClick?.(item)} className={onRowClick ? 'cursor-pointer hover:bg-accent/50' : ''}>
+            <tr
+              key={item.id || i}
+              onClick={() => onRowClick?.(item)}
+              className={`animate-row-in transition-colors ${onRowClick ? 'cursor-pointer hover:bg-accent/50' : ''}`}
+              style={{ animationDelay: `${Math.min(i * 20, 300)}ms` }}
+            >
               {columns.map(col => <td key={col.key} className={col.className}>{col.render(item)}</td>)}
             </tr>
           ))}
