@@ -8,7 +8,9 @@ export {
   getDatabase,
   closeDatabase,
   runQuery,
+  runQueryCamel,
   runSingle,
+  runSingleCamel,
   runExecute,
   runTransaction,
 } from '../../../src/core/database';

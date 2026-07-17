@@ -152,6 +152,7 @@ export type ContractName = keyof typeof ABIS;
 
 export class ContractRegistry {
   readonly provider: JsonRpcProvider;
+  readonly fallbackProvider?: JsonRpcProvider;
   readonly signer?: Signer;
 
   constructor(
@@ -159,7 +160,19 @@ export class ContractRegistry {
     signer?: Signer,
   ) {
     this.provider = new JsonRpcProvider(config.rpcUrl, config.chainId, { staticNetwork: true });
+    if (config.rpcFallbackUrl) {
+      this.fallbackProvider = new JsonRpcProvider(config.rpcFallbackUrl, config.chainId, { staticNetwork: true });
+    }
     this.signer = signer;
+  }
+
+  async callWithFallback<T>(primary: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
+    try {
+      return await primary();
+    } catch (err: any) {
+      if (fallback) return await fallback();
+      throw err;
+    }
   }
 
   /** Returns a read-only contract connected to the JSON-RPC provider. */

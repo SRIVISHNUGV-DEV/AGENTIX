@@ -220,7 +220,7 @@ export class AnomalyDetector {
     }
 
     const multiWallet = runQuery<{ wallet_address: string; count: number }>(
-      "SELECT wallet_address, COUNT(DISTINCT wallet_address) as count FROM agent_actions WHERE wallet_address IS NOT NULL AND timestamp > ? GROUP BY wallet_address HAVING count > 3",
+      "SELECT wallet_address, COUNT(*) as count FROM agent_actions WHERE wallet_address IS NOT NULL AND timestamp > ? GROUP BY wallet_address HAVING count > 3",
       Math.floor(Date.now() / 1000) - 3600
     );
 

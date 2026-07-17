@@ -1,5 +1,5 @@
-import { checkRpcConnection, getProvider, getBalance } from "../core/provider";
-import { loadConfig } from "../core/config";
+import { checkRpcConnection, getProvider, getBalance, resetProviders } from "../core/provider";
+import { loadConfig, saveConfig } from "../core/config";
 import { logger } from "../core/logger";
 
 export interface RpcResult {
@@ -17,6 +17,11 @@ export async function testRpcConnection(rpcUrl?: string): Promise<RpcResult> {
     if (rpcUrl) {
       const config = loadConfig();
       config.rpcUrl = rpcUrl;
+      saveConfig(config);
+      // CRITICAL: reset the cached provider singleton so the next getProvider()
+      // call creates a new JsonRpcProvider with the updated URL. Without this,
+      // the --url flag has no effect (provider stays cached from a prior call).
+      resetProviders();
     }
 
     const result = await checkRpcConnection();

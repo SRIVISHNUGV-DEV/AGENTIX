@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { getProvider, getSigner } from "../core/provider";
 import { getProxyGuard } from "../core/proxy-guard";
 import { loadConfig } from "../core/config";
-import { runExecute, runSingle } from "../core/database";
+import { runExecute, runQuery, runSingle } from "../core/database";
 import { getEventBus } from "../../packages/core/eventbus";
 import { generateId } from "../../packages/shared/utils";
 
@@ -99,7 +99,7 @@ export function quickGetWallet(walletAddress: string): any {
 }
 
 export function quickListWallets(): any[] {
-  return runSingle<any[]>("SELECT * FROM wallets ORDER BY created_at DESC") || [];
+  return runQuery("SELECT * FROM wallets ORDER BY created_at DESC") || [];
 }
 
 // ── Lightweight Sessions ───────────────────────────────────────────────
@@ -187,7 +187,7 @@ export async function quickRevokeSession(sessionId: string, walletAddress: strin
 }
 
 export function quickListSessions(walletAddress: string): any[] {
-  return runSingle<any[]>("SELECT * FROM sessions WHERE wallet_address = ? ORDER BY created_at DESC", walletAddress) || [];
+  return runQuery("SELECT * FROM sessions WHERE wallet_address = ? ORDER BY created_at DESC", walletAddress) || [];
 }
 
 // ── Whitelist ──────────────────────────────────────────────────────────
@@ -243,12 +243,13 @@ export async function quickCreateDelegation(
   const tx = await delegationMgr.updateDelegationRoot(delegatorAddress, scopeHash, leaf, expiry);
   const receipt = await tx.wait();
 
+  const delegationId = `del_${generateId()}`;
   runExecute(
     "INSERT OR REPLACE INTO delegations (delegation_id, organization_id, delegator, delegatee, scope, max_value, expiry, active, created_at) VALUES (?, '', ?, ?, ?, '0', ?, 1, ?)",
-    `del_${generateId()}`, delegatorAddress, delegateeAddress, scope, expiry, Math.floor(Date.now() / 1000)
+    delegationId, delegatorAddress, delegateeAddress, scope, expiry, Math.floor(Date.now() / 1000)
   );
 
-  getEventBus().emit({ type: "DelegationCreated", data: { delegationId: `del_${generateId()}` } });
+  getEventBus().emit({ type: "DelegationCreated", data: { delegationId } });
 
   return {
     success: true,

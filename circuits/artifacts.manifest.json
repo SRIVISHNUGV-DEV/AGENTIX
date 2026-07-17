@@ -1,0 +1,34 @@
+{
+  "circuit": "credential_V1",
+  "protocol": "groth16",
+  "curve": "bn128",
+  "nPublic": 7,
+  "publicSignals": [
+    "activeRoot",
+    "revokedRoot",
+    "maxValue",
+    "sessionExpiry",
+    "wallet",
+    "credentialVersion",
+    "nullifier"
+  ],
+  "merkleDepth": 20,
+  "generatedAt": "2026-06-23T15:44:00Z",
+  "artifacts": {
+    "zkey": {
+      "relPath": "prover/credential_V1_final.zkey",
+      "sha256": "936c75deed0e69a616db106e69d80624e4cbe90961515d975af443c9336991eb",
+      "bytes": 12043344
+    },
+    "wasm": {
+      "relPath": "prover/credential_V1_js/credential_V1.wasm",
+      "sha256": "4b24fc1bc134955ebdfd1f5fcd6872b4c9e3314c44202e8b3d5a28a5a519ca0b",
+      "bytes": 3462262
+    },
+    "vkey": {
+      "relPath": "build/verification_key.json",
+      "sha256": "72ae315f1b924a66b03c14753d65ca8fbb8cefe50d79e7a6ff29e305fde3560e",
+      "bytes": 4142
+    }
+  }
+}

@@ -66,6 +66,7 @@ function diagnoseConfiguration(): DiagnosticSection {
   items.push({ label: "Chain ID", value: String(config.chainId), status: "OK" });
   items.push({ label: "Network", value: config.networkName, status: "OK" });
   items.push({ label: "RPC URL", value: config.rpcUrl || "(not set)", status: config.rpcUrl ? "OK" : "WARNING" });
+  items.push({ label: "RPC Fallback", value: config.rpcFallbackUrl || "(not set)", status: config.rpcFallbackUrl ? "OK" : "INFO" });
   items.push({ label: "Database Path", value: config.database.path, status: "OK" });
 
   return { name: "Configuration", status: config.rpcUrl ? "OK" : "WARNING", items };

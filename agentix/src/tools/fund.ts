@@ -80,11 +80,12 @@ const NETWORK_NAMES: Record<string, string> = {
   polygon: "Polygon",
 };
 
-export function getFundOptions(request: FundRequest): FundResult {
+export function getFundOptions(request: FundRequest, ethPrice?: number): FundResult {
   const { network, amount, currency = "USD", country } = request;
   const networkName = NETWORK_NAMES[network] || network;
 
   const amountNum = parseFloat(amount);
+  const price = ethPrice || 2500;
   const options: FiatOnRampOption[] = [];
 
   for (const provider of PROVIDERS) {
@@ -98,7 +99,7 @@ export function getFundOptions(request: FundRequest): FundResult {
 
     const fee = amountNum * feeRate;
     const netAmount = amountNum - fee;
-    const ethReceived = (netAmount / 2500).toFixed(6);
+    const ethReceived = (netAmount / price).toFixed(6);
 
     let networkFee = "0.0001 ETH";
     if (network.includes("Sepolia")) networkFee = "Free (testnet)";

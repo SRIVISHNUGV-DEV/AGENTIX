@@ -16,7 +16,7 @@ export interface WalletResult {
   details?: any;
 }
 
-export async function createWallet(ownerAddress?: string): Promise<WalletResult> {
+export async function createWallet(ownerAddress?: string, harnessId?: string): Promise<WalletResult> {
   try {
     const signer = getSigner();
     const owner = ownerAddress || signer.address;
@@ -24,10 +24,22 @@ export async function createWallet(ownerAddress?: string): Promise<WalletResult>
     const validation = getProxyGuard().validate(owner);
     if (!validation.valid) return { success: false, error: validation.error };
 
+    if (harnessId) {
+      const existing = runSingle("SELECT wallet_address FROM wallets WHERE harness_id = ?", harnessId) as any;
+      if (existing) {
+        return { success: false, error: `Harness "${harnessId}" already has a wallet at ${existing.wallet_address}. Each harness can only have one wallet.` };
+      }
+      // Also check for unlinked wallets belonging to this owner
+      const unlinked = runSingle("SELECT wallet_address FROM wallets WHERE owner_address = ? AND harness_id IS NULL", owner) as any;
+      if (unlinked) {
+        return { success: false, error: `Owner already has an unlinked wallet at ${unlinked.wallet_address}. Link it to harness "${harnessId}" from the dashboard instead.` };
+      }
+    }
+
     const factory = getContract("AgentWalletFactory");
     const salt = ethers.randomBytes(32);
 
-    logger.info("wallet", `Creating wallet for owner ${owner}`);
+    logger.info("wallet", `Creating wallet for owner ${owner}${harnessId ? ` (harness: ${harnessId})` : ""}`);
 
     const tx = await factory["createWallet(address,bytes32)"](owner, salt);
     const receipt = await tx.wait();
@@ -53,10 +65,11 @@ export async function createWallet(ownerAddress?: string): Promise<WalletResult>
     }
 
     runExecute(
-      "INSERT OR REPLACE INTO wallets (wallet_address, owner_address, entry_point, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO wallets (wallet_address, owner_address, harness_id, entry_point, created_at) VALUES (?, ?, ?, ?, ?)",
       walletAddress,
       owner,
-      (await getReadonlyContract("SessionManager").walletFactory()) ? "" : "",
+      harnessId || null,
+      "",
       Math.floor(Date.now() / 1000)
     );
 

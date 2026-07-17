@@ -170,6 +170,7 @@ export interface SigningRequest {
 
 export interface AgentIXConfig {
   rpcUrl: string;
+  rpcFallbackUrl?: string;
   chainId: number;
   walletFactoryAddress: string;
   agentIdentityAddress?: string;

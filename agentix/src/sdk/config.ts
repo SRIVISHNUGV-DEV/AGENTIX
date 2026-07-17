@@ -3,7 +3,8 @@ import { ConfigurationError } from './errors';
 
 const REQUIRED_DEFAULTS: Partial<AgentIXConfig> = {
   chainId: CHAINS.BASE_SEPOLIA.chainId,
-  rpcUrl: 'https://base-sepolia.g.alchemy.com/v2/Pmq9QBdugAMgGijjyff5L',
+  rpcUrl: 'https://base-sepolia-testnet.api.pocket.network',
+  rpcFallbackUrl: '',
   walletFactoryAddress: '0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1',
   sessionManagerAddress: '0x9b7B7d631098f046eaFb4637DC859eBA51e238C0',
   credentialRegistryAddress: '0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E',

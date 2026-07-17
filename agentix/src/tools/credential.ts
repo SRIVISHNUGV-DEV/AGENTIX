@@ -6,6 +6,26 @@ import { getActiveTree } from "../trees/active-tree";
 import { getRevokedTree } from "../trees/revoked-tree";
 import { logger } from "../core/logger";
 import { getProvider } from "../core/provider";
+import { getEventBus } from "../../packages/core/eventbus";
+
+/**
+ * Anchor the active root on-chain.
+ * This sends a transaction to the CredentialRegistry contract to update the root.
+ */
+export async function anchorRootOnChain(root: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    const adapter = await import("../blockchain/adapter");
+    const signerAddr = adapter.getSignerAddress();
+    const authorized = await adapter.isIssuer(signerAddr);
+    if (!authorized) {
+      return { success: false, error: `Backend signer ${signerAddr} is not an issuer. Add it via: credReg.addIssuer(${signerAddr})` };
+    }
+    const result = await adapter.sendRootUpdate(root);
+    return { success: true, txHash: result.txHash };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
 
 export interface CredResult {
   success: boolean;
@@ -17,6 +37,7 @@ export interface CredResult {
   activeRoot?: string;
   revokedRoot?: string;
   expiry?: number;
+  txHash?: string;
   error?: string;
 }
 
@@ -78,6 +99,7 @@ export async function issueCredential(params: {
   expiryUnit: "days" | "months";
   walletAddress: string;
   ownerAddress: string;
+  autoAnchor?: boolean;
 }): Promise<CredResult> {
   try {
     const {
@@ -87,6 +109,7 @@ export async function issueCredential(params: {
       expiryUnit,
       walletAddress,
       ownerAddress,
+      autoAnchor = false,
     } = params;
 
     if (!orgInput || orgInput === "0" || orgInput === "standalone") {
@@ -130,7 +153,10 @@ export async function issueCredential(params: {
         F.e(secret.toString()),
       ];
 
-      const hash = poseidon(...inputs);
+      // circomlibjs poseidon takes inputs as ONE array arg (poseidon(inputs, initState, nOut)).
+      // Must match computeCommitment() in zk-prover.ts and the circuit's Poseidon(7),
+      // verified against canonical vectors. Spreading mis-binds the arguments.
+      const hash = poseidon(inputs);
       commitmentHex = "0x" + F.toString(hash);
     } catch (e: any) {
       logger.warn("credential", `circomlibjs unavailable, using keccak256 fallback: ${e.message}`);
@@ -171,7 +197,13 @@ export async function issueCredential(params: {
 
     const tree = await getActiveTree(orgId);
     const commitmentBig = BigInt(commitmentHex);
-    const { root, epoch } = tree.addLeaf(commitmentBig, commitmentBig);
+    const { root, epoch, leafIndex } = tree.addLeaf(commitmentBig, commitmentBig);
+    // Persist the dense leaf index assigned by the tree (collision-free position).
+    runExecute(
+      "UPDATE credentials SET leaf_index = ? WHERE credential_id = ?",
+      leafIndex,
+      credentialId
+    );
 
     const revokedTree = await getRevokedTree(orgId);
 
@@ -179,7 +211,6 @@ export async function issueCredential(params: {
 
     // Persist event
     try {
-      const { getEventBus } = require("../../packages/core/eventbus");
       const bus = getEventBus();
       const evData = { credentialId, agentId, organizationId: orgId, walletAddress };
       bus.emit({ type: "CredentialIssued", data: evData });
@@ -191,6 +222,18 @@ export async function issueCredential(params: {
       );
     } catch {}
 
+    // Auto-anchor root on-chain if requested
+    let txHash: string | undefined;
+    if (autoAnchor) {
+      const anchorResult = await anchorRootOnChain(root.toString());
+      if (anchorResult.success) {
+        txHash = anchorResult.txHash;
+        logger.info("credential", `Auto-anchored root on-chain: ${txHash}`);
+      } else {
+        logger.warn("credential", `Auto-anchor failed: ${anchorResult.error}`);
+      }
+    }
+
     return {
       success: true,
       credentialId,
@@ -201,6 +244,7 @@ export async function issueCredential(params: {
       activeRoot: root.toString(),
       revokedRoot: revokedTree.getRoot(),
       expiry: expiryBlock,
+      txHash,
     };
   } catch (e: any) {
     logger.error("credential", `Failed to issue credential: ${e.message}`);
@@ -210,11 +254,12 @@ export async function issueCredential(params: {
 
 export async function revokeCredential(
   organizationId: string,
-  agentId: number
+  agentId: number,
+  autoAnchor?: boolean
 ): Promise<CredResult> {
   try {
-    const cred = runSingle<{ nullifier: string; credential_id: string }>(
-      "SELECT nullifier, credential_id FROM credentials WHERE organization_id = ? AND agent_id = ? AND revoked = 0",
+    const cred = runSingle<{ nullifier: string; credential_id: string; secret: string; commitment: string }>(
+      "SELECT nullifier, credential_id, secret, commitment FROM credentials WHERE organization_id = ? AND agent_id = ? AND revoked = 0",
       organizationId,
       agentId
     );
@@ -230,17 +275,29 @@ export async function revokeCredential(
       agentId
     );
 
+    // The active tree is keyed by the commitment (raw leaf). The `nullifier`
+    // column historically stores the commitment, but prefer the explicit
+    // `commitment` column when present.
+    const activeLeaf = BigInt(cred.commitment || cred.nullifier);
     const activeTree = await getActiveTree(organizationId);
-    activeTree.removeLeaf(BigInt(cred.nullifier));
+    activeTree.removeLeaf(activeLeaf);
+
+    // The revoked SMT is keyed by revocationKey = Poseidon2(secret, 0) mod 2^64,
+    // exactly what the circuit's SMTVerifier checks non-membership against and
+    // what revoked-tree.loadFromDb recomputes on reload. Adding the commitment
+    // here (the old behaviour) made the live in-memory tree diverge from the
+    // reloaded one. Compute the real revocation key from the secret.
+    const { computeRevocationKey } = await import("../core/zk-prover");
+    const secretBig = cred.secret ? BigInt("0x" + cred.secret) : BigInt(cred.nullifier);
+    const revocationKey = await computeRevocationKey(secretBig);
 
     const revokedTree = await getRevokedTree(organizationId);
-    const { root, epoch } = revokedTree.addNullifier(BigInt(cred.nullifier));
+    const { root, epoch } = await revokedTree.addRevocationKey(revocationKey);
 
     logger.info("credential", `Credential revoked: root=${root.toString().slice(0, 20)}...`);
 
     // Persist event
     try {
-      const { getEventBus } = require("../../packages/core/eventbus");
       const bus = getEventBus();
       const evData = { credentialId: cred.credential_id, agentId, organizationId };
       bus.emit({ type: "CredentialRevoked", data: evData });
@@ -252,12 +309,25 @@ export async function revokeCredential(
       );
     } catch {}
 
+    // Auto-anchor root on-chain if requested
+    let txHash: string | undefined;
+    if (autoAnchor) {
+      const anchorResult = await anchorRootOnChain(activeTree.getRoot());
+      if (anchorResult.success) {
+        txHash = anchorResult.txHash;
+        logger.info("credential", `Auto-anchored root on-chain after revocation: ${txHash}`);
+      } else {
+        logger.warn("credential", `Auto-anchor failed after revocation: ${anchorResult.error}`);
+      }
+    }
+
     return {
       success: true,
       credentialId: cred.credential_id,
       agentId,
       activeRoot: activeTree.getRoot(),
       revokedRoot: root.toString(),
+      txHash,
     };
   } catch (e: any) {
     logger.error("credential", `Failed to revoke credential: ${e.message}`);

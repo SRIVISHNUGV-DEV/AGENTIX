@@ -1,10 +1,17 @@
 export {
   buildMerkleTree,
+  buildMerkleTreeRaw,
   getMerkleProof,
+  getRawMerkleProof,
   hashLeaf,
+  hashPair,
   initMerkleCrypto,
   serializeTreeSnapshot,
   deserializeTreeSnapshot,
   buildZeroHashes,
-  hashPair,
+  buildRevokedTree,
+  buildRevokedSmt,
+  buildRevokedSmtFromKeys,
+  smtNonMembershipProof,
+  type SmtNonMembershipProof,
 } from "../../../src/utils/merkle";

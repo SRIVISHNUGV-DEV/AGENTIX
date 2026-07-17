@@ -17,9 +17,23 @@ export interface DiagnosticSection {
   items: DiagnosticItem[];
 }
 
+/** Flattened check for clients (dashboard) that consume a single list rather
+ *  than grouped sections. status is normalized to PASS/WARNING/ERROR. */
+export interface DiagnosticCheck {
+  name: string;
+  status: "PASS" | "WARNING" | "ERROR";
+  value: string;
+  message: string;
+  repair?: string;
+}
+
 export interface DiagnosticResult {
   timestamp: number;
   sections: DiagnosticSection[];
+  /** Flattened view of sections[].items[] — the dashboard diagnostics and
+   *  onboarding pages read `checks`, while the CLI renders `sections`. Both
+   *  are derived from the same data so they can never drift. */
+  checks: DiagnosticCheck[];
   overall: "OK" | "WARNING" | "ERROR";
   repairable: number;
   summary: string;
@@ -75,7 +89,23 @@ export async function runFullDiagnostics(): Promise<DiagnosticResult> {
     ? `${repairable} issue(s) detected — auto-repair available`
     : `${sections.filter((s) => s.status === "ERROR").length} critical issue(s) detected`;
 
-  return { timestamp: Date.now(), sections, overall, repairable, summary };
+  // Flatten sections into a single checks[] list for clients that don't group
+  // (dashboard). INFO/OK both map to PASS so the dashboard's PASS/WARNING/ERROR
+  // model stays intact.
+  const checks: DiagnosticCheck[] = [];
+  for (const section of sections) {
+    for (const item of section.items) {
+      checks.push({
+        name: `${section.name}: ${item.label}`,
+        status: item.status === "ERROR" ? "ERROR" : item.status === "WARNING" ? "WARNING" : "PASS",
+        value: item.value,
+        message: item.value,
+        repair: item.repair,
+      });
+    }
+  }
+
+  return { timestamp: Date.now(), sections, checks, overall, repairable, summary };
 }
 
 async function checkNodeJS(): Promise<DiagnosticSection> {
@@ -94,7 +124,7 @@ async function checkNodeJS(): Promise<DiagnosticSection> {
 async function checkNPM(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
-    const version = execSync("npm --version", { encoding: "utf-8" }).trim();
+    const version = execSync("npm --version", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     items.push({ label: "NPM Version", status: "OK", value: version });
   } catch {
     items.push({ label: "NPM Version", status: "ERROR", value: "Not found", repair: "Install npm: npm install -g npm" });
@@ -170,6 +200,11 @@ async function checkRPC(): Promise<DiagnosticSection> {
     status: config.rpcUrl ? "OK" : "WARNING",
     value: config.rpcUrl || "Not configured",
     repair: config.rpcUrl ? undefined : "Run: agentix config set rpcUrl https://sepolia.base.org",
+  });
+  items.push({
+    label: "RPC Fallback",
+    status: config.rpcFallbackUrl ? "OK" : "INFO",
+    value: config.rpcFallbackUrl || "Not configured",
   });
   items.push({ label: "Network", status: "OK", value: `${config.networkName} (Chain ${config.chainId})` });
   return { name: "Network", status: items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
