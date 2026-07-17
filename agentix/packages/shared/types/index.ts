@@ -159,50 +159,26 @@ export interface AgentAction {
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "AUTHORITY";
 
 // ── Config ─────────────────────────────────────────────────────────────
-export interface AgentixConfig {
-  version: string;
-  chainId: number;
-  rpcUrl: string;
-  networkName: string;
-  contracts: {
-    groth16Verifier: string;
-    credentialRegistry: string;
-    sessionManager: string;
-    agentWalletFactory: string;
-    agentWalletImplementation: string;
-    capabilityRegistry: string;
-    delegationManager: string;
-    organizationRegistry: string;
-    organizationCredentialAnchor: string;
-    entryPoint: string;
-  };
-  implementations: Record<string, string>;
-  database: { path: string };
-  backup: { path: string };
-  logs: { path: string };
-  tools: { registryPath: string };
-  authority?: {
-    endpoint: string;
-    enabled: boolean;
-  };
-  dashboard?: {
-    port: number;
-  };
-}
+// AgentixConfig lives at src/core/config.ts — the single source of truth (it
+// owns loadConfig/saveConfig/DEFAULT_CONFIG). A second copy previously lived
+// here, unused and already divergent (missing x402, extra authority/dashboard).
+// Removed to prevent schema drift; import the config type from ../core/config.
 
 // ── Events ─────────────────────────────────────────────────────────────
 export type AgentixEvent =
   | { type: "OrganizationRequested"; data: { requestId: string; name: string } }
-  | { type: "OrganizationApproved"; data: { requestId: string } }
-  | { type: "OrganizationCreated"; data: { organizationId: string; name: string } }
+  | { type: "OrganizationApproved"; data: { requestId: string; txHash?: string } }
+  | { type: "OrganizationCreated"; data: { organizationId: string; name: string; txHash?: string; credentialAnchor?: string } }
   | { type: "OrganizationDeactivated"; data: { organizationId: string } }
-  | { type: "CredentialIssued"; data: { credentialId: string; organizationId: string; agentId: number } }
+  | { type: "CredentialIssued"; data: { credentialId: string; organizationId: string; agentId: number; txHash?: string } }
   | { type: "CredentialRevoked"; data: { organizationId: string; agentId: number } }
   | { type: "RootUpdated"; data: { organizationId: string; root: string; epoch: number } }
-  | { type: "WalletCreated"; data: { walletAddress: string; ownerAddress: string } }
+  | { type: "WalletCreated"; data: { walletAddress: string; ownerAddress: string; txHash?: string } }
+  | { type: "WalletExecuted"; data: { walletAddress: string; target?: string; value?: string; txHash?: string; bundler?: string } }
   | { type: "SessionCreated"; data: { sessionId: string; walletAddress: string } }
   | { type: "SessionRevoked"; data: { sessionId: string } }
   | { type: "ActionExecuted"; data: { action: string; success: boolean } }
+  | { type: "PolicyUpdated"; data: { walletAddress: string; policyId: string } }
   | { type: "ReplayBlocked"; data: { reason: string } }
   | { type: "TreeCorruptionDetected"; data: { organizationId: string; errors: string[] } }
   | { type: "BackupCreated"; data: { backupId: string; size: number } }
@@ -211,7 +187,9 @@ export type AgentixEvent =
   | { type: "CapabilityRegistered"; data: { capabilityId: string; name: string } }
   | { type: "ProofGenerated"; data: { proofHash: string } }
   | { type: "DiagnosticsRun"; data: { status: string } }
-  | { type: "HealthCheckRun"; data: { status: string } };
+  | { type: "HealthCheckRun"; data: { status: string } }
+  | { type: "IdentityRegistered"; data: { identityId: string; walletAddress: string; txHash?: string } }
+  | { type: "MetadataUpdated"; data: { identityId: number; metadataRoot: string; txHash?: string } };
 
 // ── Health ─────────────────────────────────────────────────────────────
 export interface HealthCheck {

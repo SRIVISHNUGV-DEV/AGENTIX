@@ -23,12 +23,14 @@ const KNOWN_ABIS = [
   "OrganizationRegistry",
   "OrganizationCredentialAnchor",
   "Groth16Verifier",
+  "AgentIdentity",
   "IAgentWallet",
   "ICredentialRegistry",
   "ISessionManager",
   "IVerifier",
   "IEntryPoint",
   "IAgentWalletFactory",
+  "IAgentIdentity",
 ];
 
 const abiCache: Map<string, any[]> = new Map();

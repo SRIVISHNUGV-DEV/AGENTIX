@@ -3,6 +3,7 @@ import { loadConfig, saveConfig, ensureDirectories, AGENTIX_HOME } from "./core/
 import { getDatabase } from "./core/database";
 import { getProxyGuard } from "./core/proxy-guard";
 import { logger } from "./core/logger";
+import { getCompilerGateway } from "./compiler-gateway";
 import {
   initializeAgentix,
   showDeploymentStatus,
@@ -38,7 +39,7 @@ import {
 } from "./tools/session";
 import {
   generateLocalProof,
-  verifyLocalProof,
+  verifyProof,
   listProofs,
 } from "./tools/proof";
 import {
@@ -87,6 +88,7 @@ import {
 import { getHelp } from "./tools/help";
 import { runFullDiagnostics, initializeFullRuntime } from "./tools/wizard";
 import { getFundOptions } from "./tools/fund";
+import { runSetupWizard } from "./tools/setup-wizard";
 
 const C = {
   reset: "\x1b[0m",
@@ -153,7 +155,32 @@ function printDiagnostics(result: any) {
   }
 }
 
-const pkg = require(require("path").join(__dirname, "../../package.json"));
+// Resolve the CLI version robustly across BOTH runtime shapes:
+//   - source (tsx):   __dirname = src/,           package.json is at ../package.json
+//   - bundled (esbuild): __dirname = dist-publish/, package.json is at ./package.json
+// A hardcoded fallback guarantees `--version` never crashes the process even if the
+// manifest can't be located (e.g. a partial install).
+function resolveVersion(): string {
+  const path = require("path");
+  const fs = require("fs");
+  const candidates = [
+    path.join(__dirname, "package.json"),        // bundled: dist-publish/package.json
+    path.join(__dirname, "..", "package.json"),  // source:  agentix/package.json
+    path.join(__dirname, "..", "..", "package.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, "utf-8"));
+        if (parsed && typeof parsed.version === "string") return parsed.version;
+      }
+    } catch {
+      // ignore and try the next candidate
+    }
+  }
+  return "1.0.0";
+}
+const pkg = { version: resolveVersion() };
 
 program
   .name("agentix")
@@ -166,65 +193,119 @@ program
   .description("Initialize AgentIX local runtime")
   .option("--rpc <url>", "RPC endpoint URL")
   .action(async (opts) => {
-    log("\n  AgentIX V1 — Local Runtime Initialization", C.cyan);
-    log("  ═══════════════════════════════════════════\n");
+    log("\n  ╔══════════════════════════════════════════════════════════╗", C.cyan);
+    log("  ║            Welcome to AgentIX                            ║", C.cyan);
+    log("  ╚══════════════════════════════════════════════════════════╝", C.cyan);
+    log();
 
-    const result = await initializeAgentix(opts.rpc);
+    // Use the enhanced wizard for initialization
+    const result = await initializeFullRuntime(opts.rpc);
+
     for (const step of result.steps) {
-      if (step.status === "DONE") ok(step.message);
-      else if (step.status === "SKIP") warn(step.message);
-      else err(step.message);
+      const icon = step.status === "done" ? `${C.green}✔${C.reset}` :
+                   step.status === "skip" ? `${C.yellow}⏭${C.reset}` :
+                   step.status === "error" ? `${C.red}✘${C.reset}` :
+                   `${C.dim}○${C.reset}`;
+      const duration = step.duration ? ` ${C.dim}(${step.duration}ms)${C.reset}` : '';
+      log(`  ${icon} ${step.name}${duration}`);
+      if (step.message && step.status !== "done") {
+        log(`    ${C.dim}${step.message}${C.reset}`);
+      }
     }
+
     log();
+
     if (result.success) {
-      ok(`AgentIX initialized at ${C.dim}${AGENTIX_HOME}${C.reset}`);
-      info("Next: agentix config set rpcUrl <your-rpc-url>");
+      log("  ╔══════════════════════════════════════════════════════════╗", C.green);
+      log("  ║            Initialization Complete                       ║", C.green);
+      log("  ╚══════════════════════════════════════════════════════════╝", C.green);
+      log();
+      log(`  ${C.bold}Runtime:${C.reset}    ${AGENTIX_HOME}`);
+      log(`  ${C.bold}Database:${C.reset}   ${result.config.database.path}`);
+      log(`  ${C.bold}Network:${C.reset}    ${result.config.networkName} (Chain ${result.config.chainId})`);
+      log(`  ${C.bold}Harnesses:${C.reset}  ${result.harnessesDetected} detected, ${result.harnessesConnected} connected`);
+      log();
+      log(`  ${C.bold}Next steps:${C.reset}`);
+      log(`    1. Configure RPC:    ${C.cyan}agentix config set rpcUrl <your-rpc-url>${C.reset}`);
+      log(`    2. Start runtime:    ${C.cyan}bun x tsx src/runtime/server.ts${C.reset}`);
+      log(`    3. Start dashboard:  ${C.cyan}cd apps/dashboard && bun run dev${C.reset}`);
+      log(`    4. Run diagnostics:  ${C.cyan}agentix doctor${C.reset}`);
+      log();
+    } else {
+      log("  ╔══════════════════════════════════════════════════════════╗", C.red);
+      log("  ║            Initialization Failed                        ║", C.red);
+      log("  ╚══════════════════════════════════════════════════════════╝", C.red);
+      log();
+      const failed = result.steps.filter(s => s.status === "error");
+      for (const step of failed) {
+        log(`  ${C.red}✘${C.reset} ${step.name}: ${step.message}`);
+      }
+      log();
     }
-    log();
   });
 
 // ── agentix setup ─────────────────────────────────────────────────────
+// Modern interactive wizard: verifies env, creates storage, configures RPC
+// (public by default, optional provider key), and auto-wires every detected
+// AI harness into the AgentIX MCP server so tools work immediately.
 program
   .command("setup")
-  .description("One-command setup: init + configure RPC + health check")
-  .option("--rpc <url>", "RPC endpoint URL", "https://sepolia.base.org")
+  .description("Interactive setup wizard — deps, RPC, and MCP auto-wiring")
+  .option("--rpc <url>", "Use a specific RPC endpoint (skips the RPC prompt)")
+  .option("-y, --yes", "Non-interactive: accept defaults, use public RPC")
   .action(async (opts) => {
-    log("\n  AgentIX V1 — Quick Setup", C.cyan);
-    log("  ═══════════════════════════════════════════\n");
-
-    log("  Step 1/3: Initializing runtime...", C.bold);
-    const result = await initializeAgentix(opts.rpc);
-    for (const step of result.steps) {
-      if (step.status === "DONE") ok(step.message);
-      else if (step.status === "SKIP") warn(step.message);
-      else err(step.message);
-    }
-    log();
-
-    log("  Step 2/3: Configuring RPC...", C.bold);
-    setConfig("rpcUrl", opts.rpc);
-    ok(`rpcUrl = ${opts.rpc}`);
-    log();
-
-    log("  Step 3/3: Running health check...", C.bold);
-    const health = await runHealthCheck();
-    const icon = health.status === "HEALTHY" ? C.green : health.status === "DEGRADED" ? C.yellow : C.red;
-    log(`  Health: ${icon}${health.status}${C.reset}\n`);
-    for (const check of health.checks) {
-      const c = check.status === "PASS" ? C.green : check.status === "WARNING" ? C.yellow : C.red;
-      log(`    ${c}${check.status}${C.reset}  ${check.name}`);
-    }
-    log();
-
-    ok("Setup complete! Dashboard: npm run dev:dashboard");
-    ok("API server: npm run dev:api");
-    log();
+    const success = await runSetupWizard({ rpc: opts.rpc, yes: opts.yes });
+    process.exit(success ? 0 : 1);
   });
 
-// ── agentix doctor ────────────────────────────────────────────────────
+// ── agentix connect ───────────────────────────────────────────────────
+// Re-scan for AI harnesses and wire the AgentIX MCP server into each. Useful
+// after installing a new harness post-setup.
 program
-  .command("doctor")
-  .description("Run health checks on the AgentIX runtime")
+  .command("connect")
+  .description("Detect AI harnesses and wire in AgentIX MCP tools")
+  .action(async () => {
+    log(`\n  ${C.cyan}${C.bold}AgentIX — Harness Connector${C.reset}\n`);
+    try {
+      const { getHarnessManager } = await import("../packages/core/harness-adapter");
+      const manager = getHarnessManager();
+      const scan = await manager.scanAll();
+      const found = scan.harnesses.filter((h: any) => h.detect.found);
+      if (found.length === 0) {
+        warn("No AI harnesses detected. Install one (Claude Code, Cursor, Copilot, ...) and re-run.");
+        log();
+        return;
+      }
+      for (const h of found) {
+        const state = h.detect.alreadyConnected ? `${C.green}connected${C.reset}` : `${C.cyan}detected${C.reset}`;
+        log(`  ${C.blue}◆${C.reset} ${C.bold}${h.adapter.name}${C.reset} — ${state}`);
+      }
+      // Re-wire every detected harness so stale entries from older versions are
+      // healed (connectAll skips "already connected", which can be a dead path).
+      let wired = 0, failed = 0;
+      for (const h of found) {
+        try {
+          const res = await h.adapter.connect();
+          res.success ? wired++ : failed++;
+        } catch { failed++; }
+      }
+      log();
+      ok(`Wired AgentIX MCP into ${wired}/${found.length} harness(es)` +
+        (failed ? ` (${failed} failed)` : ""));
+      log();
+    } catch (e: any) {
+      err(`Harness connection failed: ${e.message}`);
+      log();
+    }
+  });
+
+// ── agentix health ────────────────────────────────────────────────────
+// Quick health check. The comprehensive 12-point diagnostics live under the
+// `doctor` command (defined later); this fast check is exposed as `health` to
+// avoid a duplicate-command clash that would shadow `doctor`.
+program
+  .command("health")
+  .description("Run a quick health check on the AgentIX runtime")
   .action(async () => {
     const result = await runHealthCheck();
     printHealth(result);
@@ -327,16 +408,42 @@ program
   .option("--agent <id>", "Agent ID")
   .option("--permissions <bits>", "Permission bitmask", "1")
   .option("--expiry <seconds>", "Expiry from now (seconds)", "86400")
+  .option("--budget <eth>", "Budget limit in ETH", "0.1")
+  .option("--wallet <address>", "Wallet address for the agent")
+  .option("--owner <address>", "Owner address")
   .action(async (action, opts) => {
     try {
+      const gateway = getCompilerGateway();
+
       if (action === "issue") {
-        const expiry = Math.floor(Date.now() / 1000) + parseInt(opts.expiry, 10);
-        // @ts-expect-error — legacy caller, needs update to match new object API
-        const result = await issueCredential(opts.org, parseInt(opts.agent, 10), parseInt(opts.permissions, 10), expiry);
-        printResult(result, "Issue Credential");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('credential_issue', {
+          orgId: opts.org,
+          budgetLimit: opts.budget,
+          expiryDuration: parseInt(opts.expiry, 10),
+          expiryUnit: "days",
+          walletAddress: opts.wallet || "",
+          ownerAddress: opts.owner || "",
+        }, 'cli');
+        if (result.requiresApproval) {
+          warn("This action requires owner approval");
+          log(`  ${result.explanation}`);
+        } else if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Issue Credential");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "revoke") {
-        const result = await revokeCredential(opts.org, parseInt(opts.agent, 10));
-        printResult(result, "Revoke Credential");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('credential_revoke', {
+          organizationId: opts.org,
+          agentId: parseInt(opts.agent, 10),
+        }, 'cli');
+        if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Revoke Credential");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "get") {
         const result = await getCredential(opts.org, parseInt(opts.agent, 10));
         printResult(result, "Credential Details");
@@ -361,6 +468,7 @@ program
   .argument("[action]", "create, validate, revoke, get, list")
   .option("--wallet <address>", "Wallet address")
   .option("--session-key <address>", "Session key address")
+  .option("--session-id <id>", "Session ID (for validate, revoke, get)")
   .option("--daily-spend <wei>", "Daily spend limit", "1000000000000000000")
   .option("--daily-tx <count>", "Daily transaction limit", "100")
   .option("--expiry <seconds>", "Session expiry (seconds)", "3600")
@@ -368,20 +476,44 @@ program
   .option("--value <eth>", "Value to validate (for validate)")
   .action(async (action, opts) => {
     try {
+      const gateway = getCompilerGateway();
+
       if (action === "create") {
-        const expiry = Math.floor(Date.now() / 1000) + parseInt(opts.expiry, 10);
-        const result = await createLightweightSession(
-          opts.wallet, opts["session-key"], opts["daily-spend"], parseInt(opts["daily-tx"], 10), expiry
-        );
-        printResult(result, "Create Session");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('session_create', {
+          walletAddress: opts.wallet,
+          sessionKey: opts["session-key"],
+          dailySpendLimit: opts["daily-spend"],
+          dailyTxLimit: parseInt(opts["daily-tx"], 10),
+          expiry: Math.floor(Date.now() / 1000) + parseInt(opts.expiry, 10),
+        }, 'cli', { walletAddress: opts.wallet });
+        if (result.requiresApproval) {
+          warn("This action requires owner approval");
+          log(`  ${result.explanation}`);
+        } else if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Create Session");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "validate") {
-        const result = await validateSession(opts._args?.[0], opts.signer, opts.value);
+        if (!opts["session-id"]) { err("--session-id is required"); return; }
+        const result = await validateSession(opts["session-id"], opts.signer, opts.value);
         printResult(result, "Validate Session");
       } else if (action === "revoke") {
-        const result = await revokeSession(opts._args?.[0], opts.wallet);
-        printResult(result, "Revoke Session");
+        if (!opts["session-id"]) { err("--session-id is required"); return; }
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('session_revoke', {
+          sessionId: opts["session-id"],
+          walletAddress: opts.wallet,
+        }, 'cli', { walletAddress: opts.wallet });
+        if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Revoke Session");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "get") {
-        const result = await getSession(opts._args?.[0]);
+        if (!opts["session-id"]) { err("--session-id is required"); return; }
+        const result = await getSession(opts["session-id"]);
         printResult(result, "Session Details");
       } else if (action === "list") {
         const results = await listWalletSessions(opts.wallet);
@@ -411,9 +543,21 @@ program
   .option("--recipient <address>", "Recipient (for withdraw)")
   .action(async (action, address, opts) => {
     try {
+      const gateway = getCompilerGateway();
+
       if (action === "create") {
-        const result = await createWallet(opts.owner);
-        printResult(result, "Create Wallet");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('wallet_create', {
+          ownerAddress: opts.owner,
+        }, 'cli');
+        if (result.requiresApproval) {
+          warn("This action requires owner approval");
+          log(`  ${result.explanation}`);
+        } else if (result.success) {
+          printResult(result, "Create Wallet");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "get") {
         const result = await getWalletInfo(address);
         printResult(result, "Wallet Info");
@@ -421,19 +565,61 @@ program
         const result = await whitelistAddress(address, opts.party);
         printResult(result, "Whitelist Address");
       } else if (action === "execute") {
-        const result = await executeTransaction(address, opts.to, opts.value, opts.data);
-        printResult(result, "Execute Transaction");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('wallet_execute', {
+          walletAddress: address,
+          target: opts.to,
+          value: opts.value || "0",
+          data: opts.data || "0x",
+        }, 'cli', { walletAddress: address });
+        if (result.requiresApproval) {
+          warn("This action requires owner approval");
+          log(`  ${result.explanation}`);
+        } else if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Execute Transaction");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "batch") {
         const targets = opts.to?.split(",") || [];
         const values = opts.value?.split(",") || [];
-        const result = await executeBatch(address, targets, values);
-        printResult(result, "Batch Transaction");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('wallet_execute_batch', {
+          walletAddress: address,
+          targets,
+          values,
+        }, 'cli', { walletAddress: address });
+        if (result.requiresApproval) {
+          warn("This action requires owner approval");
+          log(`  ${result.explanation}`);
+        } else if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Batch Transaction");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "deposit") {
-        const result = await depositGas(address, opts.value);
-        printResult(result, "Deposit Gas");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('wallet_deposit', {
+          walletAddress: address,
+          amount: opts.value,
+        }, 'cli', { walletAddress: address });
+        if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Deposit Gas");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       } else if (action === "withdraw") {
-        const result = await withdrawGas(address, opts.recipient, opts.value);
-        printResult(result, "Withdraw Gas");
+        // Route through compiler gateway
+        const result = await gateway.executeIntent('wallet_withdraw', {
+          walletAddress: address,
+          recipient: opts.recipient,
+          amount: opts.value,
+        }, 'cli', { walletAddress: address });
+        if (result.success) {
+          printResult({ success: true, txHash: result.txHash }, "Withdraw Gas");
+        } else {
+          err(result.errors?.join(", ") || "Failed");
+        }
       }
     } catch (e: any) {
       err(e.message);
@@ -484,6 +670,7 @@ program
   .option("--scope <scope>", "Delegation scope")
   .option("--max-value <eth>", "Max value", "0")
   .option("--expiry <seconds>", "Expiry (seconds)", "86400")
+  .option("--id <delegation-id>", "Delegation ID (for revoke, get)")
   .action(async (action, opts) => {
     try {
       if (action === "create") {
@@ -491,10 +678,12 @@ program
         const result = await createDelegation(opts.org, opts.delegator, opts.delegatee, opts.scope, opts["max-value"], expiry);
         printResult(result, "Create Delegation");
       } else if (action === "revoke") {
-        const result = await revokeDelegation(opts._args?.[0]);
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await revokeDelegation(opts.id);
         printResult(result, "Revoke Delegation");
       } else if (action === "get") {
-        const result = await getDelegation(opts._args?.[0]);
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await getDelegation(opts.id);
         printResult(result, "Delegation Details");
       } else if (action === "list") {
         const results = await listDelegations(opts.org);
@@ -518,16 +707,19 @@ program
   .option("--org <id>", "Organization ID")
   .option("--name <name>", "Capability name")
   .option("--description <desc>", "Capability description")
+  .option("--id <capability-id>", "Capability ID (for revoke, get)")
   .action(async (action, opts) => {
     try {
       if (action === "register") {
         const result = await registerCapability(opts.org, opts.name, opts.description);
         printResult(result, "Register Capability");
       } else if (action === "revoke") {
-        const result = await revokeCapability(opts._args?.[0]);
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await revokeCapability(opts.id);
         printResult(result, "Revoke Capability");
       } else if (action === "get") {
-        const result = await getCapability(opts._args?.[0]);
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await getCapability(opts.id);
         printResult(result, "Capability Details");
       } else if (action === "list") {
         const results = await listCapabilities(opts.org);
@@ -562,7 +754,7 @@ program
         const result = await generateLocalProof(opts.org, parseInt(opts.agent, 10), opts.nullifier, opts.secret, opts.wallet, expiry);
         printResult(result, "Generate Proof");
       } else if (action === "verify") {
-        const result = await verifyLocalProof(opts.hash);
+        const result = await verifyProof(opts.hash);
         printResult(result, "Verify Proof");
       } else if (action === "list") {
         const results = await listProofs();

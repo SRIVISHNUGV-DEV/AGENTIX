@@ -1,4 +1,4 @@
-import { runExecute, runSingle, runQuery } from "../../core/database";
+import { runExecute, runSingleCamel, runQueryCamel } from "../../core/database";
 import { getEventBus } from "../../core/eventbus";
 import { generateId } from "../../shared/utils";
 import type { Session } from "../../shared/types";
@@ -15,9 +15,26 @@ function persistEvent(eventType: string, data: any, txHash?: string) {
   } catch {}
 }
 
+/**
+ * SessionService — Thin wrapper around the database.
+ *
+ * WRITE operations (create, revoke) are delegated to src/tools/session.ts
+ * which is the CANONICAL implementation. It handles:
+ * - Contract interaction (SessionManager)
+ * - Owner signature validation
+ * - Event persistence
+ *
+ * This service provides read operations and local validation.
+ *
+ * @deprecated This service will be removed in V2. Use src/tools/session.ts directly.
+ */
 export class SessionService {
   private bus = getEventBus();
 
+  /**
+   * @deprecated Use src/tools/session.ts createLightweightSession() instead.
+   * That method handles contract interaction and owner signatures.
+   */
   create(walletAddress: string, sessionKey: string, organizationId: string | undefined, sessionType: number, dailySpendLimit: string, dailyTxLimit: number, expiry: number): Session {
     const sessionId = `sess_${generateId()}`;
     const now = Math.floor(Date.now() / 1000);
@@ -27,14 +44,14 @@ export class SessionService {
       sessionId, walletAddress, sessionKey, organizationId || null, sessionType, dailySpendLimit, dailyTxLimit, expiry, now
     );
 
-    const session = runSingle<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId)!;
+    const session = runSingleCamel<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId)!;
     this.bus.emit({ type: "SessionCreated", data: { sessionId, walletAddress } });
     persistEvent("SessionCreated", { sessionId, walletAddress });
     return session;
   }
 
   validate(sessionId: string, value?: string): { valid: boolean; reason?: string; session?: Session } {
-    const session = runSingle<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId);
+    const session = runSingleCamel<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId);
     if (!session) return { valid: false, reason: "Session not found" };
     if (session.revoked) return { valid: false, reason: "Session revoked" };
 
@@ -44,8 +61,12 @@ export class SessionService {
     return { valid: true, session };
   }
 
+  /**
+   * @deprecated Use src/tools/session.ts revokeSession() instead.
+   * That method handles contract interaction.
+   */
   revoke(sessionId: string, walletAddress: string): { success: boolean; error?: string } {
-    const session = runSingle<Session>("SELECT * FROM sessions WHERE session_id = ? AND wallet_address = ?", sessionId, walletAddress);
+    const session = runSingleCamel<Session>("SELECT * FROM sessions WHERE session_id = ? AND wallet_address = ?", sessionId, walletAddress);
     if (!session) return { success: false, error: "Session not found" };
     if (session.revoked) return { success: false, error: "Session already revoked" };
 
@@ -57,19 +78,19 @@ export class SessionService {
   }
 
   get(sessionId: string): Session | undefined {
-    return runSingle<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId);
+    return runSingleCamel<Session>("SELECT * FROM sessions WHERE session_id = ?", sessionId);
   }
 
   listByWallet(walletAddress: string): Session[] {
-    return runQuery<Session>("SELECT * FROM sessions WHERE wallet_address = ? ORDER BY created_at DESC", walletAddress);
+    return runQueryCamel<Session>("SELECT * FROM sessions WHERE wallet_address = ? ORDER BY created_at DESC", walletAddress);
   }
 
   listAll(): Session[] {
-    return runQuery<Session>("SELECT * FROM sessions ORDER BY created_at DESC");
+    return runQueryCamel<Session>("SELECT * FROM sessions ORDER BY created_at DESC");
   }
 
   count(): number {
-    const r = runSingle<{ count: number }>("SELECT COUNT(*) as count FROM sessions WHERE revoked = 0");
+    const r = runSingleCamel<{ count: number }>("SELECT COUNT(*) as count FROM sessions WHERE revoked = 0");
     return r?.count || 0;
   }
 }

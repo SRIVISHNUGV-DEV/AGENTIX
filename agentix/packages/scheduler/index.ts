@@ -62,19 +62,17 @@ export class Scheduler {
     runExecute(
       `INSERT INTO scheduler_jobs (job_id, job_type, payload_json, scheduled_at, max_attempts, attempts, backoff_ms, backoff_multiplier, timeout_ms, status, on_complete_event, on_failure_event, created_at)
        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 'pending', ?, ?, ?)`,
-      [
-        id,
-        type,
-        JSON.stringify(payload),
-        options?.scheduledAt || now,
-        options?.maxAttempts || 3,
-        options?.backoffMs || 1000,
-        options?.backoffMultiplier || 2.0,
-        options?.timeoutMs || 30000,
-        options?.onCompleteEvent || null,
-        options?.onFailureEvent || null,
-        now,
-      ]
+      id,
+      type,
+      JSON.stringify(payload),
+      options?.scheduledAt || now,
+      options?.maxAttempts || 3,
+      options?.backoffMs || 1000,
+      options?.backoffMultiplier || 2.0,
+      options?.timeoutMs || 30000,
+      options?.onCompleteEvent || null,
+      options?.onFailureEvent || null,
+      now
     );
 
     return id;
@@ -105,7 +103,7 @@ export class Scheduler {
   cancel(jobId: string): void {
     runExecute(
       `UPDATE scheduler_jobs SET status = 'cancelled' WHERE job_id = ? AND status = 'pending'`,
-      [jobId]
+      jobId
     );
 
     const recurring = this.recurringJobs.get(jobId);
@@ -118,7 +116,7 @@ export class Scheduler {
   getStatus(jobId: string): Job | null {
     const row = runSingle(
       'SELECT * FROM scheduler_jobs WHERE job_id = ?',
-      [jobId]
+      jobId
     ) as Record<string, unknown> | undefined;
     if (!row) return null;
 
@@ -155,7 +153,7 @@ export class Scheduler {
 
     sql += ' ORDER BY scheduled_at ASC LIMIT 100';
 
-    const rows = runQuery(sql, params) as Record<string, unknown>[];
+    const rows = runQuery(sql, ...params) as Record<string, unknown>[];
     return rows.map((row) => ({
       id: row.job_id as string,
       type: row.job_type as string,
@@ -196,7 +194,7 @@ export class Scheduler {
     const now = Math.floor(Date.now() / 1000);
     const jobs = runQuery(
       `SELECT * FROM scheduler_jobs WHERE status = 'pending' AND scheduled_at <= ? ORDER BY scheduled_at ASC LIMIT 10`,
-      [now]
+      now
     ) as Record<string, unknown>[];
 
     for (const row of jobs) {
@@ -221,7 +219,7 @@ export class Scheduler {
 
       runExecute(
         `UPDATE scheduler_jobs SET status = 'running', last_attempt_at = ?, attempts = attempts + 1 WHERE job_id = ?`,
-        [now, job.id]
+        now, job.id
       );
 
       try {
@@ -229,7 +227,7 @@ export class Scheduler {
 
         runExecute(
           `UPDATE scheduler_jobs SET status = 'completed' WHERE job_id = ?`,
-          [job.id]
+          job.id
         );
 
         if (job.onCompleteEvent) {
@@ -243,7 +241,7 @@ export class Scheduler {
         if (attempts >= job.maxAttempts) {
           runExecute(
             `UPDATE scheduler_jobs SET status = 'failed', last_attempt_at = ? WHERE job_id = ?`,
-            [now, job.id]
+            now, job.id
           );
 
           if (job.onFailureEvent) {
@@ -259,7 +257,7 @@ export class Scheduler {
           const nextAt = now + Math.floor(job.backoffMs * Math.pow(job.backoffMultiplier, attempts - 1) / 1000);
           runExecute(
             `UPDATE scheduler_jobs SET status = 'pending', scheduled_at = ? WHERE job_id = ?`,
-            [nextAt, job.id]
+            nextAt, job.id
           );
         }
       }
@@ -269,7 +267,7 @@ export class Scheduler {
     const cutoff = now - 86400;
     runExecute(
       `DELETE FROM scheduler_jobs WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ?`,
-      [cutoff]
+      cutoff
     );
   }
 

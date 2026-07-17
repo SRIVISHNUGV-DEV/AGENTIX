@@ -1,4 +1,4 @@
-import { runExecute, runSingle, runQuery } from "../../core/database";
+import { runExecute, runSingleCamel, runQueryCamel } from "../../core/database";
 import { getEventBus } from "../../core/eventbus";
 import { generateId } from "../../shared/utils";
 import type { Proof } from "../../shared/types";
@@ -15,13 +15,13 @@ export class ProofService {
       proofHash, sessionId, nullifier, root, revokedRoot, publicSignals, proofData, now
     );
 
-    const proof = runSingle<Proof>("SELECT * FROM proofs WHERE proof_hash = ?", proofHash)!;
+    const proof = runSingleCamel<Proof>("SELECT * FROM proofs WHERE proof_hash = ?", proofHash)!;
     this.bus.emit({ type: "ProofGenerated", data: { proofHash } });
     return proof;
   }
 
   verify(proofHash: string): { valid: boolean; proof?: Proof; error?: string } {
-    const proof = runSingle<Proof>("SELECT * FROM proofs WHERE proof_hash = ?", proofHash);
+    const proof = runSingleCamel<Proof>("SELECT * FROM proofs WHERE proof_hash = ?", proofHash);
     if (!proof) return { valid: false, error: "Proof not found" };
     return { valid: !!proof.valid, proof };
   }
@@ -30,11 +30,11 @@ export class ProofService {
     const q = limit
       ? "SELECT * FROM proofs ORDER BY created_at DESC LIMIT ?"
       : "SELECT * FROM proofs ORDER BY created_at DESC";
-    return limit ? runQuery<Proof>(q, limit) : runQuery<Proof>(q);
+    return limit ? runQueryCamel<Proof>(q, limit) : runQueryCamel<Proof>(q);
   }
 
   count(): number {
-    const r = runSingle<{ count: number }>("SELECT COUNT(*) as count FROM proofs");
+    const r = runSingleCamel<{ count: number }>("SELECT COUNT(*) as count FROM proofs");
     return r?.count || 0;
   }
 }

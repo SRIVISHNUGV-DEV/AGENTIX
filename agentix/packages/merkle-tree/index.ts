@@ -172,13 +172,28 @@ export class MerkleTree<T = string> {
   }
 
   private _hash(data: string): bigint {
+    // WARNING: This packages/merkle-tree package is NOT used by the ZK pipeline.
+    // The credential_V1 circuit uses Poseidon hashing (see src/utils/merkle.ts).
+    // This package is a generic utility tree — its "keccak256" mode is provided
+    // for off-circuit use only. Real keccak256 in Node uses the 'keccak' npm
+    // package (NIST SHA-3 with Keccak padding), NOT crypto.createHash('sha3-256')
+    // which is NIST SHA-3 (different padding → different digest).
     const crypto = require('crypto');
     if (this.hashFunction === 'keccak256') {
-      return BigInt('0x' + crypto.createHash('sha3-256').update(data).digest('hex')) % (2n ** 254n);
+      // Use ethers v6 keccak256 if available (correct Keccak-256), else
+      // fall back to sha3-256 with a clear warning that it is NOT EVM keccak.
+      try {
+        const { ethers } = require('ethers');
+        return BigInt(ethers.keccak256('0x' + Buffer.from(data, 'utf8').toString('hex'))) % (2n ** 254n);
+      } catch {
+        // ethers not installed — sha3-256 is NOT keccak256 but avoids crashing
+        return BigInt('0x' + crypto.createHash('sha3-256').update(data).digest('hex')) % (2n ** 254n);
+      }
     }
     if (this.hashFunction === 'sha256') {
       return BigInt('0x' + crypto.createHash('sha256').update(data).digest('hex')) % (2n ** 254n);
     }
+    // poseidon mode would require circomlibjs — not implemented in this generic package
     return BigInt('0x' + crypto.createHash('sha256').update(data).digest('hex')) % (2n ** 254n);
   }
 

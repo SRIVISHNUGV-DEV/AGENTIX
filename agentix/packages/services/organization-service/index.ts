@@ -1,4 +1,4 @@
-import { runExecute, runSingle, runQuery } from "../../core/database";
+import { runExecute, runSingleCamel, runQueryCamel } from "../../core/database";
 import { getEventBus } from "../../core/eventbus";
 import type { Organization } from "../../shared/types";
 
@@ -6,15 +6,15 @@ export class OrganizationService {
   private bus = getEventBus();
 
   get(id: string): Organization | undefined {
-    return runSingle<Organization>("SELECT * FROM organizations WHERE id = ?", id);
+    return runSingleCamel<Organization>("SELECT * FROM organizations WHERE id = ?", id);
   }
 
   list(): Organization[] {
-    return runQuery<Organization>("SELECT * FROM organizations ORDER BY created_at DESC");
+    return runQueryCamel<Organization>("SELECT * FROM organizations ORDER BY created_at DESC");
   }
 
   listActive(): Organization[] {
-    return runQuery<Organization>("SELECT * FROM organizations WHERE active = 1 ORDER BY created_at DESC");
+    return runQueryCamel<Organization>("SELECT * FROM organizations WHERE active = 1 ORDER BY created_at DESC");
   }
 
   deactivate(id: string): { success: boolean; error?: string } {
@@ -33,12 +33,12 @@ export class OrganizationService {
   }
 
   count(): number {
-    const result = runSingle<{ count: number }>("SELECT COUNT(*) as count FROM organizations");
+    const result = runSingleCamel<{ count: number }>("SELECT COUNT(*) as count FROM organizations");
     return result?.count || 0;
   }
 
   activeCount(): number {
-    const result = runSingle<{ count: number }>("SELECT COUNT(*) as count FROM organizations WHERE active = 1");
+    const result = runSingleCamel<{ count: number }>("SELECT COUNT(*) as count FROM organizations WHERE active = 1");
     return result?.count || 0;
   }
 }

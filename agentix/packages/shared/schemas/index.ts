@@ -5,11 +5,17 @@ export const OrganizationRequestSchema = z.object({
   ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
 });
 
+// Matches the real issueCredential() tool signature (src/tools/credential.ts).
+// Credentials are org-scoped; budget is an ETH decimal string; expiry is a
+// duration + unit that the tool converts to a block number.
 export const CredentialIssueSchema = z.object({
-  organizationId: z.string().min(1),
-  agentId: z.number().int().positive(),
-  permissions: z.number().int().min(1).max(255).default(1),
-  expiry: z.number().int().positive(),
+  orgId: z.string().min(1),
+  budgetLimit: z.string().min(1),
+  expiryDuration: z.number().int().positive(),
+  expiryUnit: z.enum(["days", "months"]),
+  walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  autoAnchor: z.boolean().optional(),
 });
 
 export const WalletCreateSchema = z.object({
