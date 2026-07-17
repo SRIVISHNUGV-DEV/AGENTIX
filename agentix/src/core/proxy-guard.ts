@@ -94,7 +94,7 @@ export class ProxyGuard {
     const config = loadConfig();
     const proxies: Record<string, string> = {};
     for (const [key, value] of Object.entries(config.contracts)) {
-      if (key !== "agentWalletImplementation") {
+      if (key !== "agentWalletImplementation" && key !== "groth16Verifier") {
         proxies[key] = value;
       }
     }

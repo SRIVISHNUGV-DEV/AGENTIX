@@ -30,6 +30,16 @@ class Logger {
   constructor() {
     this.logDir = join(AGENTIX_HOME, "logs");
     if (!existsSync(this.logDir)) mkdirSync(this.logDir, { recursive: true });
+
+    // Verbose/debug mode via env: AGENTIX_LOG_LEVEL=debug|info|warn|error.
+    const envLevel = (process.env.AGENTIX_LOG_LEVEL || "").toLowerCase();
+    const map: Record<string, LogLevel> = {
+      debug: LogLevel.DEBUG,
+      info: LogLevel.INFO,
+      warn: LogLevel.WARN,
+      error: LogLevel.ERROR,
+    };
+    if (envLevel in map) this.level = map[envLevel];
   }
 
   setLevel(level: LogLevel) {

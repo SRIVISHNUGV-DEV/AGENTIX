@@ -3,6 +3,8 @@ import { loadConfig } from "./config";
 import { getProxyGuard } from "./proxy-guard";
 import { getAbiByName } from "../contracts";
 import { logger } from "./logger";
+import { runExecute, runSingle, runQuery } from "./database";
+import { getEventBus } from "../../packages/core/eventbus";
 
 export interface PreparedTx {
   to: string;
@@ -35,6 +37,48 @@ const GUARD_MAP: Record<string, string> = {
   DelegationManager: "DelegationManager",
   OrganizationRegistry: "OrganizationRegistry",
 };
+
+/**
+ * Returns all known deployed contract addresses (proxies + EntryPoint).
+ * Used to validate that outgoing transactions only target our contracts.
+ */
+export function getAllowedAddresses(): string[] {
+  const config = loadConfig();
+  const addrs: string[] = [];
+  for (const [key, val] of Object.entries(config.contracts)) {
+    if (val && typeof val === "string") addrs.push(val.toLowerCase());
+  }
+  return addrs;
+}
+
+/**
+ * Validates that a target address is one of our deployed contracts OR a known user wallet.
+ * Returns { valid, error } — if invalid, the error explains which contract was expected.
+ *
+ * Wallet addresses (user-deployed via AgentWalletFactory) are allowed if they exist in the local DB.
+ * All other addresses must match a deployed proxy address.
+ */
+export function validateTargetAddress(target: string): { valid: boolean; error?: string } {
+  const lower = target.toLowerCase();
+  const allowed = getAllowedAddresses();
+
+  // 1. Check if it's a known deployed contract proxy
+  if (allowed.includes(lower)) return { valid: true };
+
+  // 2. Check if it's a known user wallet (in the wallets table)
+  try {
+    const knownWallets = runQuery("SELECT wallet_address FROM wallets") as any[];
+    const isKnownWallet = knownWallets.some((w: any) => w.wallet_address?.toLowerCase() === lower);
+    if (isKnownWallet) return { valid: true };
+  } catch {
+    // DB not ready — fall through to block
+  }
+
+  return {
+    valid: false,
+    error: `BLOCKED: Address ${target} is NOT a known AgentIX contract or registered wallet. Transactions may only target deployed proxies or registered wallets. Allowed contracts: ${allowed.join(", ")}`,
+  };
+}
 
 export function prepareContractCall(
   contractName: string,
@@ -84,6 +128,12 @@ export function prepareWalletCall(
   const guard = getProxyGuard();
   const validation = guard.validate(walletAddress);
   if (!validation.valid) throw new Error(validation.error);
+  // Validate the wallet address is known (registered in DB or matches impl)
+  const knownWallets = runQuery("SELECT wallet_address FROM wallets") as any[];
+  const isKnown = knownWallets.some((w: any) => w.wallet_address.toLowerCase() === walletAddress.toLowerCase());
+  if (!isKnown) {
+    logger.warn("tx-builder", `Wallet ${walletAddress} not found in local DB — proceeding but flagging`);
+  }
   const abi = getAbiByName("AgentWallet");
   const iface = new ethers.Interface(abi);
   const data = iface.encodeFunctionData(functionName, args);
@@ -156,30 +206,41 @@ export function extractWalletAddressFromLogs(
 export function recordWalletInDB(
   walletAddress: string,
   ownerAddress: string,
-  txHash: string
+  txHash: string,
+  harnessId?: string,
+  actualToAddress?: string
 ): void {
-  const { runExecute } = require("../core/database");
   const now = Math.floor(Date.now() / 1000);
 
+  if (harnessId) {
+    const existing = runSingle("SELECT wallet_address FROM wallets WHERE harness_id = ?", harnessId) as any;
+    if (existing && existing.wallet_address !== walletAddress) {
+      throw new Error(`Harness "${harnessId}" already has a wallet at ${existing.wallet_address}. Unlink it first.`);
+    }
+  }
+
   runExecute(
-    "INSERT OR REPLACE INTO wallets (wallet_address, owner_address, entry_point, created_at) VALUES (?, ?, ?, ?)",
+    "INSERT OR REPLACE INTO wallets (wallet_address, owner_address, harness_id, entry_point, created_at) VALUES (?, ?, ?, ?, ?)",
     walletAddress,
     ownerAddress,
+    harnessId || null,
     "",
     now
   );
 
-  // Record the transaction with the factory as to_address (wallet creation goes through the factory)
+  // Record the transaction — use actual to_address if provided, otherwise factory
   try {
-    const factoryAddress = getFactoryAddress();
+    const toAddr = actualToAddress || getFactoryAddress();
     runExecute(
-      "INSERT INTO transactions (wallet_address, tx_hash, to_address, value, data, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO transactions (wallet_address, tx_hash, to_address, value, data, status, event_name, contract_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       walletAddress,
       txHash || "",
-      factoryAddress,
+      toAddr,
       "0",
-      "0xb20ca818", // createWallet(address,bytes32) selector
+      "0xb20ca818",
       "confirmed",
+      "WalletCreated",
+      "AgentWalletFactory",
       now
     );
   } catch (e) {
@@ -188,12 +249,11 @@ export function recordWalletInDB(
 
   // Emit event and persist to DB
   try {
-    const { getEventBus } = require("../../packages/core/eventbus");
     const bus = getEventBus();
-    bus.emit({
+    void bus.emit({
       type: "WalletCreated",
       data: { walletAddress, ownerAddress, txHash },
-    });
+    }).catch(() => {});
     // Persist event to DB
     runExecute(
       "INSERT INTO events (event_type, data, tx_hash, created_at) VALUES (?, ?, ?, ?)",

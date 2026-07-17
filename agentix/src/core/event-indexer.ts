@@ -7,6 +7,11 @@ import { logger } from "./logger";
 
 const BLOCK_CHUNK = 2000;
 const POLL_INTERVAL_MS = 30_000;
+// Never scan before this block — prevents scanning 43M+ blocks on first run.
+// Contracts deployed ~2026-07-01 on Base Sepolia. Bump when redeploying.
+const GENESIS_BLOCK = 43_500_000;
+// Cap first-run scan to this many blocks behind current head
+const FIRST_RUN_MAX_SCAN = 200_000;
 
 // Business-relevant events to index (skip OZ admin events like Paused, Unpaused, Initialized, Upgraded, RoleGranted, etc.)
 const INDEXED_EVENT_NAMES: Set<string> = new Set([
@@ -74,7 +79,8 @@ function getCheckpoint(contractName: string): number {
     "SELECT last_block FROM indexer_checkpoints WHERE contract_name = ?",
     contractName
   );
-  return row?.last_block || 0;
+  // Never return below GENESIS_BLOCK — prevents scanning from block 0
+  return Math.max(row?.last_block || 0, GENESIS_BLOCK);
 }
 
 function setCheckpoint(contractName: string, blockNumber: number): void {
@@ -105,9 +111,12 @@ function storeEvent(params: {
     if (existing) return;
 
     runExecute(
-      `INSERT INTO indexed_events
-       (contract_name, contract_address, event_name, block_number, tx_hash, log_index, args, timestamp, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+      // OR IGNORE: (tx_hash, log_index) is UNIQUE, so re-polling an overlapping
+         // block range is a no-op instead of raising a constraint error that gets
+         // swallowed as a noisy "Store event failed" warning on every duplicate.
+         `INSERT OR IGNORE INTO indexed_events
+         (contract_name, contract_address, event_name, block_number, tx_hash, log_index, args, timestamp, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
       params.contractName,
       params.contractAddress,
       params.eventName,
@@ -231,13 +240,18 @@ export async function runIndexer(): Promise<{ indexed: number; contracts: number
 
     for (const contract of contracts) {
       try {
-        const fromBlock = getCheckpoint(contract.name) + 1;
+        let fromBlock = getCheckpoint(contract.name) + 1;
+        // Cap first-run scan to avoid scanning millions of blocks
+        if (currentBlock - fromBlock > FIRST_RUN_MAX_SCAN) {
+          fromBlock = currentBlock - FIRST_RUN_MAX_SCAN;
+          logger.info("event-indexer", `Capping ${contract.name} scan to last ${FIRST_RUN_MAX_SCAN} blocks (from ${fromBlock})`);
+        }
         if (fromBlock > currentBlock) continue;
 
-        const indexed = await indexContract(contract, fromBlock, currentBlock);
-        setCheckpoint(contract.name, currentBlock);
-        if (indexed > fromBlock) {
-          totalNew += currentBlock - fromBlock;
+        const lastBlock = await indexContract(contract, fromBlock, currentBlock);
+        setCheckpoint(contract.name, lastBlock);
+        if (lastBlock > fromBlock) {
+          totalNew += lastBlock - fromBlock + 1;
         }
       } catch (e: any) {
         errors.push(`${contract.name}: ${e.message}`);
@@ -255,6 +269,169 @@ export async function runIndexer(): Promise<{ indexed: number; contracts: number
   }
 
   return { indexed: totalNew, contracts: contracts.length, errors };
+}
+
+/**
+ * Re-index from a specific block number. Useful for:
+ * - Recovering lost data after database deletion
+ * - Re-scanning after contract upgrades
+ * - Filling gaps in event history
+ */
+export async function reindexFromBlock(fromBlock: number): Promise<{ indexed: number; contracts: number; errors: string[] }> {
+  if (_running) return { indexed: 0, contracts: 0, errors: ["Already running"] };
+  _running = true;
+
+  const provider = getProvider();
+  const contracts = getIndexedContracts();
+  const errors: string[] = [];
+  let totalNew = 0;
+
+  try {
+    const currentBlock = await provider.getBlockNumber();
+    const startBlock = Math.max(fromBlock, GENESIS_BLOCK);
+
+    logger.info("event-indexer", `Re-indexing from block ${startBlock} to ${currentBlock}`);
+
+    for (const contract of contracts) {
+      try {
+        // Reset checkpoint to force re-scan from the specified block
+        setCheckpoint(contract.name, startBlock - 1);
+        
+        const lastBlock = await indexContract(contract, startBlock, currentBlock);
+        setCheckpoint(contract.name, lastBlock);
+        totalNew += lastBlock - startBlock + 1;
+      } catch (e: any) {
+        errors.push(`${contract.name}: ${e.message}`);
+        logger.error("event-indexer", `Failed to re-index ${contract.name}: ${e.message}`);
+      }
+    }
+
+    _lastRun = Date.now();
+    _totalIndexed += totalNew;
+    logger.info("event-indexer", `Re-indexed ${contracts.length} contracts from block ${startBlock}`);
+  } catch (e: any) {
+    errors.push(e.message);
+  } finally {
+    _running = false;
+  }
+
+  return { indexed: totalNew, contracts: contracts.length, errors };
+}
+
+/**
+ * Reproduce local state from indexed on-chain events.
+ * This rebuilds credentials, sessions, wallets, and organizations from
+ * the event history stored in indexed_events table.
+ * 
+ * Use case: If the local database is corrupted or deleted, this function
+ * can reconstruct the essential state from on-chain events.
+ */
+export async function reproduceLocalState(): Promise<{
+  wallets: number;
+  sessions: number;
+  credentials: number;
+  organizations: number;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  let wallets = 0;
+  let sessions = 0;
+  let credentials = 0;
+  let organizations = 0;
+
+  try {
+    // 1. Reproduce wallets from WalletCreated events
+    const walletEvents = runQuery<any>(
+      "SELECT args FROM indexed_events WHERE event_name = 'WalletCreated' ORDER BY block_number ASC"
+    );
+    for (const evt of walletEvents) {
+      try {
+        const args = JSON.parse(evt.args || '{}');
+        const walletAddr = args.wallet || args.walletAddress;
+        const ownerAddr = args.owner || args.ownerAddress;
+        if (walletAddr && ownerAddr) {
+          runExecute(
+            `INSERT OR IGNORE INTO wallets (wallet_address, owner_address, created_at) VALUES (?, ?, unixepoch())`,
+            walletAddr, ownerAddr
+          );
+          wallets++;
+        }
+      } catch (e: any) {
+        errors.push(`WalletCreated: ${e.message}`);
+      }
+    }
+
+    // 2. Reproduce sessions from SessionCreated/LightSessionCreated events
+    const sessionEvents = runQuery<any>(
+      "SELECT args, event_name FROM indexed_events WHERE event_name IN ('SessionCreated', 'LightSessionCreated') ORDER BY block_number ASC"
+    );
+    for (const evt of sessionEvents) {
+      try {
+        const args = JSON.parse(evt.args || '{}');
+        const sessionId = args.sessionId || args.session_id;
+        const walletAddr = args.wallet || args.walletAddress;
+        if (sessionId) {
+          runExecute(
+            `INSERT OR IGNORE INTO sessions (session_id, wallet_address, session_key, created_at) VALUES (?, ?, ?, unixepoch())`,
+            sessionId, walletAddr || '', args.sessionKey || ''
+          );
+          sessions++;
+        }
+      } catch (e: any) {
+        errors.push(`${evt.event_name}: ${e.message}`);
+      }
+    }
+
+    // 3. Reproduce organizations from OrganizationRegistered events
+    const orgEvents = runQuery<any>(
+      "SELECT args FROM indexed_events WHERE event_name = 'OrganizationRegistered' ORDER BY block_number ASC"
+    );
+    for (const evt of orgEvents) {
+      try {
+        const args = JSON.parse(evt.args || '{}');
+        const orgId = args.organizationId || args.orgId;
+        const name = args.name || '';
+        const owner = args.owner || args.ownerAddress;
+        if (orgId) {
+          runExecute(
+            `INSERT OR IGNORE INTO organizations (id, name, owner_address, created_at) VALUES (?, ?, ?, unixepoch())`,
+            orgId, name, owner || ''
+          );
+          organizations++;
+        }
+      } catch (e: any) {
+        errors.push(`OrganizationRegistered: ${e.message}`);
+      }
+    }
+
+    // 4. Reproduce credentials from ActiveRootUpdated events (root anchoring)
+    const credEvents = runQuery<any>(
+      "SELECT args FROM indexed_events WHERE event_name = 'ActiveRootUpdated' ORDER BY block_number ASC"
+    );
+    for (const evt of credEvents) {
+      try {
+        const args = JSON.parse(evt.args || '{}');
+        const root = args.root || args.newRoot;
+        const epoch = args.epoch || 0;
+        const orgId = args.organizationId || '';
+        if (root) {
+          runExecute(
+            `INSERT OR IGNORE INTO credential_roots (organization_id, root, epoch, created_at) VALUES (?, ?, ?, unixepoch())`,
+            orgId, root.toString(), Number(epoch)
+          );
+          credentials++;
+        }
+      } catch (e: any) {
+        errors.push(`ActiveRootUpdated: ${e.message}`);
+      }
+    }
+
+    logger.info("event-indexer", `Reproduced state: ${wallets} wallets, ${sessions} sessions, ${organizations} orgs, ${credentials} credential roots`);
+  } catch (e: any) {
+    errors.push(e.message);
+  }
+
+  return { wallets, sessions, credentials, organizations, errors };
 }
 
 export function startIndexer(): void {
