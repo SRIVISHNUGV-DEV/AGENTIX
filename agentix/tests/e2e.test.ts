@@ -1,17 +1,36 @@
+// Isolate the data directory BEFORE importing anything that reads config, so this
+// suite never touches the user's real ~/.agentix. AGENTIX_HOME is honored by config.ts.
+import { join } from "path";
+process.env.AGENTIX_HOME =
+  process.env.AGENTIX_HOME || join(process.cwd(), ".agentix-e2e");
+
 import assert from "assert";
 import { EventBus } from "../packages/core/eventbus";
 import { classifyRisk } from "../packages/shared/constants";
 import { generateId, sha256, checksum, formatAddress, truncate, nowUnix, isExpired } from "../packages/shared/utils";
 
+// Track results so the process exits non-zero on ANY failure. The previous harness
+// only logged failures (and swallowed async rejections), so `bun run test` always
+// exited 0 — a false-green gate that could never block a release.
+let passed = 0;
+let failed = 0;
+const pending: Promise<void>[] = [];
+
 function test(name: string, fn: () => void | Promise<void>) {
   try {
     const result = fn();
     if (result instanceof Promise) {
-      result.then(() => console.log(`  ✓ ${name}`)).catch((e) => console.error(`  ✗ ${name}: ${e.message}`));
+      pending.push(
+        result
+          .then(() => { passed++; console.log(`  ✓ ${name}`); })
+          .catch((e) => { failed++; console.error(`  ✗ ${name}: ${e.message}`); })
+      );
     } else {
+      passed++;
       console.log(`  ✓ ${name}`);
     }
   } catch (e: any) {
+    failed++;
     console.error(`  ✗ ${name}: ${e.message}`);
   }
 }
@@ -273,4 +292,12 @@ test("init steps have correct structure", async () => {
   }
 });
 
-console.log("\nDone.\n");
+// Wait for all async tests to settle, then report and set the exit code.
+// Without this the process exited before async assertions resolved AND always
+// returned 0, so failing tests could never fail the build.
+Promise.all(pending).then(() => {
+  console.log(`\nDone. ${passed} passed, ${failed} failed.\n`);
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
+});

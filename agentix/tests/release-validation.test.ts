@@ -10,11 +10,24 @@ beforeAll(async () => {
   } catch {}
 
   const { spawn } = await import("child_process");
-  serverProcess = spawn("npx", ["tsx", "src/runtime/server.ts"], {
-    cwd: process.cwd(),
-    stdio: "pipe",
-    env: { ...process.env, AGENTIX_HOME: process.env.AGENTIX_HOME },
-  });
+  const { existsSync } = await import("fs");
+  const { join } = await import("path");
+  // Launch the server portably: resolve the tsx CLI directly instead of relying on
+  // `npx` being on PATH (it is not under bun, which caused `spawn npx ENOENT` and a
+  // false NO-GO verdict even when the app was healthy).
+  const tsxCli = join(process.cwd(), "node_modules", "tsx", "dist", "cli.cjs");
+  const useTsx = existsSync(tsxCli);
+  serverProcess = spawn(
+    process.execPath,
+    useTsx
+      ? [tsxCli, "src/runtime/server.ts"]
+      : ["--import", "tsx", "src/runtime/server.ts"],
+    {
+      cwd: process.cwd(),
+      stdio: "pipe",
+      env: { ...process.env, AGENTIX_HOME: process.env.AGENTIX_HOME },
+    }
+  );
 
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => resolve(), 10000);
@@ -47,7 +60,11 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
       await fn();
       results.push({ suite, status: "PASS", details: "" });
     } catch (e: any) {
+      // Record for the end-of-run banner, then RE-THROW so vitest actually fails.
+      // Previously this swallowed failures, making every test false-green and the
+      // GO/NO-GO gate meaningless.
       results.push({ suite, status: "FAIL", details: e.message });
+      throw e;
     }
   }
 
@@ -167,12 +184,20 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
   describe("G5: Merkle Trees", () => {
     it("Merkle tree operations work", async () => {
       await check("MerkleTree", async () => {
-        const { buildMerkleTree, getMerkleProof, verifyProof, hashLeaf } = await import("../src/utils/merkle");
-        const leaves = [await hashLeaf("g1"), await hashLeaf("g2"), await hashLeaf("g3")];
-        const tree = await buildMerkleTree(leaves, 10);
+        const { buildMerkleTree, getMerkleProof, verifyProof, hashLeaf, initMerkleCrypto } =
+          await import("../src/utils/merkle");
+        // Poseidon must be initialized before any hashing; leaves are a Map<key,value>
+        // and hashLeaf takes (key, value) — the previous 1-arg string form was stale.
+        await initMerkleCrypto();
+        const leaves = new Map<bigint, bigint>();
+        leaves.set(0n, 100n);
+        leaves.set(1n, 101n);
+        leaves.set(2n, 102n);
+        const tree = buildMerkleTree(leaves, 10);
         expect(tree.root).toBeDefined();
-        const proof = await getMerkleProof(tree.layers, 1, 10);
-        const valid = await verifyProof(leaves[1], proof.pathElements, proof.pathIndices, tree.root);
+        const leafHash = hashLeaf(1n, 101n);
+        const proof = getMerkleProof(tree.layers, 1, 10);
+        const valid = verifyProof(leafHash, proof.pathElements, proof.pathIndices, tree.root, 10);
         expect(valid).toBe(true);
       });
     });

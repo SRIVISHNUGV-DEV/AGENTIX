@@ -36,7 +36,7 @@ describe("1. Installation Tests", () => {
   it("ethers is importable", async () => {
     const ethers = await import("ethers");
     expect(ethers).toBeDefined();
-    expect(ethers.utils).toBeDefined();
+    expect(ethers.Wallet).toBeDefined();
   });
 
   it("circomlibjs is importable", async () => {

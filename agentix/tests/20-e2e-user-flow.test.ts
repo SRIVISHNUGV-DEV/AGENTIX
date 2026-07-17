@@ -54,9 +54,15 @@ describe("20. End-to-End User Flow Tests", () => {
 
     it("Step 5: Submit organization request", async () => {
       if (!serverAvailable) return;
+      // Use a fresh random owner each run. The server rejects a second pending
+      // request from the same owner (400), so a hardcoded address made this test
+      // fail on every run after the first against a persistent DB.
+      const rand = Array.from({ length: 40 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join("");
       const { status, data } = await api("POST", "/api/organizations/requests", {
         name: "E2E Test Org",
-        ownerAddress: "0xBF0A116921abA3DA0D3296b9a4843e999D1F1243",
+        ownerAddress: `0x${rand}`,
       });
       expect(status).toBe(201);
       expect(data.success).toBe(true);
@@ -73,7 +79,8 @@ describe("20. End-to-End User Flow Tests", () => {
       if (!serverAvailable) return;
       const { status, data } = await api("GET", "/api/credentials");
       expect(status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
+      // Server wraps as { value: [...] } (dashboard reads credData.value).
+      expect(Array.isArray(data.value)).toBe(true);
     });
 
     it("Step 8: List wallets", async () => {
@@ -106,7 +113,8 @@ describe("20. End-to-End User Flow Tests", () => {
       if (!serverAvailable) return;
       const { status, data } = await api("GET", "/api/events?limit=10");
       expect(status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
+      // Server returns { events: [...], total, offset, limit } (dashboard reads data.events).
+      expect(Array.isArray(data.events)).toBe(true);
     });
 
     it("Step 13: Create backup", async () => {

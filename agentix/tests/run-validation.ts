@@ -52,8 +52,10 @@ for (const suite of suites) {
   console.log(`\n┌─── ${suite.name} (${suite.id}) ───`);
 
   try {
+    // Use `bun x vitest` rather than `npx` — npx is not on PATH under bun and
+    // spawning it throws ENOENT, which previously aborted the whole validation run.
     const output = execSync(
-      `npx vitest run tests/${suite.file} --reporter=verbose --no-color 2>&1`,
+      `bun x vitest run tests/${suite.file} --reporter=verbose --no-color 2>&1`,
       { cwd: ROOT, timeout: 120000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
     );
 

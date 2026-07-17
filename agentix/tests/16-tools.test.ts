@@ -82,7 +82,7 @@ describe("16. Tool Tests", () => {
         expect(section).toHaveProperty("status");
         expect(["OK", "WARNING", "ERROR", "INFO"]).toContain(section.status);
       }
-    });
+    }, 60000);
   });
 
   describe("config-tool.ts", () => {

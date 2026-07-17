@@ -90,9 +90,14 @@ describe("3. Frontend ↔ Backend Tests", () => {
 
     it("POST /api/organizations/requests creates request", async () => {
       if (!serverAvailable) return;
+      // Fresh random owner per run — the server returns 400 for a duplicate
+      // pending request, so a fixed address only worked on the first-ever run.
+      const rand = Array.from({ length: 40 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join("");
       const { status, data } = await apiPost("/api/organizations/requests", {
         name: "Test Release Org",
-        ownerAddress: "0xBF0A116921abA3DA0D3296b9a4843e999D1F1243",
+        ownerAddress: `0x${rand}`,
       });
       expect(status).toBe(201);
       expect(data.success).toBe(true);
@@ -111,7 +116,9 @@ describe("3. Frontend ↔ Backend Tests", () => {
       if (!serverAvailable) return;
       const { status, data } = await apiGet("/api/credentials");
       expect(status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
+      // Server wraps the list as { value: [...] } — the contract the dashboard
+      // consumes (credData.value || credData). Assert the real shape.
+      expect(Array.isArray(data.value)).toBe(true);
     });
 
     it("GET /api/wallets returns array", async () => {
@@ -138,7 +145,9 @@ describe("3. Frontend ↔ Backend Tests", () => {
       if (!serverAvailable) return;
       const { status, data } = await apiGet("/api/events?limit=10");
       expect(status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
+      // Server returns { events: [...], total, offset, limit } — the shape the
+      // dashboard reads (data.events). Assert the real contract.
+      expect(Array.isArray(data.events)).toBe(true);
     });
 
     it("GET /api/backups returns array", async () => {

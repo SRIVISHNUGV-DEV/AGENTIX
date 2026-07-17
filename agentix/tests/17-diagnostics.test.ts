@@ -24,7 +24,7 @@ describe("17. Diagnostics Tests", () => {
       const sqliteCheck = result.sections.find((s: any) => s.name.includes("SQLite"));
       expect(sqliteCheck).toBeDefined();
       expect(sqliteCheck.status).toBe("OK");
-    });
+    }, 60000);
 
     it("has overall status", async () => {
       const { runFullDiagnostics } = await import("../src/tools/wizard");

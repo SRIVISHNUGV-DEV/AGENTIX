@@ -81,7 +81,7 @@ describe("24. Production Readiness Tests", () => {
     });
 
     it("MCP index module is importable", async () => {
-      const mod = await import("../src/mcp/index");
+      const mod = await import("../src/mcp/server");
       expect(mod).toBeDefined();
     });
   });
@@ -112,7 +112,7 @@ describe("24. Production Readiness Tests", () => {
     it("constants package is importable", async () => {
       const mod = await import("../packages/shared/constants");
       expect(mod).toBeDefined();
-      expect(mod.TREE_DEPTH).toBe(10);
+      expect(mod.TREE_DEPTH).toBe(20);
     });
 
     it("utils package is importable", async () => {

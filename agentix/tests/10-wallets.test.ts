@@ -32,8 +32,8 @@ describe("10. Wallet Tests", () => {
   it("wallet data has required fields", () => {
     const wallets = WalletService.list();
     for (const w of wallets) {
-      expect(w).toHaveProperty("wallet_address");
-      expect(w).toHaveProperty("owner_address");
+      expect(w).toHaveProperty("walletAddress");
+      expect(w).toHaveProperty("ownerAddress");
     }
   });
 });

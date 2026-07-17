@@ -74,7 +74,7 @@ describe("7. Merkle Tree Tests", () => {
       expect(proof.pathElements.length).toBe(10);
       expect(proof.pathIndices.length).toBe(10);
 
-      const valid = verifyProof(leafHash, proof.pathElements, proof.pathIndices, tree.root);
+      const valid = verifyProof(leafHash, proof.pathElements, proof.pathIndices, tree.root, 10);
       expect(valid).toBe(true);
     }
   });
@@ -87,7 +87,7 @@ describe("7. Merkle Tree Tests", () => {
     const proof = getMerkleProof(tree.layers, 0, 10);
 
     const fakeLeaf = hashLeaf(999n, 9999n);
-    const valid = verifyProof(fakeLeaf, proof.pathElements, proof.pathIndices, tree.root);
+    const valid = verifyProof(fakeLeaf, proof.pathElements, proof.pathIndices, tree.root, 10);
     expect(valid).toBe(false);
   });
 

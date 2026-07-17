@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import Database from "better-sqlite3";
 import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 
 let db: Database.Database;
 
 describe("6. SQLite Tests", () => {
   beforeAll(() => {
     const dbPath = join(process.env.AGENTIX_HOME!, "db", "test.db");
+    mkdirSync(join(process.env.AGENTIX_HOME!, "db"), { recursive: true });
     db = new Database(dbPath);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
