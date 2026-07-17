@@ -1,6 +1,12 @@
 "use client";
 
-export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+// API base. Default is EMPTY (same-origin) so all calls hit "/api/..." on the
+// dashboard's own port. next.config.js rewrites "/api/*" to the API server's
+// actual (possibly dynamic) port, discovered from AGENTIX_HOME/runtime.json at
+// dashboard startup. This keeps the browser port-agnostic — it never needs to
+// know where the backend landed. Set NEXT_PUBLIC_API_URL only to point the
+// dashboard at a remote/non-default API host.
+export const API = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {

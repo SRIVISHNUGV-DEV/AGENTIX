@@ -476,12 +476,19 @@ function ServicesStep({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     let cancelled = false;
     async function run() {
+      // Discover the API's real port (it may not be the default if 3001 was
+      // busy). Falls back to 0 (shown as "auto") if the info route is absent.
+      let apiPort = 0;
       try {
-        await fetchJSON("/api/health");
-      } catch {}
-      if (!cancelled) setServices([{ name: "API Server", port: 3001, status: "starting" }]);
+        const info = await fetchJSON<any>("/api/runtime-info");
+        apiPort = info?.apiPort || 0;
+      } catch {
+        try { await fetchJSON("/api/health"); } catch {}
+      }
+      const dashPort = typeof window !== "undefined" ? Number(window.location.port) || 0 : 0;
+      if (!cancelled) setServices([{ name: "API Server", port: apiPort, status: "starting" }]);
       await new Promise((r) => setTimeout(r, 800));
-      if (!cancelled) setServices((prev) => [...prev, { name: "Dashboard", port: 3000, status: "starting" }]);
+      if (!cancelled) setServices((prev) => [...prev, { name: "Dashboard", port: dashPort, status: "starting" }]);
       await new Promise((r) => setTimeout(r, 600));
       if (!cancelled) setServices((prev) => prev.map((s) => ({ ...s, status: "running" as const })));
       await new Promise((r) => setTimeout(r, 500));
@@ -502,7 +509,7 @@ function ServicesStep({ onComplete }: { onComplete: () => void }) {
         >
           <div>
             <span className="text-sm text-neutral-300">{svc.name}</span>
-            <span className="text-xs text-neutral-600 ml-2">:{svc.port}</span>
+            <span className="text-xs text-neutral-600 ml-2">{svc.port ? `:${svc.port}` : "(auto)"}</span>
           </div>
           <span className={`text-xs ${svc.status === "running" ? "text-green-400" : "text-yellow-400"}`}>
             {svc.status === "running" ? "● Running" : "○ Starting..."}
@@ -527,7 +534,7 @@ function ReadyStep() {
         <a href="/" className="bg-neutral-800 text-white rounded-lg px-4 py-3 text-sm font-medium hover:bg-neutral-700 transition-colors border border-neutral-700 text-center">
           Open Dashboard
         </a>
-        <a href="http://localhost:3001" className="bg-neutral-800 text-white rounded-lg px-4 py-3 text-sm font-medium hover:bg-neutral-700 transition-colors border border-neutral-700 text-center">
+        <a href="/api/health" target="_blank" rel="noopener noreferrer" className="bg-neutral-800 text-white rounded-lg px-4 py-3 text-sm font-medium hover:bg-neutral-700 transition-colors border border-neutral-700 text-center">
           API Server
         </a>
       </div>

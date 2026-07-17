@@ -226,24 +226,49 @@ async function checkContracts(): Promise<DiagnosticSection> {
 
 async function checkDashboard(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
-  const dashboardPath = join(process.cwd(), "apps", "dashboard");
-  const exists = existsSync(dashboardPath);
-  items.push({ label: "Dashboard App", status: exists ? "OK" : "WARNING", value: exists ? "Found" : "Not found" });
-  if (exists) {
+  // The dashboard is a repo-checkout feature — it is intentionally NOT part of
+  // the published `npx agentix` package (which ships only the CLI/MCP/API
+  // bundles). Look in both the CWD and next to this module, and treat "absent"
+  // as INFO (not applicable) rather than a WARNING, so a clean published
+  // install doesn't report a false problem.
+  const candidates = [
+    join(process.cwd(), "apps", "dashboard"),
+    join(__dirname, "apps", "dashboard"),
+    join(__dirname, "..", "apps", "dashboard"),
+    join(__dirname, "..", "..", "apps", "dashboard"),
+  ];
+  const dashboardPath = candidates.find((p) => existsSync(p));
+  if (dashboardPath) {
+    items.push({ label: "Dashboard App", status: "OK", value: "Found" });
     const pkgExists = existsSync(join(dashboardPath, "package.json"));
     items.push({ label: "Dashboard Dependencies", status: pkgExists ? "OK" : "WARNING", value: pkgExists ? "package.json found" : "Missing" });
+  } else {
+    items.push({ label: "Dashboard App", status: "INFO", value: "Not applicable (runs from repo checkout, not the npm package)" });
   }
   return { name: "Dashboard", status: "OK", items };
 }
 
 async function checkMCP(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
-  const mcpPath = join(process.cwd(), "dist", "src", "mcp", "index.js");
+  // MCP ships in several shapes depending on how AgentIX is running:
+  //   - published npm bundle:  <bundle>/mcp.js   (this module is inlined into
+  //                            index.js, so __dirname == the bundle root)
+  //   - compiled repo build:   dist/src/mcp/index.js
+  //   - raw TS source (tsx):   src/mcp/server.ts
+  // Check all of them so `doctor` doesn't false-negative on a valid install.
+  const candidates = [
+    join(__dirname, "mcp.js"),
+    join(process.cwd(), "mcp.js"),
+    join(process.cwd(), "dist-publish", "mcp.js"),
+    join(process.cwd(), "dist", "src", "mcp", "index.js"),
+    join(process.cwd(), "src", "mcp", "server.ts"),
+  ];
+  const found = candidates.some((p) => existsSync(p));
   items.push({
     label: "MCP Server",
-    status: existsSync(mcpPath) ? "OK" : "WARNING",
-    value: existsSync(mcpPath) ? "Built" : "Not built",
-    repair: existsSync(mcpPath) ? undefined : "Run: npm run build",
+    status: found ? "OK" : "WARNING",
+    value: found ? "Available" : "Not built",
+    repair: found ? undefined : "Run: bun run build (repo) or reinstall the package",
   });
   return { name: "MCP Server", status: items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
 }
@@ -280,7 +305,17 @@ async function checkHarnesses(): Promise<DiagnosticSection> {
   return { name: "AI Harnesses", status: "OK", items };
 }
 
-export async function initializeFullRuntime(rpcUrl?: string): Promise<InitResult> {
+/**
+ * @param rpcUrl            optional RPC endpoint to persist
+ * @param connectHarnesses  when true, writes the AgentIX MCP entry into every
+ *                          detected IDE/agent config. Default false — detection
+ *                          is read-only, but *connecting* mutates external tool
+ *                          configs on the user's machine, which must be an
+ *                          explicit choice (e.g. `agentix init --connect-harnesses`
+ *                          or the `agentix connect` command), never a silent
+ *                          side effect of a plain `init`.
+ */
+export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = false): Promise<InitResult> {
   const steps: InitStep[] = [];
   const startTime = Date.now();
 
@@ -336,6 +371,13 @@ export async function initializeFullRuntime(rpcUrl?: string): Promise<InitResult
   });
 
   await runStep("Connect harnesses", async () => {
+    if (!connectHarnesses) {
+      // Read-only init: do NOT touch external IDE/agent configs. The user can
+      // opt in with `agentix init --connect-harnesses` or `agentix connect`.
+      return harnessesDetected > 0
+        ? `Skipped — ${harnessesDetected} harness(es) detected. Run 'agentix connect' to wire them.`
+        : null;
+    }
     try {
       const { getHarnessManager } = await import("../../packages/core/harness-adapter");
       const manager = getHarnessManager();

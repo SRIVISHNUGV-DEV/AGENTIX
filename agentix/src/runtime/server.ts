@@ -15,11 +15,27 @@ import type { ZodType } from "zod";
 import {
   OrganizationRequestSchema,
   CredentialIssueSchema,
+  ConfigUpdateSchema,
+  CapabilityCreateSchema,
+  DelegationRequestSchema,
+  SessionCreateRequestSchema,
+  SessionRevokeSchema,
+  WalletCreateRequestSchema,
 } from "../../packages/shared/schemas";
 
-const PORT = parseInt(process.env.AGENTIX_DASHBOARD_PORT || "3001", 10);
+// Preferred port only — the server asks the OS for a free port near this one at
+// startup (see findFreePort below) so it never crashes on EADDRINUSE or steals a
+// port owned by an unrelated process. The port it actually lands on is recorded
+// in AGENTIX_HOME/runtime.json so the dashboard can discover it.
+const PREFERRED_PORT = parseInt(
+  process.env.AGENTIX_API_PORT || process.env.AGENTIX_DASHBOARD_PORT || "3001",
+  10
+);
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 const HOST = "127.0.0.1"; // Localhost only — no auth needed
+// The port we actually bound to (resolved at startup). Declared here so request
+// handlers can reference it; assigned in the async bootstrap block below.
+let BOUND_PORT = PREFERRED_PORT;
 
 function json(res: http.ServerResponse, data: any, status = 200) {
   res.writeHead(status, {
@@ -76,13 +92,19 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
-  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+  const url = new URL(req.url || "/", `http://${HOST}:${BOUND_PORT}`);
   const path = url.pathname;
 
   try {
     // ── Health & Status ──────────────────────────────────────────────
     if (path === "/api/health") {
-      return json(res, { status: "ok", version: "1.0.0", uptime: process.uptime() });
+      return json(res, { status: "ok", version: "1.0.0", uptime: process.uptime(), port: BOUND_PORT });
+    }
+
+    // Where the runtime is actually listening — lets local clients/tools
+    // discover the (possibly dynamic) API port without a hardcoded value.
+    if (path === "/api/runtime-info") {
+      return json(res, { apiPort: BOUND_PORT, host: HOST, pid: process.pid, version: "1.0.0" });
     }
 
     if (path === "/api/price" && req.method === "GET") {
@@ -115,8 +137,14 @@ const server = http.createServer(async (req, res) => {
       const config = loadConfig();
       const dbPath = config.database.path;
       const { existsSync } = await import("fs");
+      // "initialized" means the local runtime has been set up — i.e. the config
+      // file exists and the database is present. Do NOT key this off a build
+      // artifact path (dist/src/index.js): that path doesn't exist in the
+      // published bundle, so it would falsely report an initialized install as
+      // uninitialized and re-trigger onboarding.
+      const { getConfigPath } = await import("../core/config");
       return json(res, {
-        initialized: existsSync(join(process.cwd(), "dist", "src", "index.js")),
+        initialized: existsSync(getConfigPath()) && existsSync(dbPath),
         databaseReady: existsSync(dbPath),
         rpcConfigured: !!config.rpcUrl,
         network: config.networkName,
@@ -191,7 +219,10 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/onboarding/init" && req.method === "POST") {
       const body = await parseBody(req);
       const { initializeFullRuntime } = await import("../tools/wizard");
-      const result = await initializeFullRuntime(body.rpcUrl);
+      // Harness wiring is opt-in; the wizard has a dedicated "connect" step that
+      // calls /api/onboarding/harnesses/connect explicitly. Plain init must not
+      // silently mutate external IDE configs.
+      const result = await initializeFullRuntime(body.rpcUrl, body.connectHarnesses === true);
       return json(res, result);
     }
 
@@ -355,7 +386,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/wallets" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, WalletCreateRequestSchema, raw);
+      if (!body) return;
       const { createWallet } = await import("../tools/wallet");
       const result = await createWallet(body.ownerAddress, body.harnessId);
       return json(res, result, result.success ? 201 : 400);
@@ -757,11 +790,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/sessions" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, SessionCreateRequestSchema, raw);
+      if (!body) return;
+      const sessionKey = body.sessionKey || body.ownerAddress;
+      if (!sessionKey) {
+        return json(res, { success: false, error: "Validation failed", errors: ["sessionKey or ownerAddress is required"] }, 400);
+      }
       const svc = getSessionService();
       const session = svc.create(
         body.walletAddress,
-        body.sessionKey || body.ownerAddress,
+        sessionKey,
         body.organizationId,
         1,
         body.dailySpendLimit || "0.1",
@@ -772,7 +811,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/sessions" && req.method === "DELETE") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, SessionRevokeSchema, raw);
+      if (!body) return;
       const svc = getSessionService();
       const result = svc.revoke(body.sessionId, body.walletAddress);
       // Purge the stored session key on revoke to minimize key exposure — a
@@ -965,13 +1006,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/capabilities" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, CapabilityCreateSchema, raw);
+      if (!body) return;
       const { ethers } = await import("ethers");
       const capId = `cap_${ethers.hexlify(ethers.randomBytes(16)).slice(2)}`;
-      const hash = ethers.keccak256(ethers.toUtf8Bytes(body.name || ""));
+      const hash = ethers.keccak256(ethers.toUtf8Bytes(body.name));
       runExecute(
         "INSERT INTO capabilities (capability_id, organization_id, name, description, hash, active, created_at) VALUES (?, ?, ?, ?, ?, 1, unixepoch())",
-        capId, body.organizationId || "global", body.name || "", body.description || "", hash
+        capId, body.organizationId || "global", body.name, body.description || "", hash
       );
       const bus = getEventBus();
       bus.emit({ type: "CapabilityRegistered", data: { capabilityId: capId, name: body.name } });
@@ -985,12 +1028,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/delegations" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, DelegationRequestSchema, raw);
+      if (!body) return;
       const { ethers } = await import("ethers");
       const delId = `del_${ethers.hexlify(ethers.randomBytes(16)).slice(2)}`;
       runExecute(
         "INSERT INTO delegations (delegation_id, organization_id, delegator, delegatee, scope, max_value, expiry, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())",
-        delId, body.organizationId || "global", body.delegator || "", body.delegatee || "", body.scope || "", body.maxValue || "0", body.expiry || Math.floor(Date.now() / 1000) + 86400 * 30
+        delId, body.organizationId || "global", body.delegator, body.delegatee, body.scope, body.maxValue || "0", body.expiry || Math.floor(Date.now() / 1000) + 86400 * 30
       );
       return json(res, { success: true, delegationId: delId }, 201);
     }
@@ -1502,7 +1547,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/config" && req.method === "PUT") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, ConfigUpdateSchema, raw);
+      if (!body) return;
       const { saveConfig } = await import("../core/config");
       saveConfig(body);
       return json(res, { success: true });
@@ -1626,17 +1673,53 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`AgentIX API running on http://${HOST}:${PORT}`);
-
-  // Start the on-chain event indexer
+// Discover a free port near PREFERRED_PORT, bind there, and publish the actual
+// port to the runtime manifest so the dashboard (and any other local client)
+// can find the API without a hardcoded port.
+(async () => {
+  const { findFreePort, writeRuntimeManifest } = await import("../core/ports");
   try {
-    const { startIndexer } = require("../core/event-indexer");
-    startIndexer();
-  } catch (e: any) {
-    console.warn(`Event indexer failed to start: ${e.message}`);
+    BOUND_PORT = await findFreePort(PREFERRED_PORT, HOST);
+  } catch {
+    BOUND_PORT = PREFERRED_PORT; // fall back to preferred; listen() will surface any error
   }
-});
+
+  server.listen(BOUND_PORT, HOST, () => {
+    if (BOUND_PORT !== PREFERRED_PORT) {
+      console.log(
+        `AgentIX API: preferred port ${PREFERRED_PORT} was busy, using ${BOUND_PORT} instead.`
+      );
+    }
+    console.log(`AgentIX API running on http://${HOST}:${BOUND_PORT}`);
+
+    // Record where we actually landed so the dashboard can proxy /api to us.
+    try {
+      writeRuntimeManifest({ apiPort: BOUND_PORT, host: HOST, apiPid: process.pid });
+    } catch (e: any) {
+      console.warn(`Could not write runtime manifest: ${e.message}`);
+    }
+
+    // Start the on-chain event indexer
+    try {
+      const { startIndexer } = require("../core/event-indexer");
+      startIndexer();
+    } catch (e: any) {
+      console.warn(`Event indexer failed to start: ${e.message}`);
+    }
+  });
+
+  server.on("error", (e: any) => {
+    if (e.code === "EADDRINUSE") {
+      console.error(
+        `AgentIX API could not bind port ${BOUND_PORT} (in use). ` +
+          `Set AGENTIX_API_PORT to a free port and retry.`
+      );
+    } else {
+      console.error(`AgentIX API server error: ${e.message}`);
+    }
+    process.exit(1);
+  });
+})();
 
 // Graceful shutdown: stop the polling indexer, stop accepting connections, and
 // close the SQLite handle so WAL is checkpointed cleanly. Without this, Ctrl+C
@@ -1658,6 +1741,13 @@ function shutdown(signal: string) {
     process.exit(1);
   }, 5000);
   forceTimer.unref();
+
+  // Clear the runtime manifest so stale port info doesn't mislead the dashboard
+  // after we're gone.
+  try {
+    const { clearRuntimeManifest } = require("../core/ports");
+    clearRuntimeManifest();
+  } catch { /* best-effort */ }
 
   server.close(() => {
     try {

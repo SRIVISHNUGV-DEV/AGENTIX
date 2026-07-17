@@ -257,7 +257,7 @@ function DashboardInner() {
             <Breadcrumbs page={activePage} />
             {backendDown && (
               <div className="mb-4 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-300/80">
-                Backend server at port 3001 is unreachable. Start it with <code className="text-amber-200">cd ../.. &amp;&amp; bun x tsx src/runtime/server.ts</code>
+                Backend API server is unreachable. Start the full stack with <code className="text-amber-200">bun run serve</code> from the agentix directory.
               </div>
             )}
             <Page />

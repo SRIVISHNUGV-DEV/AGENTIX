@@ -21,18 +21,35 @@ bun install
 # Build the project
 bun run build
 
-# Initialize the runtime
+# Initialize the runtime (read-only; does not touch your IDE configs)
 bun x tsx src/index.ts init
 
-# Start the API server
-bun x tsx src/runtime/server.ts
+# Start the whole stack (API + dashboard) on auto-selected free ports
+bun run serve
 
-# Start the dashboard (separate terminal)
-cd apps/dashboard && bun run dev
+# Optional: wire detected AI harnesses (Claude Code, Cursor, ...) into AgentIX.
+# This edits their MCP configs, so it is opt-in — run it only when you want it.
+bun x tsx src/index.ts connect
 ```
 
-**Dashboard:** http://localhost:3000  
-**API:** http://localhost:3001
+`bun run serve` prints the URLs it picked. It prefers `http://127.0.0.1:3000`
+(dashboard) and `:3001` (API) but automatically falls back to the next free
+port if either is taken, so it never collides with something already running.
+The dashboard discovers the API port automatically — no manual wiring.
+
+> **Note:** `init` is deliberately non-invasive — it sets up local storage and
+> the database but does **not** modify any external tool configuration. Harness
+> wiring only happens when you run `agentix connect` (or `init --connect-harnesses`).
+
+### Security & advisories
+
+- The API server binds to `127.0.0.1` only and has **no authentication** — it
+  trusts every local caller. Do not expose its port to a network.
+- `snarkjs` (ZK proving) pulls transitive dev-tooling dependencies
+  (`bfj`/`jsonpath`/`underscore`, `ws`, `@ethersproject` v5) that carry
+  published DoS-class advisories. They are **not reachable** from the runtime
+  proving path (`groth16.fullProve`); the top-level `ethers` is v6. `bun audit`
+  will flag them until upstream snarkjs updates its dependency tree.
 
 ---
 

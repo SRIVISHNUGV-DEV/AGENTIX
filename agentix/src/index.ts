@@ -192,14 +192,16 @@ program
   .command("init")
   .description("Initialize AgentIX local runtime")
   .option("--rpc <url>", "RPC endpoint URL")
+  .option("--connect-harnesses", "Also wire detected AI harnesses into the AgentIX MCP server (writes to their configs)")
   .action(async (opts) => {
     log("\n  ╔══════════════════════════════════════════════════════════╗", C.cyan);
     log("  ║            Welcome to AgentIX                            ║", C.cyan);
     log("  ╚══════════════════════════════════════════════════════════╝", C.cyan);
     log();
 
-    // Use the enhanced wizard for initialization
-    const result = await initializeFullRuntime(opts.rpc);
+    // Use the enhanced wizard for initialization. Harness wiring is opt-in
+    // (--connect-harnesses) so a plain `init` never mutates external IDE configs.
+    const result = await initializeFullRuntime(opts.rpc, !!opts.connectHarnesses);
 
     for (const step of result.steps) {
       const icon = step.status === "done" ? `${C.green}✔${C.reset}` :
@@ -227,8 +229,8 @@ program
       log();
       log(`  ${C.bold}Next steps:${C.reset}`);
       log(`    1. Configure RPC:    ${C.cyan}agentix config set rpcUrl <your-rpc-url>${C.reset}`);
-      log(`    2. Start runtime:    ${C.cyan}bun x tsx src/runtime/server.ts${C.reset}`);
-      log(`    3. Start dashboard:  ${C.cyan}cd apps/dashboard && bun run dev${C.reset}`);
+      log(`    2. Start the stack:  ${C.cyan}bun run serve${C.reset}  ${C.dim}(auto-picks free ports)${C.reset}`);
+      log(`    3. Wire AI harnesses:${C.cyan}agentix connect${C.reset}  ${C.dim}(optional — edits IDE configs)${C.reset}`);
       log(`    4. Run diagnostics:  ${C.cyan}agentix doctor${C.reset}`);
       log();
     } else {
@@ -864,42 +866,44 @@ program
 
     log("  Opening onboarding wizard in your browser...\n", C.bold);
 
-    const url = "http://localhost:3000/onboarding";
-    log(`  Dashboard: ${C.bold}${url}${C.reset}`);
-    log();
-
-    log("  Starting services...", C.bold);
+    log("  Starting services on free ports...", C.bold);
 
     try {
       const { spawn } = await import("child_process");
-      const path = await import("path");
       const agentixDir = process.cwd();
 
-      const dashboard = spawn("npm", ["run", "dev"], {
-        cwd: path.join(agentixDir, "apps/dashboard"),
-        detached: true,
-        stdio: "ignore",
-      });
-      dashboard.unref();
-
-      const api = spawn("npx", ["tsx", "src/runtime/server.ts"], {
+      // Delegate to the launcher, which resolves free ports for BOTH the API
+      // and the dashboard and records them in the runtime manifest. This never
+      // collides with ports already in use on the user's machine.
+      const proc = spawn("bun", ["x", "tsx", "scripts/serve.ts"], {
         cwd: agentixDir,
         detached: true,
         stdio: "ignore",
+        shell: process.platform === "win32",
       });
-      api.unref();
+      proc.unref();
 
-      await new Promise((r) => setTimeout(r, 2000));
+      // Read back the ports the launcher published so we can print real URLs.
+      const { readRuntimeManifest } = await import("./core/ports");
+      let manifest = readRuntimeManifest();
+      for (let i = 0; i < 20 && !manifest.dashboardPort; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        manifest = readRuntimeManifest();
+      }
+
+      const dashPort = manifest.dashboardPort || 3000;
+      const apiPort = manifest.apiPort || 3001;
+      const dashUrl = `http://127.0.0.1:${dashPort}`;
 
       log("  Services started:", C.green);
-      log(`    Dashboard: ${C.bold}http://localhost:3000${C.reset}`);
-      log(`    API: ${C.bold}http://localhost:3001${C.reset}`);
+      log(`    Dashboard: ${C.bold}${dashUrl}${C.reset}`);
+      log(`    API: ${C.bold}http://127.0.0.1:${apiPort}${C.reset}`);
       log();
-      log(`  Open ${C.bold}${url}${C.reset} to begin onboarding.`);
+      log(`  Open ${C.bold}${dashUrl}${C.reset} to begin onboarding.`);
       log();
     } catch (e: any) {
       err(`Failed to start services: ${e.message}`);
-      log(`  You can manually start with: npm run dev`, C.dim);
+      log(`  You can manually start with: bun run serve`, C.dim);
     }
   });
 
