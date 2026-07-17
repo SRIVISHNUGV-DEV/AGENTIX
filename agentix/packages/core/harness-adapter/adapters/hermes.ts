@@ -42,5 +42,6 @@ export class HermesAdapter extends BaseHarnessAdapter {
   }
 
   protected getVersionCommand(): string | null { return "hermes --version 2>/dev/null || echo ''"; }
+  protected getBinaryName(): string | null { return "hermes"; }
   protected getMCPKey(): string { return "agentix"; }
 }

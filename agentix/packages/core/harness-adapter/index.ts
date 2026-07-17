@@ -4,6 +4,9 @@ import { MimoCodeAdapter } from "./adapters/mimocode";
 import { OpenCodeAdapter } from "./adapters/opencode";
 import { GitHubCopilotAdapter } from "./adapters/github-copilot";
 import { HermesAdapter } from "./adapters/hermes";
+import { CursorAdapter } from "./adapters/cursor";
+import { GeminiAdapter } from "./adapters/gemini";
+import { OpenClaudeAdapter } from "./adapters/openclaude";
 import { getEventBus } from "../eventbus";
 
 export interface DetectedHarness {
@@ -39,6 +42,9 @@ class HarnessManager {
     new OpenCodeAdapter(),
     new GitHubCopilotAdapter(),
     new HermesAdapter(),
+    new CursorAdapter(),
+    new GeminiAdapter(),
+    new OpenClaudeAdapter(),
   ];
 
   getAdapters(): HarnessAdapter[] {

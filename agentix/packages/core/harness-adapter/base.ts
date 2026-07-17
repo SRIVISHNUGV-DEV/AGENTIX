@@ -15,10 +15,44 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { execSync } from "child_process";
 
-const AGENTIX_MCP_ENTRY: MCPEntry = {
-  command: "node",
-  args: ["AGENTIX_PATH/dist/src/mcp/index.js"],
-};
+/**
+ * Resolve the command an MCP client should run to launch the AgentIX MCP server.
+ * Handles every install context so MCP works out of the box:
+ *   1. Global npm install  → the `agentix-mcp` bin is on PATH.
+ *   2. Published bundle     → <pkg>/mcp.js sits next to package.json.
+ *   3. Local dev (compiled) → <pkg>/dist/src/mcp/server.js after `npm run build`.
+ *   4. Local dev (source)   → <pkg>/src/mcp/server.ts run via `npx tsx`.
+ * The first entry that exists on disk wins; the global bin is preferred because
+ * it survives the package being moved or reinstalled.
+ */
+export function resolveMCPLaunchCommand(agentixPath: string): MCPEntry {
+  // (2) Bundled published package: mcp.js at the package root.
+  const bundled = join(agentixPath, "mcp.js");
+  if (existsSync(bundled)) {
+    return { command: "node", args: [bundled] };
+  }
+  // (3) Compiled dev build.
+  const compiled = join(agentixPath, "dist", "src", "mcp", "server.js");
+  if (existsSync(compiled)) {
+    return { command: "node", args: [compiled] };
+  }
+  // (4) Source (dev): run the TS entry through tsx.
+  const source = join(agentixPath, "src", "mcp", "server.ts");
+  if (existsSync(source)) {
+    return { command: "npx", args: ["tsx", source] };
+  }
+  // (1) Fallback: rely on the globally-installed bin shim.
+  return { command: "agentix-mcp", args: [] };
+}
+
+/** Absolute path to the MCP server entrypoint for a given install, or null. */
+export function findMCPServerEntry(agentixPath: string): string | null {
+  for (const rel of ["mcp.js", join("dist", "src", "mcp", "server.js"), join("src", "mcp", "server.ts")]) {
+    const p = join(agentixPath, rel);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 const AGENTIX_TOOLS: AgentIXTool[] = [
   { name: "agentix_health", description: "System health check", inputSchema: { type: "object", properties: {} } },
@@ -53,6 +87,8 @@ export const HARNESS_LOGOS: Record<string, string> = {
   "cursor": "https://cursor.sh/favicon.svg",
   "windsurf": "https://windsurf.com/favicon.svg",
   "cline": "https://cline.bot/favicon.svg",
+  "gemini": "https://www.gstatic.com/lamda/images/favicon_v3.ico",
+  "openclaude": "https://cdn.anthropic.com/icons/claude.svg",
 };
 
 export abstract class BaseHarnessAdapter implements HarnessAdapter {
@@ -69,15 +105,39 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
   /** Tries to detect the installed version by running the harness's CLI. */
   protected async detectVersion(): Promise<string | undefined> {
     try {
-      const { execSync } = await import("child_process");
       const binary = this.getVersionCommand();
       if (!binary) return undefined;
-      const out = execSync(binary, { timeout: 3000, encoding: "utf-8" });
+      // Pipe stderr so a failing/permission-denied binary probe doesn't leak
+      // "Access is denied." (Windows) or similar noise to the parent console.
+      const out = execSync(binary, { timeout: 3000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
       return out.trim().split("\n")[0] || undefined;
     } catch {
       return undefined;
     }
   }
+
+  /** Checks if the tool binary is available in PATH. Returns the binary name if found. */
+  protected checkBinaryExists(): string | null {
+    const cmd = this.getBinaryCheckCommand();
+    if (!cmd) return null;
+    try {
+      // Pipe stderr so a failed lookup (e.g. Windows "Access is denied.") stays quiet.
+      const out = execSync(cmd, { timeout: 3000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Override to provide a command that checks if the binary exists, e.g. "where claude" or "which claude". */
+  protected getBinaryCheckCommand(): string | null {
+    const bin = this.getBinaryName();
+    if (!bin) return null;
+    return process.platform === "win32" ? `where ${bin} 2>nul` : `which ${bin} 2>/dev/null`;
+  }
+
+  /** Override to provide the binary name for existence check. */
+  protected getBinaryName(): string | null { return null; }
 
   /** Override to provide the version-check command for this harness, e.g. "claude --version". */
   protected getVersionCommand(): string | null { return null; }
@@ -89,6 +149,23 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
 
   getTools(): AgentIXTool[] {
     return AGENTIX_TOOLS;
+  }
+
+  /**
+   * A registered MCP entry is only "valid" if it can actually launch:
+   *   - a file-path argument (node <path>, npx tsx <path>) must exist on disk;
+   *   - a bare global bin (agentix-mcp) is assumed launchable via PATH.
+   * This lets detect() distinguish a healthy wiring from a stale one that points
+   * at a path removed by an upgrade, so re-runs self-heal instead of skipping.
+   */
+  protected mcpEntryIsValid(entry: MCPEntry): boolean {
+    if (!entry || !entry.command) return false;
+    const args = entry.args || [];
+    // Find a filesystem path among the args (absolute or with a path separator).
+    const fileArg = args.find((a) => typeof a === "string" && /[\\/]/.test(a) && /\.(js|ts|cjs|mjs)$/.test(a));
+    if (fileArg) return existsSync(fileArg.replace(/\\\\/g, "\\"));
+    // No file path (e.g. `agentix-mcp` global bin) — treat as launchable.
+    return true;
   }
 
   async detect(): Promise<DetectResult> {
@@ -103,14 +180,25 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
         const raw = readFileSync(mcpConfigPath, "utf-8");
         const config = JSON.parse(raw);
         const key = this.getMCPKey();
-        if (config.mcpServers?.[key] || config[key]) {
-          alreadyConnected = true;
+        const entry = config.mcpServers?.[key] || config[key];
+        if (entry) {
+          // Only count as connected if the entry still points to a launchable
+          // server. Stale configs from older versions referenced a path that no
+          // longer exists (dist/src/mcp/index.js); those must be re-wired, not
+          // treated as healthy — otherwise connectAll() skips and never heals them.
+          alreadyConnected = this.mcpEntryIsValid(entry);
         }
       } catch {}
     }
 
     // Detect version asynchronously (best-effort)
     const version = await this.detectVersion();
+
+    // Verify tool binary exists — config dir alone is not enough (could be stale/empty)
+    const binaryFound = this.checkBinaryExists();
+
+    // Require: config exists AND (binary found OR already connected via MCP)
+    const found = configExists && (binaryFound !== null || alreadyConnected);
 
     const harness: HarnessInfo = {
       id: this.id,
@@ -119,12 +207,12 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
       version,
       configPath: configPath || "",
       mcpConfigPath: mcpConfigPath || "",
-      status: alreadyConnected ? "connected" : configExists ? "detected" : "disconnected",
+      status: alreadyConnected ? "connected" : found ? "detected" : "disconnected",
       tools: AGENTIX_TOOLS.map((t) => ({ name: t.name, description: t.description, installed: alreadyConnected })),
       lastChecked: Date.now(),
     };
 
-    return { found: configExists, harness, configExists, mcpConfigExists, alreadyConnected };
+    return { found, harness, configExists, mcpConfigExists, alreadyConnected };
   }
 
   async connect(): Promise<ConnectResult> {
@@ -182,11 +270,11 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
 
     if (detectResult.alreadyConnected) {
       const agentixPath = this.resolveAgentixPath();
-      const mcpJsExists = existsSync(join(agentixPath, "dist/src/mcp/index.js"));
+      const mcpEntry = findMCPServerEntry(agentixPath);
       checks.push({
         name: "AgentIX MCP Server",
-        status: mcpJsExists ? "PASS" : "ERROR",
-        message: mcpJsExists ? "MCP server build found" : "MCP server not built — run npm run build",
+        status: mcpEntry ? "PASS" : "ERROR",
+        message: mcpEntry ? "MCP server build found" : "MCP server not built — run npm run build",
       });
     }
 
@@ -225,14 +313,14 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
     }
 
     const agentixPath = this.resolveAgentixPath();
-    const mcpJsExists = existsSync(join(agentixPath, "dist/src/mcp/index.js"));
-    if (!mcpJsExists) {
+    const mcpEntry = findMCPServerEntry(agentixPath);
+    if (!mcpEntry) {
       try {
         execSync("npm run build", { cwd: agentixPath, stdio: "pipe" });
         repairs.push({
           component: "MCP Server",
           action: "Rebuild",
-          success: true,
+          success: !!findMCPServerEntry(agentixPath),
           message: "MCP server rebuilt successfully",
         });
       } catch (e: any) {
@@ -266,12 +354,9 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
 
     if (!config.mcpServers) config.mcpServers = {};
 
-    const mcpJsPath = join(agentixPath, "dist/src/mcp/index.js").replace(/\\/g, "\\\\");
-
-    config.mcpServers["agentix"] = {
-      command: "node",
-      args: [mcpJsPath],
-    };
+    // Resolve a launch command that actually works in the caller's install
+    // context (global npx bin, bundled mcp.js, dev build, or tsx source).
+    config.mcpServers["agentix"] = resolveMCPLaunchCommand(agentixPath);
 
     const dir = dirname(configPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -293,7 +378,7 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
       if (existsSync(join(dir, "package.json"))) {
         try {
           const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
-          if (pkg.name === "agentix-v1" || pkg.name === "@agentix/core") {
+          if (pkg.name === "agentix" || pkg.name === "agentix-v1" || pkg.name === "@agentix/core") {
             return dir;
           }
         } catch {}

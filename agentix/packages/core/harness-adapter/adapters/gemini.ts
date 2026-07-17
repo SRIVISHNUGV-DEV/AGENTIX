@@ -3,9 +3,9 @@ import { join } from "path";
 import { homedir } from "os";
 import { existsSync } from "fs";
 
-export class ClaudeCodeAdapter extends BaseHarnessAdapter {
-  readonly id = "claude-code";
-  readonly name = "Claude Code";
+export class GeminiAdapter extends BaseHarnessAdapter {
+  readonly id = "gemini";
+  readonly name = "Gemini";
   readonly configPath: string;
   readonly mcpConfigPath: string;
 
@@ -16,13 +16,15 @@ export class ClaudeCodeAdapter extends BaseHarnessAdapter {
   }
 
   protected getConfigDir(): string {
-    return join(homedir(), ".claude");
+    return join(homedir(), ".gemini");
   }
 
   protected findConfigPath(): string | null {
     const paths = [
-      join(homedir(), ".claude"),
-      join(homedir(), ".config", "claude"),
+      join(homedir(), ".gemini"),
+      join(homedir(), ".config", "gemini"),
+      join(homedir(), ".google", "gemini"),
+      join(homedir(), ".config", "google-gemini"),
     ];
     for (const p of paths) {
       if (existsSync(p)) return p;
@@ -32,8 +34,10 @@ export class ClaudeCodeAdapter extends BaseHarnessAdapter {
 
   protected findMCPConfigPath(): string | null {
     const paths = [
-      join(homedir(), ".claude", "mcp.json"),
-      join(homedir(), ".claude", "mcp_config.json"),
+      join(homedir(), ".gemini", "mcp.json"),
+      join(homedir(), ".gemini", "mcp_config.json"),
+      join(homedir(), ".config", "gemini", "mcp.json"),
+      join(homedir(), ".google", "gemini", "mcp.json"),
     ];
     for (const p of paths) {
       if (existsSync(p)) return p;
@@ -41,7 +45,10 @@ export class ClaudeCodeAdapter extends BaseHarnessAdapter {
     return null;
   }
 
-  protected getVersionCommand(): string | null { return "claude --version 2>/dev/null || echo ''"; }
-  protected getBinaryName(): string | null { return "claude"; }
+  protected getVersionCommand(): string | null {
+    return "gemini --version 2>/dev/null || echo ''";
+  }
+
+  protected getBinaryName(): string | null { return "gemini"; }
   protected getMCPKey(): string { return "agentix"; }
 }

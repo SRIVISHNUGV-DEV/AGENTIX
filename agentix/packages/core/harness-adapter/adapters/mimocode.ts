@@ -42,5 +42,6 @@ export class MimoCodeAdapter extends BaseHarnessAdapter {
   }
 
   protected getVersionCommand(): string | null { return "mimo --version 2>/dev/null || echo ''"; }
+  protected getBinaryName(): string | null { return "mimo"; }
   protected getMCPKey(): string { return "agentix"; }
 }

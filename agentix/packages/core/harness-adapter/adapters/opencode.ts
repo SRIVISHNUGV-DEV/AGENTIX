@@ -43,5 +43,6 @@ export class OpenCodeAdapter extends BaseHarnessAdapter {
   }
 
   protected getVersionCommand(): string | null { return "opencode --version 2>/dev/null || echo ''"; }
+  protected getBinaryName(): string | null { return "opencode"; }
   protected getMCPKey(): string { return "agentix"; }
 }
