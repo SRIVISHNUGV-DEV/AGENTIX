@@ -120,7 +120,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     mapping(address => bytes32[]) public walletSessions;
     uint256 public constant MAX_SESSIONS_PER_WALLET = 100;
     uint256 public constant MAX_ALLOWED_TARGETS = 32;
-    uint256 public constant TIMELOCK_DELAY = 0 seconds;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
     uint256 public constant SUPPORTED_CREDENTIAL_VERSION = 1;
 
     IVerifier public verifier;
@@ -129,6 +129,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
     address public pendingWalletFactory;
     uint256 public walletFactoryActivationTime;
+    bool private _walletFactoryInitialized;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -143,13 +144,29 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @notice Initializes the SessionManager with external contract dependencies.
     /// @param verifier_ The Groth16 ZK verifier contract.
     /// @param registry_ The CredentialRegistry contract.
-    /// @param walletFactory_ The AgentWalletFactory contract.
+    /// @param walletFactory_ The AgentWalletFactory contract. Pass address(0) if
+    ///        the factory is not yet deployed (use setInitialWalletFactory later).
     function initialize(address verifier_, address registry_, address walletFactory_) public initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
         verifier = IVerifier(verifier_);
         registry = ICredentialRegistry(registry_);
+        if (walletFactory_ != address(0)) {
+            walletFactory = IAgentWalletFactory(walletFactory_);
+        }
+        _walletFactoryInitialized = (walletFactory_ != address(0));
+    }
+
+    /// @notice Sets the AgentWalletFactory for the first time during deployment.
+    ///         This bypasses the timelock and can only be called once. All subsequent
+    ///         changes must go through proposeWalletFactory + acceptWalletFactory.
+    /// @param walletFactory_ The AgentWalletFactory contract address.
+    function setInitialWalletFactory(address walletFactory_) external onlyOwner {
+        if (_walletFactoryInitialized) revert WalletFactoryTimelockActive();
+        if (walletFactory_ == address(0)) revert InvalidSessionManager();
         walletFactory = IAgentWalletFactory(walletFactory_);
+        _walletFactoryInitialized = true;
+        emit WalletFactoryUpdated(address(0), walletFactory_);
     }
 
     /// @notice Pauses session creation and validation.

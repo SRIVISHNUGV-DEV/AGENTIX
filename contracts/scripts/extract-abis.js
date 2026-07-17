@@ -17,8 +17,8 @@ const PRODUCTION_CONTRACTS = [
   "SessionManager",
 ];
 
+// Interfaces defined inline in contracts — hardhat generates artifacts for these
 const INTERFACES = [
-  "IAgentIdentity",
   "IAgentWallet",
   "ICredentialRegistry",
   "IAgentWalletFactory",
@@ -77,11 +77,14 @@ for (const name of INTERFACES) {
   }
 }
 
-// Write manifest
+// Read OZ version from package.json to stay in sync
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf8"));
+const ozVersion = pkg.dependencies["@openzeppelin/contracts"];
+
 const manifest = {
   generated: new Date().toISOString(),
   solcVersion: "0.8.24",
-  openZeppelin: "5.3.0",
+  openZeppelin: ozVersion,
   evmTarget: "paris",
   optimizer: { enabled: true, runs: 200 },
   contracts: allAbis,

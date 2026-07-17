@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, "..", "..")
 
 const deployPath = path.resolve(__dirname, "..", "deploy-output.json")
-const envPath = path.resolve(__dirname, "..", "..", "contracts", ".env")
+const envPath = path.resolve(__dirname, "..", ".env")
 
 const env = fs.readFileSync(envPath, "utf-8").split("\n").reduce((acc, line) => {
   const [k, ...v] = line.split("=")
@@ -18,6 +18,7 @@ const env = fs.readFileSync(envPath, "utf-8").split("\n").reduce((acc, line) => 
 
 const { RPC_URL, PRIVATE_KEY } = env
 const deployData = JSON.parse(fs.readFileSync(deployPath, "utf-8"))
+const contracts = deployData.contracts
 
 const provider = new ethers.JsonRpcProvider(RPC_URL)
 const signer = new ethers.Wallet(PRIVATE_KEY, provider)
@@ -34,8 +35,8 @@ const registryABI = [
   "function setSessionManager(address,bool) external",
 ]
 const sessionABI = [
-  "function createSession(bytes32,address,uint128,uint64,bytes32,uint256[2],uint256[2][2],uint256[2],uint256[5]) external",
-  "function sessions(bytes32) view returns (address,uint256,uint256,uint64,bool)",
+  "function createSession(bytes32,address,address,uint128,uint64,uint256[2],uint256[2][2],uint256[2],uint256[7]) external",
+  "function sessions(bytes32) view returns (address,address,uint256,uint256,uint64,bool)",
 ]
 
 async function main() {
@@ -72,7 +73,6 @@ async function main() {
   console.log("  revocationKey:", revocationKey.toString())
 
   // --- 2. Build Merkle tree (matching circuit test convention) ---
-  // Leaf at index 0, all siblings = 0 (matches backend + circuit test behavior)
   const depth = 20
   let current = commitment
   const pathElements = []
@@ -101,7 +101,6 @@ async function main() {
 
   console.log("Revocation Tree:")
   console.log("  root:", revokedRoot.toString())
-  console.log("  isOld0:", revokedResult.isOld0 ? 1 : 0)
 
   // --- 4. Generate real Groth16 proof ---
   const circuitDir = path.resolve(ROOT, "mcp-test", "circuits")
@@ -136,18 +135,21 @@ async function main() {
   const proofTime = Date.now() - startTime
   console.log(`Proof generated in ${proofTime}ms`)
   console.log("Public signals:", publicSignals)
-  console.log("Nullifier:", publicSignals[0])
+
+  // publicSignals layout: [activeRoot, revokedRoot, maxValue, sessionExpiry, wallet, credentialVersion, nullifier]
+  const nullifier = publicSignals[6]
+  console.log("Nullifier:", nullifier)
 
   // --- 5. Verify off-chain with snarkjs ---
   const vkPath = path.resolve(ROOT, "circuits", "build", "verification_key.json")
   const vk = JSON.parse(fs.readFileSync(vkPath, "utf-8"))
   const valid = await groth16.verify(vk, publicSignals, proof)
-  console.log("\nOff-chain verification:", valid ? "✅ PASSED" : "❌ FAILED")
+  console.log("\nOff-chain verification:", valid ? "PASSED" : "FAILED")
   if (!valid) throw new Error("Proof does not verify off-chain")
 
   // --- 6. Check on-chain state ---
-  const registry = new ethers.Contract(deployData.credentialRegistry, registryABI, signer)
-  const sessionMgr = new ethers.Contract(deployData.sessionManager, sessionABI, signer)
+  const registry = new ethers.Contract(contracts.credentialRegistry.proxy, registryABI, signer)
+  const sessionMgr = new ethers.Contract(contracts.sessionManager.proxy, sessionABI, signer)
 
   const [onChainActiveRoot, onChainRevokedRoot] = await Promise.all([
     registry.activeRoot(),
@@ -180,64 +182,104 @@ async function main() {
     console.log("Revoked root already matches")
   }
 
-  // --- 8. Submit session on-chain ---
-  const nullifierHex = ethers.toBeHex(BigInt(publicSignals[0]), 32)
+  // --- 8. Create wallet and submit session on-chain ---
+  const factoryABI = [
+    "function createWallet(address) external returns (address)",
+    "function isAgentWallet(address) view returns (bool)",
+  ]
+  const factory = new ethers.Contract(contracts.agentWalletFactory.proxy, factoryABI, signer)
+
+  console.log("\nCreating wallet...")
+  const walletTx = await factory.createWallet(signer.address)
+  const walletReceipt = await walletTx.wait()
+  // Parse WalletCreated event to get wallet address
+  let walletAddress = ""
+  for (const log of walletReceipt.logs) {
+    try {
+      const parsed = factory.interface.parseLog(log)
+      if (parsed?.name === "WalletCreated") {
+        walletAddress = parsed.args.wallet
+        break
+      }
+    } catch {}
+  }
+  if (!walletAddress) throw new Error("WalletCreated event not found")
+  console.log("  Wallet:", walletAddress)
+
+  // Build publicSignals[5] = wallet address (as uint160 cast to uint256)
+  const walletAsSignal = BigInt(walletAddress)
+
   const sessionId = ethers.hexlify(ethers.randomBytes(32))
   const sessionKey = ethers.Wallet.createRandom().address
 
-  // Format proof for Solidity
+  // Format proof for Solidity — publicSignals must be [activeRoot, revokedRoot, maxValue, sessionExpiry, wallet, credentialVersion, nullifier]
   const a = [proof.pi_a[0], proof.pi_a[1]]
   const b = [
     [proof.pi_b[0][1], proof.pi_b[0][0]],
     [proof.pi_b[1][1], proof.pi_b[1][0]],
   ]
   const c = [proof.pi_c[0], proof.pi_c[1]]
-  const pubSignals = publicSignals.map((s) => BigInt(s))
+
+  // Reconstruct publicSignals with wallet address injected at index 4
+  const fullPublicSignals = [
+    BigInt(publicSignals[0]), // activeRoot
+    BigInt(publicSignals[1]), // revokedRoot
+    maxValue,                // maxValue
+    sessionExpiry,           // sessionExpiry
+    walletAsSignal,          // wallet
+    1n,                      // credentialVersion
+    BigInt(nullifier),       // nullifier
+  ]
 
   console.log("\nSubmitting session on-chain...")
   console.log("  sessionId:", sessionId)
+  console.log("  wallet:", walletAddress)
   console.log("  sessionKey:", sessionKey)
   console.log("  maxValue:", maxValue.toString())
   console.log("  expiry:", sessionExpiry.toString())
-  console.log("  nullifier:", nullifierHex)
+  console.log("  nullifier:", ethers.toBeHex(BigInt(nullifier), 32))
 
+  // createSession(sessionId, wallet, sessionKey, maxValue, expiry, a, b, c, publicSignals)
   const gasLimit = 500000n
   const tx3 = await sessionMgr.createSession(
     sessionId,
+    walletAddress,
     sessionKey,
     maxValue,
     sessionExpiry,
-    nullifierHex,
     a, b, c,
-    pubSignals,
+    fullPublicSignals,
     { gasLimit }
   )
   const r3 = await tx3.wait()
-  console.log("\n✅ Session submitted!")
+  console.log("\nSession submitted!")
   console.log("  tx:", r3.hash)
   console.log("  block:", r3.blockNumber)
   console.log("  gasUsed:", r3.gasUsed.toString())
 
   // --- 9. Verify session exists ---
   const session = await sessionMgr.sessions(sessionId)
-  console.log("\nSession on-chain:", session)
-  console.log("  sessionKey:", session[0])
-  console.log("  maxValue:", session[1].toString())
-  console.log("  expiry:", session[2].toString())
-  console.log("  active:", session[4])
+  console.log("\nSession on-chain:")
+  console.log("  wallet:", session[0])
+  console.log("  sessionKey:", session[1])
+  console.log("  valueUsed:", session[2].toString())
+  console.log("  maxValue:", session[3].toString())
+  console.log("  expiry:", session[4].toString())
+  console.log("  revoked:", session[5])
 
-  if (session[4]) {
-    console.log("\n🎉 ON-CHAIN VERIFICATION PASSED!")
+  if (!session[5] && session[1] !== ethers.ZeroAddress) {
+    console.log("\nON-CHAIN VERIFICATION PASSED!")
   } else {
-    console.log("\n❌ Session not active on-chain")
+    console.log("\nSession not active on-chain")
   }
 
   // --- 10. Verify nullifier is marked used ---
+  const nullifierHex = ethers.toBeHex(BigInt(nullifier), 32)
   const nullifierUsed = await registry.isNullifierUsed(nullifierHex)
   console.log("\nNullifier used:", nullifierUsed)
 }
 
 main().catch((e) => {
-  console.error("\n❌ Error:", e.message)
+  console.error("\nError:", e.message)
   process.exit(1)
 })

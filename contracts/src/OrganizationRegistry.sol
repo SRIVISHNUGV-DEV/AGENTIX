@@ -47,7 +47,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
 
     address public anchorImplementation;
 
-    uint256 public constant TIMELOCK_DELAY = 0 seconds;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
 
     mapping(bytes32 => address) public pendingAnchor;
     mapping(bytes32 => uint256) public anchorActivationTime;

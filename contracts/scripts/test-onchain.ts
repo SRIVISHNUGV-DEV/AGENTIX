@@ -1,16 +1,17 @@
 import { ethers } from "hardhat";
+import fs from "fs";
+import path from "path";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-const DEPLOYED = {
-  verifier: "0x1Baae590586170A8779b31186757DaDbcaE94f57",
-  credentialRegistry: "0xaC0A72FaAF2596DD55A20049F0ab7584b58b3DEE",
-  sessionManager: "0x27532B3B2d0704715D5e81BDa8B0D272675751d1",
-  agentWalletImplementation: "0x0069aaBe2BCCE3Ef22D7104684f5d091b49f7A30",
-  agentWalletFactory: "0x9e6B32F7da3ef2C2dD1337757FbC25Eb72FdFfE3",
-  capabilityRegistry: "0xa9ff494D1047bC9399858394B95aCf7066740aFC",
-  delegationManager: "0x73f8591ccCdBfE1595aA4d2160e8F166E0243E38",
-};
+// Load addresses from deploy-output.json (written by deploy.ts)
+function loadDeployments() {
+  const deployPath = path.resolve(__dirname, "../deploy-output.json");
+  if (!fs.existsSync(deployPath)) {
+    throw new Error(`deploy-output.json not found at ${deployPath}\nRun deploy.ts first.`);
+  }
+  return JSON.parse(fs.readFileSync(deployPath, "utf-8"));
+}
 
 const EP = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
@@ -37,6 +38,9 @@ async function sendAndWait(txPromise: Promise<any>, delay = 8000): Promise<any> 
 }
 
 async function main() {
+  const DEPLOYED = loadDeployments();
+  const contracts = DEPLOYED.contracts;
+
   const signers = await ethers.getSigners();
   const deployer = signers[0];
   const oracle = signers[1];
@@ -50,10 +54,10 @@ async function main() {
 
   console.log("Resetting paused states...");
   for (const [name, addr] of [
-    ["CredentialRegistry", DEPLOYED.credentialRegistry],
-    ["SessionManager", DEPLOYED.sessionManager],
-    ["CapabilityRegistry", DEPLOYED.capabilityRegistry],
-    ["DelegationManager", DEPLOYED.delegationManager],
+    ["CredentialRegistry", contracts.credentialRegistry.proxy],
+    ["SessionManager", contracts.sessionManager.proxy],
+    ["CapabilityRegistry", contracts.capabilityRegistry.proxy],
+    ["DelegationManager", contracts.delegationManager.proxy],
   ]) {
     try {
       const c = await ethers.getContractAt(name, addr);
@@ -85,7 +89,7 @@ async function main() {
   // CredentialRegistry
   // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — CredentialRegistry\n${"=".repeat(60)}`);
-  const credReg = await ethers.getContractAt("CredentialRegistry", DEPLOYED.credentialRegistry);
+  const credReg = await ethers.getContractAt("CredentialRegistry", contracts.credentialRegistry.proxy);
 
   await test("CR: owner is deployer", async () => {
     if ((await credReg.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("owner mismatch");
@@ -134,19 +138,19 @@ async function main() {
   // SessionManager
   // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — SessionManager\n${"=".repeat(60)}`);
-  const sessMgr = await ethers.getContractAt("SessionManager", DEPLOYED.sessionManager);
+  const sessMgr = await ethers.getContractAt("SessionManager", contracts.sessionManager.proxy);
 
   await test("SM: owner is deployer", async () => {
     if ((await sessMgr.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("owner mismatch");
   });
   await test("SM: verifier set", async () => {
-    if ((await sessMgr.verifier()).toLowerCase() !== DEPLOYED.verifier.toLowerCase()) throw new Error("mismatch");
+    if ((await sessMgr.verifier()).toLowerCase() !== contracts.groth16Verifier.toLowerCase()) throw new Error("mismatch");
   });
   await test("SM: registry set", async () => {
-    if ((await sessMgr.registry()).toLowerCase() !== DEPLOYED.credentialRegistry.toLowerCase()) throw new Error("mismatch");
+    if ((await sessMgr.registry()).toLowerCase() !== contracts.credentialRegistry.proxy.toLowerCase()) throw new Error("mismatch");
   });
   await test("SM: walletFactory set", async () => {
-    if ((await sessMgr.walletFactory()).toLowerCase() !== DEPLOYED.agentWalletFactory.toLowerCase()) throw new Error("mismatch");
+    if ((await sessMgr.walletFactory()).toLowerCase() !== contracts.agentWalletFactory.proxy.toLowerCase()) throw new Error("mismatch");
   });
   await test("SM: pause/unpause", async () => {
     await sendAndWait(sessMgr.pause());
@@ -159,16 +163,16 @@ async function main() {
   // AgentWalletFactory
   // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — AgentWalletFactory\n${"=".repeat(60)}`);
-  const factory = await ethers.getContractAt("AgentWalletFactory", DEPLOYED.agentWalletFactory);
+  const factory = await ethers.getContractAt("AgentWalletFactory", contracts.agentWalletFactory.proxy);
 
   await test("AWF: owner is deployer", async () => {
     if ((await factory.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("mismatch");
   });
   await test("AWF: implementation set", async () => {
-    if ((await factory.implementation()).toLowerCase() !== DEPLOYED.agentWalletImplementation.toLowerCase()) throw new Error("mismatch");
+    if ((await factory.implementation()).toLowerCase() !== contracts.agentWalletImpl.toLowerCase()) throw new Error("mismatch");
   });
   await test("AWF: session manager set", async () => {
-    if ((await factory.sessionManager()).toLowerCase() !== DEPLOYED.sessionManager.toLowerCase()) throw new Error("mismatch");
+    if ((await factory.sessionManager()).toLowerCase() !== contracts.sessionManager.proxy.toLowerCase()) throw new Error("mismatch");
   });
   await test("AWF: entry point set", async () => {
     if ((await factory.entryPoint()).toLowerCase() !== EP.toLowerCase()) throw new Error("mismatch");
@@ -196,28 +200,16 @@ async function main() {
     if ((await wallet.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("mismatch");
   });
   await test("AW: session manager set", async () => {
-    if ((await wallet.sessionManager()).toLowerCase() !== DEPLOYED.sessionManager.toLowerCase()) throw new Error("mismatch");
+    if ((await wallet.sessionManager()).toLowerCase() !== contracts.sessionManager.proxy.toLowerCase()) throw new Error("mismatch");
   });
   await test("AW: accept ETH deposit", async () => {
     await sendAndWait(deployer.sendTransaction({ to: walletAddress, value: ethers.parseEther("0.002") }));
     if ((await wallet.checkBalance()) < ethers.parseEther("0.002")) throw new Error("balance too low");
   });
-  await test("AW: whitelist + execute", async () => {
-    await sendAndWait(wallet.setWhiteListedParty(client.address, true));
-    if (!(await wallet.whiteListedParties(client.address))) throw new Error("not whitelisted");
-    await sendAndWait(wallet.execute(client.address, 0, "0x"));
+  await test("AW: owner can execute", async () => {
+    await sendAndWait(wallet.execute(other.address, 0, "0x"));
   });
-  await test("AW: reject non-whitelisted execute", async () => {
-    try {
-      await sendAndWait(wallet.execute(other.address, 0, "0x"));
-      throw new Error("should have reverted");
-    } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
-  });
-  await test("AW: batch whitelist + execute", async () => {
-    await sendAndWait(wallet.setWhiteListedPartyBatch([other.address, worker.address], [true, true]));
-    await sendAndWait(wallet.executeBatch([client.address, other.address], [0, 0], ["0x", "0x"]));
-  });
-  await test("AW: ownership transfer", async () => {
+  await test("AW: ownership transfer (2-step)", async () => {
     await sendAndWait(wallet.changeOwner(client.address));
     if ((await wallet.pendingOwner()).toLowerCase() !== client.address.toLowerCase()) throw new Error("pending mismatch");
     await sendAndWait(wallet.connect(client).acceptOwnership());
@@ -232,12 +224,15 @@ async function main() {
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });
+  await test("AW: batch execute", async () => {
+    await sendAndWait(wallet.executeBatch([client.address, other.address], [0, 0], ["0x", "0x"]));
+  });
 
   // ═══════════════════════════════════════════════════════
   // CapabilityRegistry
   // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — CapabilityRegistry\n${"=".repeat(60)}`);
-  const capReg = await ethers.getContractAt("CapabilityRegistry", DEPLOYED.capabilityRegistry);
+  const capReg = await ethers.getContractAt("CapabilityRegistry", contracts.capabilityRegistry.proxy);
 
   await test("CR2: owner is deployer", async () => {
     if ((await capReg.owner()).toLowerCase() !== deployer.address.toLowerCase()) throw new Error("mismatch");
@@ -256,8 +251,8 @@ async function main() {
   });
   await test("CR2: update grant root", async () => {
     const r = ethers.keccak256(ethers.toUtf8Bytes("grant-root-1"));
-    await sendAndWait(capReg.connect(deployer).updateGrantRoot(client.address, r));
-    if ((await capReg.grantRoots(deployer.address, client.address)) !== r) throw new Error("root mismatch");
+    await sendAndWait(capReg.updateGrantRoot(client.address, capId, r));
+    if ((await capReg.grantRoots(deployer.address, client.address, capId)) !== r) throw new Error("root mismatch");
   });
   await test("CR2: revoke capability", async () => {
     await sendAndWait(capReg.revokeCapability(capId));
@@ -271,10 +266,10 @@ async function main() {
   });
 
   // ═══════════════════════════════════════════════════════
-  // DelegationManager (AccessControl-based)
+  // DelegationManager
   // ═══════════════════════════════════════════════════════
   console.log(`\n${"=".repeat(60)}\nON-CHAIN TESTS — DelegationManager\n${"=".repeat(60)}`);
-  const delMgr = await ethers.getContractAt("DelegationManager", DEPLOYED.delegationManager);
+  const delMgr = await ethers.getContractAt("DelegationManager", contracts.delegationManager.proxy);
   const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
   const ROOT_UPDATER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ROOT_UPDATER"));
 
@@ -299,15 +294,15 @@ async function main() {
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
     await sendAndWait(delMgr.registerScope(scopeAction));
     const r = ethers.keccak256(ethers.toUtf8Bytes("deleg-root-1"));
-    await sendAndWait(delMgr.connect(deployer).updateDelegationRoot(deployer.address, scopeHash, r, 0));
+    await sendAndWait(delMgr.updateDelegationRoot(deployer.address, scopeHash, r, 0));
     const rootInfo = await delMgr.getDelegationRoot(deployer.address, scopeHash);
     if (rootInfo.root !== r) throw new Error("root mismatch");
   });
   await test("DM: non-delegator cannot update OTHER's root", async () => {
+    const scopeAction = "scope-auth-" + Date.now();
+    await sendAndWait(delMgr.registerScope(scopeAction));
+    const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
     try {
-      const scopeAction = "scope-auth-" + Date.now();
-      await sendAndWait(delMgr.registerScope(scopeAction));
-      const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
       await sendAndWait(delMgr.connect(client).updateDelegationRoot(deployer.address, scopeHash, ethers.ZeroHash, 0));
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }

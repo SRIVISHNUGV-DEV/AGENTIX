@@ -1,8 +1,6 @@
-import { ethers, run, network } from "hardhat";
+import { ethers, run } from "hardhat";
 import fs from "fs";
 import path from "path";
-
-const DEPLOYMENTS_DIR = path.resolve(__dirname, "../deployments");
 
 /**
  * Etherscan/Basescan verification for all deployed contracts.
@@ -10,50 +8,21 @@ const DEPLOYMENTS_DIR = path.resolve(__dirname, "../deployments");
  * Usage:
  *   npx hardhat run scripts/verify-all.ts --network baseSepolia
  *
- * Verifies:
- *   - All UUPS proxy implementations
- *   - Standalone contracts (Groth16Verifier, AgentWallet impl)
- *   - ERC1967Proxy contracts (optional — proxies are bytecode-identical)
+ * Reads addresses from deploy-output.json (written by deploy.ts).
  */
 
-// Contract name → constructor args mapping
-function getVerifyArgs(state: Record<string, unknown>) {
-  const args: [string, unknown[], string][] = [];
-
-  // Standalone contracts
-  args.push(["Groth16Verifier", [], "Groth16Verifier"]);
-
-  // UUPS implementations (all have empty constructors — Initializable handles init)
-  const uupsContracts = [
-    ["CredentialRegistry", state.phase2.credentialRegistry.implementation, "CredentialRegistry Impl"],
-    ["OrganizationCredentialAnchor", state.phase2.organizationCredentialAnchor.address, "OrgCredentialAnchor Impl"],
-    ["OrganizationRegistry", state.phase3.organizationRegistry.implementation, "OrganizationRegistry Impl"],
-    ["SessionManager", state.phase4.sessionManager.implementation, "SessionManager Impl"],
-    ["AgentWalletFactory", state.phase3.agentWalletFactory.implementation, "AgentWalletFactory Impl"],
-    ["CapabilityRegistry", state.phase1.capabilityRegistry.implementation, "CapabilityRegistry Impl"],
-    ["DelegationManager", state.phase1.delegationManager.implementation, "DelegationManager Impl"],
-    ["AgentIdentity", state.phase5.agentIdentity.implementation, "AgentIdentity Impl"],
-  ];
-
-  for (const [contractName, address, label] of uupsContracts) {
-    args.push([contractName as string, [], label]);
+function loadDeployments() {
+  const deployPath = path.resolve(__dirname, "../deploy-output.json");
+  if (!fs.existsSync(deployPath)) {
+    throw new Error(`deploy-output.json not found at ${deployPath}\nRun deploy.ts first.`);
   }
-
-  // AgentWallet implementation (non-upgradeable, no constructor args)
-  args.push(["AgentWallet", [], "AgentWallet Impl"]);
-
-  return args;
+  return JSON.parse(fs.readFileSync(deployPath, "utf-8"));
 }
 
 async function main() {
+  const deployData = loadDeployments();
+  const contracts = deployData.contracts;
   const networkInfo = await ethers.provider.getNetwork();
-  const outputPath = path.join(DEPLOYMENTS_DIR, `${networkInfo.name}-${networkInfo.chainId}.json`);
-
-  if (!fs.existsSync(outputPath)) {
-    throw new Error(`Deployment file not found: ${outputPath}\nRun deploy-v5.ts first.`);
-  }
-
-  const state = JSON.parse(fs.readFileSync(outputPath, "utf8"));
 
   console.log("═══════════════════════════════════════════════════════");
   console.log("  AgentIX Contract Verification");
@@ -61,65 +30,49 @@ async function main() {
   console.log(`  Network: ${networkInfo.name} (chainId: ${networkInfo.chainId})`);
   console.log("═══════════════════════════════════════════════════════\n");
 
-  const verifyArgs = getVerifyArgs(state);
+  // All implementations to verify (no constructor args for UUPS impls)
+  const toVerify: [string, string, unknown[]][] = [
+    // Standalone
+    ["Groth16Verifier", contracts.groth16Verifier, []],
+    ["AgentWallet", contracts.agentWalletImpl, []],
+    ["OrganizationCredentialAnchor", contracts.anchorImpl, []],
+    // UUPS implementations
+    ["CredentialRegistry", contracts.CredentialRegistry?.implementation || contracts.credentialRegistry?.impl, []],
+    ["SessionManager", contracts.SessionManager?.implementation || contracts.sessionManager?.impl, []],
+    ["AgentWalletFactory", contracts.AgentWalletFactory?.implementation || contracts.agentWalletFactory?.impl, []],
+    ["CapabilityRegistry", contracts.CapabilityRegistry?.implementation || contracts.capabilityRegistry?.impl, []],
+    ["DelegationManager", contracts.DelegationManager?.implementation || contracts.delegationManager?.impl, []],
+    ["OrganizationRegistry", contracts.OrganizationRegistry?.implementation || contracts.organizationRegistry?.impl, []],
+    ["AgentIdentity", contracts.AgentIdentity?.implementation || contracts.agentIdentity?.impl, []],
+  ];
+
   let success = 0;
   let failed = 0;
   let skipped = 0;
 
-  for (const [contractName, constructorArgs, label] of verifyArgs) {
-    // Find the address from state
-    let address = "";
-    for (const phase of [state.phase1, state.phase2, state.phase3, state.phase4, state.phase5]) {
-      for (const key of Object.keys(phase)) {
-        const dep = phase[key];
-        if (dep && typeof dep === "object") {
-          if (dep.implementation === state.phase2?.credentialRegistry?.implementation && contractName === "CredentialRegistry") {
-            address = dep.implementation;
-          } else if (dep.address && dep.name === contractName) {
-            address = dep.address;
-          }
-        }
-      }
-    }
-
-    // Map by known addresses from state
-    const addressMap: Record<string, string> = {
-      "Groth16Verifier": state.phase1.groth16Verifier.address,
-      "CredentialRegistry": state.phase2.credentialRegistry.implementation,
-      "OrganizationCredentialAnchor": state.phase2.organizationCredentialAnchor.address,
-      "OrganizationRegistry": state.phase3.organizationRegistry.implementation,
-      "SessionManager": state.phase4.sessionManager.implementation,
-      "AgentWalletFactory": state.phase3.agentWalletFactory.implementation,
-      "CapabilityRegistry": state.phase1.capabilityRegistry.implementation,
-      "DelegationManager": state.phase1.delegationManager.implementation,
-      "AgentIdentity": state.phase5.agentIdentity.implementation,
-      "AgentWallet": state.phase3.agentWalletImplementation.address,
-    };
-
-    address = addressMap[contractName] || address;
-
+  for (const [contractName, address, constructorArgs] of toVerify) {
     if (!address) {
-      console.log(`  ⏭️  ${label} — no address found, skipping`);
+      console.log(`  SKIP  ${contractName} — no address in deploy-output.json`);
       skipped++;
       continue;
     }
 
-    console.log(`  Verifying ${label} (${address})...`);
+    console.log(`  Verifying ${contractName} (${address})...`);
 
     try {
       await run("verify:verify", {
         address,
         constructorArguments: constructorArgs,
       });
-      console.log(`  ✅ ${label} verified`);
+      console.log(`  OK    ${contractName} verified`);
       success++;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("Already Verified")) {
-        console.log(`  ✅ ${label} already verified`);
+      if (msg.includes("Already Verified") || msg.includes("already verified")) {
+        console.log(`  OK    ${contractName} already verified`);
         success++;
       } else {
-        console.log(`  ❌ ${label} failed: ${msg}`);
+        console.log(`  FAIL  ${contractName}: ${msg.substring(0, 120)}`);
         failed++;
       }
     }

@@ -1,1 +1,0 @@
-[{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"sessionManager","type":"address"}],"name":"initialize","outputs":[],"stateMutability":"nonpayable","type":"function"}]

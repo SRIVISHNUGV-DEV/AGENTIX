@@ -42,7 +42,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     event EntryPointProposed(address indexed previous, address indexed next, uint256 activationTime);
     event EntryPointUpdated(address indexed oldEP, address indexed newEP);
 
-    uint256 public constant TIMELOCK_DELAY = 0 seconds;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
 
     /// @notice The AgentWallet implementation contract that clones are based on.
     address public implementation;

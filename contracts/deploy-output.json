@@ -2,39 +2,43 @@
   "network": "baseSepolia",
   "chainId": 84532,
   "deployer": "0xE2e34Dceb7dAFCd63257C5cbE69Fcb06571ADAcC",
-  "timestamp": "2026-06-23T18:12:56.995Z",
+  "timestamp": "2026-07-16T04:10:00.000Z",
   "contracts": {
-    "groth16Verifier": "0x1Baae590586170A8779b31186757DaDbcaE94f57",
-    "credentialRegistry": {
-      "proxy": "0xaC0A72FaAF2596DD55A20049F0ab7584b58b3DEE",
-      "implementation": "0x3c3C568D47363aC38545197A3e779c41dF32C322"
+    "groth16Verifier": "0x7bA15966B895BEb00B291a73Aa672918D1E27cf9",
+    "agentWalletImpl": "0x206630bC8C366b94d4F73382f9F1742795F49de2",
+    "anchorImpl": "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
+    "CredentialRegistry": {
+      "proxy": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
+      "implementation": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378"
     },
-    "organizationCredentialAnchor": "0x5B1D468e156E2af955Fa0985e10A573ecd8c9f47",
-    "organizationRegistry": {
-      "proxy": "0x6eeeEcB5c79eE664ab0019CC427F8Bf23a7fc8Fe",
-      "implementation": "0x8e1747e9D98ED4d9F02b335fB4042782e8147685"
+    "SessionManager": {
+      "proxy": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
+      "implementation": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf"
     },
-    "agentWalletImplementation": "0x0069aaBe2BCCE3Ef22D7104684f5d091b49f7A30",
-    "sessionManager": {
-      "proxy": "0x27532B3B2d0704715D5e81BDa8B0D272675751d1",
-      "implementation": "0xF91fe9c6E6Ac7D5D1b8bd78078B36D18ee0904cA"
+    "AgentWalletFactory": {
+      "proxy": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
+      "implementation": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88"
     },
-    "agentWalletFactory": {
-      "proxy": "0x9e6B32F7da3ef2C2dD1337757FbC25Eb72FdFfE3",
-      "implementation": "0x1bbAd274954B8e73cBCF0d007067C8333bbFDB34"
+    "CapabilityRegistry": {
+      "proxy": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
+      "implementation": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d"
     },
-    "capabilityRegistry": {
-      "proxy": "0xa9ff494D1047bC9399858394B95aCf7066740aFC",
-      "implementation": "0x275e536DD14F12E114929Abdd24FacdCC4fB450e"
+    "DelegationManager": {
+      "proxy": "0x2F7e35D096b43A002964bB6e343494188ca51D11",
+      "implementation": "0x2F7e35D096b43A002964bB6e343494188ca51D11"
     },
-    "delegationManager": {
-      "proxy": "0x73f8591ccCdBfE1595aA4d2160e8F166E0243E38",
-      "implementation": "0x155A302DE9ec5f7a834e62120ac91e11Bd105F7d"
+    "OrganizationRegistry": {
+      "proxy": "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
+      "implementation": "0x982EAcfF15e6C326F534eB671B009546bae3D13a"
     },
-    "entryPoint": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+    "AgentIdentity": {
+      "proxy": "0x5eb3688D61187550400A940D43461e7984Ca405c",
+      "implementation": "0x5eb3688D61187550400A940D43461e7984Ca405c"
+    }
   },
   "configuration": {
     "credentialRegistrySessionManager": true,
-    "factoryWalletFactoryProposed": true
+    "factoryWalletFactorySet": true,
+    "agentIdentityLinked": true
   }
 }

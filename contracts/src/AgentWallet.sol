@@ -70,7 +70,7 @@ contract AgentWallet is ReentrancyGuard {
     bytes4 private constant EXECUTE_BATCH_SELECTOR = bytes4(keccak256("executeBatch(address[],uint256[],bytes[])"));
 
     uint256 public constant MAX_BATCH_SIZE = 20;
-    uint256 public constant TIMELOCK_DELAY = 0 seconds;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
 
     address private constant ERC1820_REGISTRY = 0x1820a4b7618BD7140785a44aF1a4f87C3332006C;
     bytes32 private constant ERC777_TOKENS_RECIPIENT_HASH = keccak256("ERC777TokensRecipient");
