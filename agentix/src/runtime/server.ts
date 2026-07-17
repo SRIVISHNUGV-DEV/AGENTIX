@@ -11,8 +11,15 @@ import { getProofService } from "../../packages/services/proof-service";
 import { BackupEngine } from "../../packages/core/backup-engine";
 import { loadConfig } from "../core/config";
 import { join } from "path";
+import type { ZodType } from "zod";
+import {
+  OrganizationRequestSchema,
+  CredentialIssueSchema,
+} from "../../packages/shared/schemas";
 
 const PORT = parseInt(process.env.AGENTIX_DASHBOARD_PORT || "3001", 10);
+const MAX_BODY_SIZE = 1024 * 1024; // 1MB
+const HOST = "127.0.0.1"; // Localhost only — no auth needed
 
 function json(res: http.ServerResponse, data: any, status = 200) {
   res.writeHead(status, {
@@ -25,13 +32,38 @@ function json(res: http.ServerResponse, data: any, status = 200) {
 }
 
 function parseBody(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      body += chunk;
+    });
     req.on("end", () => {
       try { resolve(JSON.parse(body)); } catch { resolve({}); }
     });
   });
+}
+
+/**
+ * Validate a request body against a canonical Zod schema (from packages/shared/schemas —
+ * the single source of truth for HTTP-boundary shapes). On failure, writes a 400 with
+ * field-level errors and returns null so the caller can early-return. On success, returns
+ * the parsed/typed value.
+ */
+function validateBody<T>(res: http.ServerResponse, schema: ZodType<T>, body: unknown): T | null {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    const errors = result.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`);
+    json(res, { success: false, error: "Validation failed", errors }, 400);
+    return null;
+  }
+  return result.data;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -182,9 +214,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/organizations/requests" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, OrganizationRequestSchema, raw);
+      if (!body) return; // 400 already sent
       const svc = getAuthorityService();
-      const result = await svc.submitRequest(body.name, body.ownerAddress, body.eip712Signature || "");
+      const result = await svc.submitRequest(body.name, body.ownerAddress, raw.eip712Signature || "");
       return json(res, result, result.success ? 201 : 400);
     }
 
@@ -193,12 +227,13 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const svc = getAuthorityService();
       if (body.action === "approve") {
-        const result = svc.approveRequest(id!);
+        const result = await svc.approveRequest(id!);
         return json(res, result, result.success ? 200 : 400);
       } else if (body.action === "reject") {
         const result = svc.rejectRequest(id!);
         return json(res, result, result.success ? 200 : 400);
       }
+      return json(res, { success: false, error: `Unknown action: ${body.action}. Use "approve" or "reject".` }, 400);
     }
 
     if (path.startsWith("/api/organizations/") && req.method === "GET" && !path.includes("requests")) {
@@ -228,7 +263,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/credentials" && req.method === "POST") {
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      const body = validateBody(res, CredentialIssueSchema, raw);
+      if (!body) return; // 400 already sent
       const { issueCredential } = await import("../tools/credential");
       const result = await issueCredential(body);
       return json(res, result, result.success ? 201 : 400);
@@ -249,6 +286,68 @@ const server = http.createServer(async (req, res) => {
       return json(res, { value: listOrgsForDropdown() });
     }
 
+    // ── Compiler Gateway ────────────────────────────────────────
+    if (path === "/api/execute" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getCompilerGateway } = await import("../compiler-gateway");
+      const gateway = getCompilerGateway();
+      const result = await gateway.executeIntent(body.action, body.params, 'rest', body.context);
+      return json(res, result, result.success ? 200 : 400);
+    }
+
+    if (path === "/api/plans" && req.method === "GET") {
+      const { getCompilerGateway } = await import("../compiler-gateway");
+      const gateway = getCompilerGateway();
+      const url = new URL(req.url!, `http://${req.headers.host}`);
+      const status = url.searchParams.get('status') || undefined;
+      const limit = parseInt(url.searchParams.get('limit') || '50');
+      return json(res, gateway.listPlans(status, limit));
+    }
+
+    if (path === "/api/plans/approve" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getCompilerGateway } = await import("../compiler-gateway");
+      const gateway = getCompilerGateway();
+      const plan = gateway.approvePlan(body.planId);
+      return json(res, plan || { error: "Plan not found or not in APPROVAL_REQUIRED state" });
+    }
+
+    if (path === "/api/plans/reject" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getCompilerGateway } = await import("../compiler-gateway");
+      const gateway = getCompilerGateway();
+      const plan = gateway.rejectPlan(body.planId, body.reason || "Rejected by user");
+      return json(res, plan || { error: "Plan not found" });
+    }
+
+    if (path === "/api/capability-envelope" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getCompilerGateway } = await import("../compiler-gateway");
+      const gateway = getCompilerGateway();
+      const envelope = await gateway.getCapabilityEnvelope(body.walletAddress, body.sessionId);
+      return json(res, envelope);
+    }
+
+    // ── Owner Policy ────────────────────────────────────────────
+    if (path?.startsWith("/api/policy/") && req.method === "GET") {
+      const walletAddress = path.split("/api/policy/")[1];
+      const { getOwnerPolicy } = await import("../core/owner-policy");
+      return json(res, getOwnerPolicy(walletAddress) || { error: "No policy set" });
+    }
+
+    if (path === "/api/policy" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { setOwnerPolicy } = await import("../core/owner-policy");
+      const policy = await setOwnerPolicy(body);
+      return json(res, policy, 201);
+    }
+
+    if (path === "/api/policy/check" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { checkPolicy } = await import("../core/owner-policy");
+      return json(res, checkPolicy(body.walletAddress, body.action, body.params || {}));
+    }
+
     // ── Wallets ──────────────────────────────────────────────────────
     if (path === "/api/wallets" && req.method === "GET") {
       const svc = getWalletService();
@@ -258,8 +357,29 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/wallets" && req.method === "POST") {
       const body = await parseBody(req);
       const { createWallet } = await import("../tools/wallet");
-      const result = await createWallet(body.ownerAddress);
+      const result = await createWallet(body.ownerAddress, body.harnessId);
       return json(res, result, result.success ? 201 : 400);
+    }
+
+    if (path === "/api/wallets/link" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { runExecute, runSingle } = await import("../core/database");
+      // Check: harness already linked to a DIFFERENT wallet
+      const harnessOwner = runSingle("SELECT wallet_address FROM wallets WHERE harness_id = ?", body.harnessId) as any;
+      if (harnessOwner && harnessOwner.wallet_address !== body.walletAddress) {
+        return json(res, { success: false, error: `Harness "${body.harnessId}" is already linked to wallet ${harnessOwner.wallet_address}` }, 400);
+      }
+      // Check: wallet already linked to a DIFFERENT harness
+      const walletBinding = runSingle("SELECT harness_id FROM wallets WHERE wallet_address = ?", body.walletAddress) as any;
+      if (walletBinding && walletBinding.harness_id && walletBinding.harness_id !== body.harnessId) {
+        return json(res, { success: false, error: `Wallet is already linked to harness "${walletBinding.harness_id}". Unlink it first.` }, 400);
+      }
+      // Check: wallet already linked to the SAME harness (idempotent — allow)
+      if (walletBinding && walletBinding.harness_id === body.harnessId) {
+        return json(res, { success: true });
+      }
+      runExecute("UPDATE wallets SET harness_id = ? WHERE wallet_address = ?", body.harnessId, body.walletAddress);
+      return json(res, { success: true });
     }
 
     if (path === "/api/wallets/create-tx" && req.method === "POST") {
@@ -274,26 +394,33 @@ const server = http.createServer(async (req, res) => {
       const { recordWalletInDB } = await import("../core/tx-builder");
       const { getProxyGuard } = await import("../core/proxy-guard");
       const guard = getProxyGuard();
-      const validation = guard.validate(body.ownerAddress);
+      const validation = guard.validate(body.walletAddress);
       if (!validation.valid) {
         return json(res, { success: false, error: validation.error }, 400);
       }
-      recordWalletInDB(body.walletAddress, body.ownerAddress, body.txHash);
+      try {
+        recordWalletInDB(body.walletAddress, body.ownerAddress, body.txHash, body.harnessId, body.actualToAddress);
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
       return json(res, { success: true, walletAddress: body.walletAddress }, 201);
     }
 
     if (path === "/api/wallets/execute-tx" && req.method === "POST") {
       const body = await parseBody(req);
+      // Validate target address is a known AgentIX contract
+      const { validateTargetAddress } = await import("../core/tx-builder");
+      const targetCheck = validateTargetAddress(body.to);
+      if (!targetCheck.valid) {
+        return json(res, { success: false, error: targetCheck.error }, 403);
+      }
       const adapter = await import("../blockchain/adapter");
       const tx = adapter.encodeWalletExecute(body.walletAddress, body.to, body.value || "0", body.data || "0x");
       return json(res, { success: true, data: tx.data, chainId: tx.chainId });
     }
 
     if (path === "/api/wallets/whitelist-tx" && req.method === "POST") {
-      const body = await parseBody(req);
-      const adapter = await import("../blockchain/adapter");
-      const tx = adapter.encodeWhitelistSelector(body.walletAddress, body.target, body.selector, body.allowed);
-      return json(res, { success: true, data: tx.data, chainId: tx.chainId });
+      return json(res, { success: false, error: "AgentWallet does not support per-wallet whitelisting. Authorization is handled by SessionManager." }, 400);
     }
 
     if (path === "/api/wallets/deposit-tx" && req.method === "POST") {
@@ -336,13 +463,56 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/bundler/send" && req.method === "POST") {
       const body = await parseBody(req);
       const { bundleUserOp, buildSessionUserOp } = await import("./bundler");
+      const { assessBundlerOp } = await import("./bundler-risk-gate");
       const { ethers } = await import("ethers");
+
+      // ── RISK ENFORCEMENT GATE ────────────────────────────────────
+      // The relay used to execute any session-signed op with no safety check,
+      // bypassing the entire risk engine. Now the same decision logic that gates
+      // the compiler/gateway path gates the relay: a DENY stops execution here.
+      // Fail-closed — if the op can't be assessed, it isn't relayed.
+      const gate = await assessBundlerOp(
+        {
+          sender: body.userOp.sender,
+          target: body.userOp.target,
+          value: body.userOp.value ?? "0",
+          calldata: body.userOp.calldata,
+          sessionId: body.userOp.sessionId,
+        },
+        { ownerApprovalAttestation: body.ownerApprovalAttestation, userOpHash: body.userOpHash }
+      );
+      if (!gate.allowed) {
+        return json(res, {
+          success: false,
+          blocked: true,
+          error: gate.reason,
+          risk: { decision: gate.decision, score: gate.score, category: gate.category, topDrivers: gate.topDrivers },
+        }, 403);
+      }
+
+      // Resolve the signing key. Preferred path: the runtime loads the session's
+      // dedicated key from the encrypted keystore and signs autonomously — the
+      // client never handles a private key. Fallback: an external/self-custody
+      // agent may still pass agentPrivateKey directly.
+      let agentPrivateKey: string | undefined = body.agentPrivateKey;
+      if (!agentPrivateKey && body.userOp.sessionId) {
+        const { loadSessionKey } = await import("../core/session-keystore");
+        const stored = loadSessionKey(body.userOp.sessionId);
+        if (stored) agentPrivateKey = stored.privateKey;
+      }
+      if (!agentPrivateKey) {
+        return json(res, {
+          success: false,
+          error: "No signing key: session has no stored key and no agentPrivateKey was provided.",
+        }, 400);
+      }
+
       // Build the execute() calldata for the wallet
       const iface = new ethers.Interface(["function execute(address target, uint256 value, bytes calldata data) external"]);
       const callData = iface.encodeFunctionData("execute", [body.userOp.target, body.userOp.value, body.userOp.calldata || "0x"]);
-      const fullUserOp = buildSessionUserOp(body.userOp.sender, callData, body.userOp.sessionId, body.agentPrivateKey);
+      const fullUserOp = await buildSessionUserOp(body.userOp.sender, callData, body.userOp.sessionId, agentPrivateKey);
       const result = await bundleUserOp(fullUserOp);
-      return json(res, result, result.success ? 200 : 400);
+      return json(res, { ...result, risk: { decision: gate.decision, score: gate.score } }, result.success ? 200 : 400);
     }
 
     // ── Debug: Simulate a tx to get revert reason ─────────────────────
@@ -401,6 +571,21 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // ── Identity Registration ────────────────────────────────────────
+    if (path === "/api/identity/register" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { registerIdentity } = await import("../tools/identity");
+      const result = await registerIdentity(body.walletAddress, body.metadataRoot);
+      return json(res, result, result.success ? 201 : 400);
+    }
+
+    if (path === "/api/identity/update-metadata" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { updateMetadata } = await import("../tools/identity");
+      const result = await updateMetadata(body.identityId, body.metadataRoot);
+      return json(res, result, result.success ? 200 : 400);
+    }
+
     // ── Sessions ─────────────────────────────────────────────────────
     if (path === "/api/sessions" && req.method === "GET") {
       const wallet = url.searchParams.get("wallet");
@@ -426,6 +611,16 @@ const server = http.createServer(async (req, res) => {
       const dailySpendLimit = ethers.parseEther(body.dailySpendLimitEth || "0.1");
       const allowedTargets: string[] = body.allowedTargets || [];
 
+      // Generate a DEDICATED session keypair (unless the caller supplies their own
+      // address for a self-custody agent). The public address is what the owner
+      // signs over and what SessionManager records as the sessionKey — the agent
+      // then signs UserOps with the private key autonomously, no owner key shared.
+      const { generateSessionKey, persistSessionKey } = await import("../core/session-keystore");
+      const externalKey = body.sessionKey && body.sessionKey !== body.walletAddress ? body.sessionKey : null;
+      const genKey = externalKey ? null : generateSessionKey();
+      const sessionKeyAddress = externalKey || genKey!.address;
+      if (genKey) persistSessionKey(sessionId, genKey.address, genKey.privateKey);
+
       // Compute the exact messageHash the contract will use:
       // keccak256(abi.encode(chainId, this, msg.sender, sessionId, sessionKey, spend, txLimit, expiry, allowedTargets))
       const messageHash = ethers.keccak256(
@@ -436,7 +631,7 @@ const server = http.createServer(async (req, res) => {
             config.contracts.sessionManager, // address(this) on-chain
             body.walletAddress,               // msg.sender (wallet)
             sessionId,
-            body.sessionKey || body.walletAddress,
+            sessionKeyAddress,
             dailySpendLimit,
             body.dailyTxLimit || 10,
             expiry,
@@ -452,6 +647,10 @@ const server = http.createServer(async (req, res) => {
         dailySpendLimit: dailySpendLimit.toString(),
         messageHash,
         sessionManagerAddress: config.contracts.sessionManager,
+        // Dedicated session key — pass sessionKeyAddress back into create-lightweight-tx.
+        sessionKeyAddress,
+        sessionPrivateKey: genKey ? genKey.privateKey : undefined,
+        runtimeCanSign: !!genKey,
       });
     }
 
@@ -476,6 +675,87 @@ const server = http.createServer(async (req, res) => {
       return json(res, { success: true, ...result });
     }
 
+    // Prepare a ZK-proof-gated "standard" session. This is the privacy USP path:
+    // the agent's credential proof authorizes the session — no owner signature at all.
+    // Generates a real Groth16 proof server-side, then returns wallet.execute calldata
+    // wrapping createSession(). The browser only relays the tx from the wallet.
+    if (path === "/api/sessions/create-standard-tx" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { logger } = await import("../core/logger");
+      const { generateProof } = await import("../tools/proof");
+      const adapter = await import("../blockchain/adapter");
+
+      const sessionExpiry = body.sessionExpiry || Math.floor(Date.now() / 1000) + (body.expiryDays || 30) * 86400;
+      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt(Math.floor(Date.now() / 1000));
+
+      logger.info(
+        "session-tx",
+        `Preparing ZK session: org=${body.organizationId} agent=${body.agentId} wallet=${String(body.walletAddress).slice(0, 10)} expiry=${sessionExpiry}`
+      );
+
+      // 1. Generate the real Groth16 proof (membership + non-revocation + budget/expiry bounds).
+      const proofResult = await generateProof(
+        body.organizationId,
+        body.agentId,
+        body.walletAddress,
+        sessionExpiry,
+        sessionNonce,
+        body.maxValue
+      );
+      if (!proofResult.success || !proofResult.calldata) {
+        return json(res, { success: false, error: proofResult.error || "Proof generation failed" }, 400);
+      }
+
+      // 2. maxValue must equal publicSignals[2] (the value the proof committed to).
+      const maxValue = proofResult.maxValue!;
+
+      // 3. Generate a DEDICATED session keypair. The public address is the on-chain
+      //    sessionKey; the agent signs UserOps with the private key autonomously —
+      //    the owner key is never shared. Caller may override with an externally
+      //    generated key (self-custody agent) by passing body.sessionKey as an address.
+      const { generateSessionKey } = await import("../core/session-keystore");
+      const externalSessionKey = body.sessionKey && body.sessionKey !== body.walletAddress ? body.sessionKey : null;
+      const generatedKey = externalSessionKey ? null : generateSessionKey();
+      const sessionKeyAddress = externalSessionKey || generatedKey!.address;
+
+      // 4. Encode wallet.execute(sessionManager, 0, createSession(...proof...)).
+      const encoded = adapter.encodeStandardSession({
+        walletAddress: body.walletAddress,
+        sessionKey: sessionKeyAddress,
+        maxValue,
+        expiry: sessionExpiry,
+        proof: proofResult.calldata,
+      });
+
+      // 5. Persist the encrypted private key bound to this session so the runtime
+      //    can sign on the agent's behalf. Only when we generated it ourselves.
+      if (generatedKey) {
+        const { persistSessionKey } = await import("../core/session-keystore");
+        persistSessionKey(encoded.sessionId, generatedKey.address, generatedKey.privateKey);
+      }
+
+      logger.info(
+        "session-tx",
+        `Encoded ZK session: to=${encoded.to} sessionId=${encoded.sessionId.slice(0, 20)} nullifier=${String(proofResult.nullifier).slice(0, 20)}`
+      );
+
+      return json(res, {
+        success: true,
+        ...encoded,
+        maxValue,
+        nullifier: proofResult.nullifier,
+        proofHash: proofResult.proofHash,
+        activeRoot: proofResult.activeRoot,
+        revokedRoot: proofResult.revokedRoot,
+        // The dedicated session key. Address is registered on-chain; the private
+        // key is returned ONCE for a self-custody agent (also stored encrypted so
+        // the runtime can sign). Null when the caller supplied their own key.
+        sessionKeyAddress,
+        sessionPrivateKey: generatedKey ? generatedKey.privateKey : undefined,
+        runtimeCanSign: !!generatedKey,
+      });
+    }
+
     if (path === "/api/sessions" && req.method === "POST") {
       const body = await parseBody(req);
       const svc = getSessionService();
@@ -495,6 +775,14 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const svc = getSessionService();
       const result = svc.revoke(body.sessionId, body.walletAddress);
+      // Purge the stored session key on revoke to minimize key exposure — a
+      // revoked session can never sign again, so its key is dead weight/risk.
+      if (result.success && body.sessionId) {
+        try {
+          const { purgeSessionKey } = await import("../core/session-keystore");
+          purgeSessionKey(body.sessionId);
+        } catch { /* non-fatal */ }
+      }
       return json(res, result, result.success ? 200 : 400);
     }
 
@@ -502,6 +790,50 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/proofs" && req.method === "GET") {
       const svc = getProofService();
       return json(res, svc.list(50));
+    }
+
+    // ── Runtimes (company self-hosted models) ────────────────────────
+    if (path === "/api/runtimes" && req.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      let rows;
+      if (orgId) {
+        rows = runQuery("SELECT * FROM runtimes WHERE organization_id = ? ORDER BY created_at DESC", orgId);
+      } else {
+        rows = runQuery("SELECT * FROM runtimes ORDER BY created_at DESC");
+      }
+      return json(res, rows);
+    }
+
+    if (path === "/api/runtimes" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { generateId } = await import("../../packages/shared/utils");
+      const runtimeId = `rt_${generateId()}`;
+      runExecute(
+        "INSERT INTO runtimes (id, organization_id, name, endpoint, model_name, api_key_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        runtimeId, body.organizationId, body.name, body.endpoint, body.modelName || '', body.apiKeyHash || '', 'active'
+      );
+      return json(res, { success: true, id: runtimeId }, 201);
+    }
+
+    if (path === "/api/runtimes" && req.method === "DELETE") {
+      const body = await parseBody(req);
+      runExecute("DELETE FROM runtimes WHERE id = ?", body.id);
+      return json(res, { success: true });
+    }
+
+    if (path === "/api/runtimes/health" && req.method === "POST") {
+      const body = await parseBody(req);
+      try {
+        const resp = await fetch(body.endpoint + "/health", { signal: AbortSignal.timeout(5000) });
+        const healthy = resp.ok;
+        runExecute("UPDATE runtimes SET status = ?, last_health_check = ? WHERE id = ?",
+          healthy ? 'active' : 'unhealthy', Math.floor(Date.now() / 1000), body.id);
+        return json(res, { success: true, healthy, status: healthy ? 'active' : 'unhealthy' });
+      } catch (e: any) {
+        runExecute("UPDATE runtimes SET status = ?, last_health_check = ? WHERE id = ?",
+          'unreachable', Math.floor(Date.now() / 1000), body.id);
+        return json(res, { success: true, healthy: false, status: 'unreachable', error: e.message });
+      }
     }
 
     // ── Actions ──────────────────────────────────────────────────────
@@ -609,6 +941,20 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/events/indexer/run" && req.method === "POST") {
       const { runIndexer } = await import("../core/event-indexer");
       const result = await runIndexer();
+      return json(res, result);
+    }
+
+    if (path === "/api/events/indexer/reindex" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { reindexFromBlock } = await import("../core/event-indexer");
+      const fromBlock = body.fromBlock || 43_500_000; // Default to genesis block
+      const result = await reindexFromBlock(fromBlock);
+      return json(res, result);
+    }
+
+    if (path === "/api/events/indexer/reproduce" && req.method === "POST") {
+      const { reproduceLocalState } = await import("../core/event-indexer");
+      const result = await reproduceLocalState();
       return json(res, result);
     }
 
@@ -770,31 +1116,36 @@ const server = http.createServer(async (req, res) => {
       try {
         const { getIndexedEvents } = await import("../core/event-indexer");
         const rows = getIndexedEvents({ limit });
-        onchainTxs = rows.map((r: any) => ({
-          tx_hash: r.tx_hash,
-          wallet_address: r.contract_address,
-          to_address: r.contract_address,
-          value: '0',
-          status: 'confirmed',
-          block_number: r.block_number,
-          gas_used: null,
-          created_at: r.timestamp,
-          event_name: r.event_name,
-          contract_name: r.contract_name,
-          args: JSON.parse(r.args || '{}'),
-          source: 'onchain',
-        }));
+        onchainTxs = rows.map((r: any) => {
+          const args = JSON.parse(r.args || '{}');
+          return {
+            tx_hash: r.tx_hash,
+            wallet_address: args.wallet || args.walletAddress || args.owner || null,
+            to_address: r.contract_address,
+            value: '0',
+            status: 'confirmed',
+            block_number: r.block_number,
+            gas_used: null,
+            created_at: r.timestamp,
+            event_name: r.event_name,
+            contract_name: r.contract_name,
+            args,
+            source: 'onchain',
+          };
+        });
       } catch {}
 
-      // Merge and deduplicate by tx_hash
-      const seen = new Set<string>();
-      const merged: any[] = [];
-      for (const tx of [...onchainTxs, ...localTxs]) {
-        const key = tx.tx_hash;
-        if (key && !seen.has(key)) {
-          seen.add(key);
+      // Merge: local transactions are source of truth (they have correct to_address),
+      // on-chain events fill in gaps for txs not recorded locally
+      const localByHash = new Map<string, any>();
+      for (const tx of localTxs) {
+        if (tx.tx_hash) localByHash.set(tx.tx_hash, tx);
+      }
+      const merged: any[] = [...localTxs];
+      for (const tx of onchainTxs) {
+        if (tx.tx_hash && !localByHash.has(tx.tx_hash)) {
           merged.push(tx);
-        } else if (!key) {
+        } else if (!tx.tx_hash) {
           merged.push(tx);
         }
       }
@@ -818,10 +1169,193 @@ const server = http.createServer(async (req, res) => {
       return json(res, backup, 201);
     }
 
+    // ── x402 Payments ────────────────────────────────────────────────
+    if (path === "/api/x402/payments" && req.method === "GET") {
+      const { getPaymentHistory } = await import("../core/x402-client");
+      const limit = parseInt(url.searchParams.get("limit") || "50");
+      return json(res, getPaymentHistory(limit));
+    }
+
+    if (path === "/api/x402/stats" && req.method === "GET") {
+      const { getPaymentStats } = await import("../core/x402-client");
+      return json(res, getPaymentStats());
+    }
+
+    if (path === "/api/x402/policy" && req.method === "GET") {
+      const { getPaymentPolicy } = await import("../core/x402-client");
+      return json(res, getPaymentPolicy());
+    }
+
+    if (path === "/api/x402/policy" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { savePaymentPolicy } = await import("../core/x402-client");
+      savePaymentPolicy(body);
+      return json(res, { success: true });
+    }
+
+    if (path === "/api/x402/seller/stats" && req.method === "GET") {
+      const { getSellerStats } = await import("../core/x402-seller");
+      return json(res, getSellerStats());
+    }
+
+    if (path === "/api/x402/seller/routes" && req.method === "GET") {
+      const { protectedRoutes } = await import("../core/x402-seller");
+      const routes: any[] = [];
+      for (const [pattern, config] of protectedRoutes) {
+        routes.push({ pattern, ...config });
+      }
+      return json(res, routes);
+    }
+
+    if (path === "/api/x402/seller/routes" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { protectRoute } = await import("../core/x402-seller");
+      protectRoute(body.pattern, { price: body.price, description: body.description, mimeType: body.mimeType });
+      return json(res, { success: true });
+    }
+
+    if (path === "/api/x402/buy" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { fetchWithPayment } = await import("../core/x402-client");
+      try {
+        const { response, payment } = await fetchWithPayment(body.url, {
+          method: body.method || "GET",
+          headers: body.headers || {},
+        }, {
+          walletAddress: body.walletAddress, // Agent's ERC-4337 wallet address
+          autoPay: body.autoPay !== false,
+        });
+        const responseBody = await response.text();
+        return json(res, {
+          success: payment?.success ?? true,
+          status: response.status,
+          payment,
+          body: responseBody,
+        });
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
+    }
+
+    if (path === "/api/x402/balance" && req.method === "GET") {
+      const walletAddress = url.searchParams.get("wallet");
+      if (!walletAddress) return json(res, { error: "wallet param required" }, 400);
+      const { getUsdcBalance } = await import("../core/x402-client");
+      const balance = await getUsdcBalance(walletAddress);
+      return json(res, { wallet: walletAddress, balance });
+    }
+
+    if (path === "/api/x402/vouchers/stats" && req.method === "GET") {
+      const { getVoucherStats } = await import("../core/x402-voucher");
+      return json(res, getVoucherStats());
+    }
+
+    if (path === "/api/x402/vouchers/pending" && req.method === "GET") {
+      const { getPendingVouchers } = await import("../core/x402-voucher");
+      const limit = parseInt(url.searchParams.get("limit") || "50");
+      return json(res, getPendingVouchers(limit));
+    }
+
+    if (path === "/api/x402/vouchers/settle" && req.method === "POST") {
+      const { getPendingVouchers, settleVoucherBatch } = await import("../core/x402-voucher");
+      const vouchers = getPendingVouchers();
+      if (vouchers.length === 0) return json(res, { success: true, message: "No pending vouchers" });
+      const result = await settleVoucherBatch(vouchers);
+      return json(res, result);
+    }
+
+    if (path === "/api/x402/batch" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { executeBatchPaid } = await import("../core/x402-batch");
+      const { ethers } = await import("ethers");
+      try {
+        const sessionKeyWallet = new ethers.Wallet(body.sessionKey);
+        const result = await executeBatchPaid(
+          body.requests,
+          body.agentWallet,
+          sessionKeyWallet,
+          { maxTotalUsd: body.maxTotalUsd, voucherExpirySeconds: body.voucherExpirySeconds }
+        );
+        return json(res, result);
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
+    }
+
     // ── Contracts ────────────────────────────────────────────────────
     if (path === "/api/contracts" && req.method === "GET") {
       const guard = getProxyGuard();
       return json(res, guard.listAllProxies());
+    }
+
+    // ── Contract Registry (ABI extraction, functions, events, selectors) ──
+    if (path === "/api/contracts/registry" && req.method === "GET") {
+      const { getContractRegistry } = await import("../core/contract-calls");
+      return json(res, getContractRegistry());
+    }
+
+    if (path === "/api/contracts/functions" && req.method === "GET") {
+      const contractName = url.searchParams.get("contract");
+      if (!contractName) return json(res, { error: "Contract name required" }, 400);
+      const { extractFunctions, extractEvents, getFunctionSelector } = await import("../core/contract-calls");
+      try {
+        const functions = extractFunctions(contractName);
+        const events = extractEvents(contractName);
+        return json(res, {
+          contract: contractName,
+          functions: functions.map((f) => ({
+            name: f.name,
+            inputs: f.inputs.map((i) => ({ name: i.name, type: i.type })),
+            outputs: f.outputs.map((o) => ({ name: o.name, type: o.type })),
+            stateMutability: f.stateMutability,
+            selector: getFunctionSelector(contractName, f.name),
+          })),
+          events: events.map((e) => ({
+            name: e.name,
+            inputs: e.inputs,
+          })),
+        });
+      } catch (e: any) {
+        return json(res, { error: e.message }, 400);
+      }
+    }
+
+    // ── Typed Contract Call (read) ──────────────────────────────────
+    if (path === "/api/contracts/read" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { callContractRead } = await import("../core/contract-calls");
+      try {
+        const result = await callContractRead(
+          body.contract,
+          body.function,
+          body.args || [],
+          body.address
+        );
+        return json(res, {
+          success: true,
+          value: typeof result.value === "bigint" ? result.value.toString() : result.value,
+          raw: result.raw,
+        });
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
+    }
+
+    // ── Typed Contract Call (prepare write) ─────────────────────────
+    if (path === "/api/contracts/prepare-write" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { prepareContractWrite, prepareWalletWrite } = await import("../core/contract-calls");
+      try {
+        let tx;
+        if (body.contract === "AgentWallet" && body.walletAddress) {
+          tx = prepareWalletWrite(body.walletAddress, body.function, body.args || [], { value: body.value });
+        } else {
+          tx = prepareContractWrite(body.contract, body.function, body.args || [], { value: body.value });
+        }
+        return json(res, { success: true, ...tx });
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
     }
 
     // ── Trees ────────────────────────────────────────────────────────
@@ -886,6 +1420,74 @@ const server = http.createServer(async (req, res) => {
       return json(res, { value: results });
     }
 
+    // ── Tree Management ──────────────────────────────────────────────
+    if (path === "/api/trees/export" && req.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "standalone";
+      const { getActiveTree } = await import("../trees/active-tree");
+      const { getRevokedTree } = await import("../trees/revoked-tree");
+      const active = await getActiveTree(orgId);
+      const revoked = await getRevokedTree(orgId);
+      const activeData = await active.exportTree();
+      const revokedData = await revoked.exportTree();
+      return json(res, { active: JSON.parse(activeData), revoked: JSON.parse(revokedData) });
+    }
+
+    if (path === "/api/trees/import" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getActiveTree } = await import("../trees/active-tree");
+      const { getRevokedTree } = await import("../trees/revoked-tree");
+      const active = await getActiveTree(body.organizationId);
+      const revoked = await getRevokedTree(body.organizationId);
+      if (body.active) await active.importTree(JSON.stringify(body.active));
+      if (body.revoked) await revoked.importTree(JSON.stringify(body.revoked));
+      return json(res, { success: true, organizationId: body.organizationId });
+    }
+
+    if (path === "/api/trees/verify" && req.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "standalone";
+      const { getActiveTree } = await import("../trees/active-tree");
+      const { getRevokedTree } = await import("../trees/revoked-tree");
+      const active = await getActiveTree(orgId);
+      const revoked = await getRevokedTree(orgId);
+      const activeVerification = active.verifyConsistency();
+      const revokedVerification = revoked.verifyConsistency();
+      const snapshotIntegrity = active.verifySnapshotIntegrity();
+      return json(res, {
+        organizationId: orgId,
+        active: activeVerification,
+        revoked: revokedVerification,
+        snapshot: snapshotIntegrity,
+        valid: activeVerification.valid && revokedVerification.valid && snapshotIntegrity.valid,
+      });
+    }
+
+    if (path === "/api/trees/snapshots" && req.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "standalone";
+      const { getActiveTree } = await import("../trees/active-tree");
+      const active = await getActiveTree(orgId);
+      const snapshots = active.listSnapshots();
+      return json(res, { organizationId: orgId, snapshots });
+    }
+
+    if (path === "/api/trees/rebuild" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { getActiveTree } = await import("../trees/active-tree");
+      const { getRevokedTree } = await import("../trees/revoked-tree");
+      const active = await getActiveTree(body.organizationId);
+      const revoked = await getRevokedTree(body.organizationId);
+      // Force rebuild from credentials
+      await active.initialize();
+      await revoked.initialize();
+      return json(res, { 
+        success: true, 
+        organizationId: body.organizationId,
+        activeRoot: active.getRoot(),
+        activeLeaves: active.getLeafCount(),
+        revokedRoot: revoked.getRoot(),
+        revokedCount: revoked.getRevokedCount(),
+      });
+    }
+
     // ── Diagnostics ──────────────────────────────────────────────────
     if (path === "/api/diagnostics" && req.method === "GET") {
       const { runFullDiagnostics } = await import("../tools/wizard");
@@ -921,14 +1523,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, result);
     }
 
-    if (path === "/api/plans" && req.method === "GET") {
-      const status = url.searchParams.get("status") || undefined;
-      const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-      const { getCompiler } = await import("../../packages/compiler");
-      const plans = getCompiler().listPlans(status, limit);
-      return json(res, plans);
-    }
-
+    // NOTE: `GET /api/plans` (list) is handled earlier via the compiler gateway.
+    // This block only handles plan-detail / lifecycle sub-routes.
     if (path.startsWith("/api/plans/") && req.method === "GET") {
       const planId = path.split("/api/plans/")[1];
       if (!planId) return json(res, { error: "Plan ID required" }, 400);
@@ -969,14 +1565,69 @@ const server = http.createServer(async (req, res) => {
       return json(res, { removed });
     }
 
+    // ── ZK Proofs ────────────────────────────────────────────────────
+    if (path === "/api/proofs/generate" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { generateProof } = await import("../tools/proof");
+      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt(Math.floor(Date.now() / 1000));
+      const sessionExpiry = body.sessionExpiry || Math.floor(Date.now() / 1000) + 86400;
+      const result = await generateProof(
+        body.organizationId,
+        body.agentId,
+        body.walletAddress,
+        sessionExpiry,
+        sessionNonce,
+        body.maxValue
+      );
+      return json(res, result, result.success ? 200 : 400);
+    }
+
+    if (path === "/api/proofs/verify" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { verifyProof } = await import("../tools/proof");
+      const result = await verifyProof(body.proofHash);
+      return json(res, result);
+    }
+
+    if (path === "/api/proofs/artifacts" && req.method === "GET") {
+      const { verifyArtifacts, verifyIntegrity, loadManifest, ZKEY_PATH, WASM_PATH, VK_PATH, MANIFEST_PATH } =
+        await import("../core/zk-prover");
+      const { existsSync } = await import("fs");
+      const art = verifyArtifacts();
+      const integ = verifyIntegrity();
+      const manifest = loadManifest();
+      return json(res, {
+        ok: art.ok,
+        missing: art.missing,
+        integrity: {
+          ok: integ.ok,
+          manifestUsed: integ.manifestUsed,
+          errors: integ.errors,
+          checks: integ.checks,
+        },
+        manifest: manifest
+          ? { circuit: manifest.circuit, curve: manifest.curve, nPublic: manifest.nPublic, generatedAt: manifest.generatedAt }
+          : null,
+        paths: { zkey: ZKEY_PATH, wasm: WASM_PATH, vk: VK_PATH, manifest: MANIFEST_PATH },
+        zkeyExists: existsSync(ZKEY_PATH),
+        wasmExists: existsSync(WASM_PATH),
+        vkExists: existsSync(VK_PATH),
+      });
+    }
+
     json(res, { error: "Not found" }, 404);
   } catch (e: any) {
-    json(res, { error: e.message }, 500);
+    // Log the full error server-side, but return a generic message to the client.
+    // Leaking raw internals (e.g. SQL constraint text) is an info-disclosure risk
+    // and unhelpful to callers. A correlation id ties the response to the log line.
+    const errorId = `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    console.error(`[${errorId}] ${req.method} ${req.url}:`, e?.stack || e?.message || e);
+    json(res, { error: "Internal server error", errorId }, 500);
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`AgentIX API running on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`AgentIX API running on http://${HOST}:${PORT}`);
 
   // Start the on-chain event indexer
   try {
@@ -986,3 +1637,38 @@ server.listen(PORT, () => {
     console.warn(`Event indexer failed to start: ${e.message}`);
   }
 });
+
+// Graceful shutdown: stop the polling indexer, stop accepting connections, and
+// close the SQLite handle so WAL is checkpointed cleanly. Without this, Ctrl+C
+// left the indexer interval dangling and the DB potentially mid-write.
+let _shuttingDown = false;
+function shutdown(signal: string) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  console.log(`\nReceived ${signal}, shutting down gracefully...`);
+
+  try {
+    const { stopIndexer } = require("../core/event-indexer");
+    stopIndexer();
+  } catch { /* indexer may not have started */ }
+
+  // Force-exit if the close hangs (e.g. a stuck keep-alive socket).
+  const forceTimer = setTimeout(() => {
+    console.warn("Shutdown timed out, forcing exit.");
+    process.exit(1);
+  }, 5000);
+  forceTimer.unref();
+
+  server.close(() => {
+    try {
+      const { closeDatabase } = require("../core/database");
+      closeDatabase();
+    } catch { /* db may already be closed */ }
+    clearTimeout(forceTimer);
+    console.log("Shutdown complete.");
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

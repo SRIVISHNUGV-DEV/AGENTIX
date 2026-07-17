@@ -10,6 +10,7 @@ import { fetchJSON, postJSON, truncate, explorerAddress } from '@/lib/api';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 import {
   sendAndWaitForWalletCreation, getAccount, sendUpdateRoot, sendEntryPointDeposit, sendCreateLightweightSession,
+  sendCreateStandardSession,
 } from '@/lib/tx-sender';
 
 type FlowStep = 'wallet' | 'credential' | 'root' | 'session' | 'fund';
@@ -98,9 +99,32 @@ export function CredentialsPage() {
       if (rootResult.success) completeFlowStep('root');
       else { setFlowState(prev => ({ ...prev, error: `Root update failed: ${rootResult.error}` })); completeFlowStep('root'); }
 
+      // Org-issued credentials default to a ZK (standard) session: the proof
+      // authorizes on-chain, the org policy stays private, and no owner signature
+      // is spent per action. Lightweight (owner-signed) is the fallback only if
+      // proof generation/verification can't complete — it's the right default for
+      // standalone/owner-operated wallets, not for org-credentialed agents.
       setFlowState(prev => ({ ...prev, currentStep: 'session', error: '' }));
-      try { await sendCreateLightweightSession(walletResult.walletAddress, ownerAddress, { expiryDays: parseInt(form.expiryDuration), dailySpendLimitEth: form.budgetEth }); completeFlowStep('session'); }
-      catch (e: any) { setFlowState(prev => ({ ...prev, error: `Session failed: ${e.message}` })); }
+      try {
+        await sendCreateStandardSession(
+          walletResult.walletAddress,
+          orgId,
+          credResult.agentId,
+          undefined, // let the runtime mint a dedicated per-session key
+          { maxValue: undefined },
+        );
+        completeFlowStep('session');
+      } catch (zkErr: any) {
+        // Fallback: owner-signed lightweight session so issuance still yields a
+        // usable session, with a clear note that the private ZK path was skipped.
+        try {
+          await sendCreateLightweightSession(walletResult.walletAddress, ownerAddress, { expiryDays: parseInt(form.expiryDuration), dailySpendLimitEth: form.budgetEth });
+          completeFlowStep('session');
+          setFlowState(prev => ({ ...prev, error: `ZK session unavailable (${zkErr.message}); fell back to a lightweight owner-signed session.` }));
+        } catch (e: any) {
+          setFlowState(prev => ({ ...prev, error: `Session failed: ${e.message}` }));
+        }
+      }
 
       setFlowState(prev => ({ ...prev, currentStep: 'fund', error: '' }));
       try { await sendEntryPointDeposit(walletResult.walletAddress, form.depositEth); completeFlowStep('fund'); }
@@ -116,6 +140,40 @@ export function CredentialsPage() {
 
   const copySecret = (secret: string) => { navigator.clipboard.writeText(secret); setCopied(secret); setTimeout(() => setCopied(null), 2000); };
 
+  // ZK session creation state (privacy USP path — proof authorizes, no owner signature)
+  const [zkSessionBusy, setZkSessionBusy] = useState<number | null>(null);
+  const [zkSessionMsg, setZkSessionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const createZkSession = async (cred: any) => {
+    if (!isConnected) { alert('Connect your wallet first'); return; }
+    if (!cred.walletAddress) { setZkSessionMsg({ type: 'error', text: 'Credential has no bound wallet' }); return; }
+    setZkSessionBusy(cred.agentId);
+    setZkSessionMsg(null);
+    try {
+      const result = await sendCreateStandardSession(
+        cred.walletAddress,
+        cred.organizationId,
+        cred.agentId,
+        undefined, // runtime mints a dedicated per-session key the agent signs with
+        { maxValue: undefined },
+      );
+      const keyNote = result.sessionKeyAddress
+        ? ` Session key ${String(result.sessionKeyAddress).slice(0, 10)}… (agent signs autonomously).`
+        : '';
+      setZkSessionMsg({
+        type: 'success',
+        text: `ZK session opened — proof verified on-chain, no owner signature used.${keyNote} Nullifier ${String(result.nullifier).slice(0, 14)}…`,
+      });
+      fetchData();
+    } catch (e: any) {
+      const msg = e.code === 4001 || e.message?.includes('rejected')
+        ? 'Transaction rejected'
+        : (e.message || 'Failed to open ZK session');
+      setZkSessionMsg({ type: 'error', text: msg });
+    }
+    setZkSessionBusy(null);
+  };
+
   const budgetUsd = ethPrice !== null && ethPrice > 0 && form.budgetEth ? (parseFloat(form.budgetEth) * ethPrice).toFixed(2) : null;
 
   const columns = [
@@ -127,7 +185,19 @@ export function CredentialsPage() {
       </a>
     ) },
     { key: 'budget', header: 'Budget', render: (c: any) => <span className="text-xs">{c.budgetEth || '—'} ETH</span> },
-    { key: 'status', header: '', render: (c: any) => <Badge variant={c.revoked ? 'danger' : 'success'}>{c.revoked ? 'Revoked' : 'Active'}</Badge>, className: 'text-right' },
+    { key: 'status', header: 'Status', render: (c: any) => <Badge variant={c.revoked ? 'danger' : 'success'}>{c.revoked ? 'Revoked' : 'Active'}</Badge> },
+    { key: 'zk', header: '', className: 'text-right', render: (c: any) => c.revoked ? null : (
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={zkSessionBusy === c.agentId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
+        disabled={zkSessionBusy !== null || !c.walletAddress}
+        onClick={() => createZkSession(c)}
+        title="Open a session authorized purely by a zero-knowledge credential proof — no owner signature, org policy stays private on-chain"
+      >
+        {zkSessionBusy === c.agentId ? 'Proving…' : 'ZK Session'}
+      </Button>
+    ) },
   ];
 
   return (
@@ -229,7 +299,7 @@ export function CredentialsPage() {
 
               <Alert variant="info" className="text-[10px] leading-relaxed">
                 <Wallet className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                Flow: Create AgentWallet → Issue credential → Update Merkle root → Create lightweight session → Deposit gas. Each step requires your wallet signature.
+                Flow: Create AgentWallet → Issue credential → Update Merkle root → Open ZK session (proof authorizes; falls back to owner-signed only if proving fails) → Deposit gas. Each on-chain step requires your wallet signature.
               </Alert>
             </>
           )}
@@ -262,6 +332,15 @@ export function CredentialsPage() {
             </div>
           </div>
           <button onClick={() => setRevealSecret(null)} className="text-muted-foreground/40 hover:text-foreground text-[10px] tracking-wider uppercase flex-shrink-0">Dismiss</button>
+        </Alert>
+      )}
+
+      {/* ZK Session result banner */}
+      {zkSessionMsg && (
+        <Alert variant={zkSessionMsg.type === 'success' ? 'success' : 'error'} className="mb-4">
+          <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 text-xs">{zkSessionMsg.text}</div>
+          <button onClick={() => setZkSessionMsg(null)} className="text-muted-foreground/40 hover:text-foreground text-[10px] tracking-wider uppercase flex-shrink-0">Dismiss</button>
         </Alert>
       )}
 

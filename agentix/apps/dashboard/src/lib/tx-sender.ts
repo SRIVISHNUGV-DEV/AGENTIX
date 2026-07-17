@@ -93,7 +93,8 @@ export async function sendTransaction(tx: PreparedTx): Promise<SendResult> {
 }
 
 export async function sendAndWaitForWalletCreation(
-  ownerAddress: string
+  ownerAddress: string,
+  harnessId?: string
 ): Promise<SendResult & { walletAddress: string }> {
   const txData = await postJSON<any>("/api/wallets/create-tx", { ownerAddress });
   if (!txData.success) throw new Error(txData.error || "Failed to prepare wallet transaction");
@@ -139,6 +140,8 @@ export async function sendAndWaitForWalletCreation(
     walletAddress,
     ownerAddress,
     txHash: result.txHash,
+    harnessId,
+    actualToAddress: factoryAddress,
   });
 
   return { ...result, walletAddress };
@@ -157,28 +160,6 @@ export async function sendWalletExec(
     data,
   });
   if (!txData.success) throw new Error(txData.error || "Failed to prepare execution");
-
-  return sendTransaction({
-    to: walletAddress,
-    data: txData.data,
-    value: "0x0",
-    chainId: txData.chainId,
-  });
-}
-
-export async function sendWhitelistUpdate(
-  walletAddress: string,
-  target: string,
-  selector: string,
-  allowed: boolean
-): Promise<SendResult> {
-  const txData = await postJSON<any>("/api/wallets/whitelist-tx", {
-    walletAddress,
-    target,
-    selector,
-    allowed,
-  });
-  if (!txData.success) throw new Error(txData.error || "Failed to prepare whitelist update");
 
   return sendTransaction({
     to: walletAddress,
@@ -231,20 +212,26 @@ export async function sendCreateLightweightSession(
   walletAddress: string,
   ownerAddress: string,
   options?: { expiryDays?: number; dailySpendLimitEth?: string; dailyTxLimit?: number; allowedTargets?: string[]; sessionKey?: string }
-): Promise<SendResult & { sessionId: string }> {
+): Promise<SendResult & { sessionId: string; sessionKeyAddress?: string; runtimeCanSign?: boolean }> {
   const eth = getEthereum();
-  const sessionKey = options?.sessionKey || ownerAddress;
 
-  // Step 1: Get the exact messageHash from the server (matches what the contract will check)
+  // Step 1: Get the exact messageHash from the server. If no external sessionKey
+  // is supplied, the server MINTS a dedicated per-session key and computes the
+  // hash over ITS address — so the owner signs over the real session key, and the
+  // agent (not the owner) signs UserOps with the matching private key.
   const prep = await postJSON<any>("/api/sessions/prepare-lightweight", {
     walletAddress,
-    sessionKey,
+    sessionKey: options?.sessionKey || undefined,
     expiryDays: options?.expiryDays || 30,
     dailySpendLimitEth: options?.dailySpendLimitEth || "0.1",
     dailyTxLimit: options?.dailyTxLimit || 10,
     allowedTargets: options?.allowedTargets || [],
   });
   if (!prep.success) throw new Error(prep.error || "Failed to prepare session");
+
+  // The session key the server actually committed to in the messageHash. The
+  // encode step below MUST use this exact address or the signature won't verify.
+  const sessionKey = prep.sessionKeyAddress;
 
   // Step 2: Sign the exact messageHash via personal_sign
   // MetaMask wraps it as "\x19Ethereum Signed Message:\n32" + messageHash — exactly what the contract checks
@@ -267,11 +254,6 @@ export async function sendCreateLightweightSession(
   });
   if (!txData.success) throw new Error(txData.error || "Failed to prepare session");
 
-  // Whitelist the session manager selector (best-effort — may not be needed)
-  try {
-    await sendWhitelistUpdate(walletAddress, txData.sessionManagerAddress, txData.sessionMgrSelector, true);
-  } catch { /* whitelist is optional */ }
-
   const result = await sendTransaction({
     to: walletAddress,
     data: txData.data,
@@ -287,7 +269,73 @@ export async function sendCreateLightweightSession(
     expiry: prep.expiry,
   });
 
-  return { ...result, sessionId: prep.sessionId };
+  return { ...result, sessionId: prep.sessionId, sessionKeyAddress: sessionKey, runtimeCanSign: prep.runtimeCanSign };
+}
+
+/**
+ * Creates a ZK-proof-gated "standard" session — the privacy USP path.
+ *
+ * Unlike lightweight sessions, there is NO owner signature step. The runtime
+ * generates a real Groth16 proof that the agent holds a valid, un-revoked
+ * credential within budget/expiry bounds, WITHOUT revealing the secret, org
+ * policy, or which credential. The on-chain verifier + nullifier are the entire
+ * trust basis. The owner only relays the wallet.execute transaction.
+ *
+ * @param walletAddress - The AgentWallet the session binds to
+ * @param organizationId - The issuing organization
+ * @param agentId - The agent's credential ID within the org
+ * @param sessionKey - Address authorized to sign for this session (defaults to wallet)
+ * @param options - expiry / maxValue overrides
+ */
+export async function sendCreateStandardSession(
+  walletAddress: string,
+  organizationId: string,
+  agentId: number,
+  /** Optional external session-key ADDRESS (self-custody agent). Omit to let the
+   *  runtime generate a dedicated per-session keypair and hold the key encrypted. */
+  externalSessionKey?: string,
+  options?: { expiryDays?: number; maxValue?: string; sessionNonce?: string }
+): Promise<SendResult & { sessionId: string; nullifier?: string; proofHash?: string; sessionKeyAddress?: string; runtimeCanSign?: boolean }> {
+  // Single call: server generates the Groth16 proof and returns the encoded
+  // wallet.execute(sessionManager, 0, createSession(...proof...)) transaction.
+  // When externalSessionKey is omitted the server mints a dedicated session key.
+  const txData = await postJSON<any>("/api/sessions/create-standard-tx", {
+    walletAddress,
+    organizationId,
+    agentId,
+    sessionKey: externalSessionKey || undefined,
+    expiryDays: options?.expiryDays || 30,
+    maxValue: options?.maxValue,
+    sessionNonce: options?.sessionNonce,
+  });
+  if (!txData.success) throw new Error(txData.error || "Failed to prepare ZK session");
+
+  const result = await sendTransaction({
+    to: txData.to,
+    data: txData.data,
+    value: "0x0",
+    chainId: txData.chainId,
+  });
+
+  // Mirror into the local session index for dashboard listing. Record the
+  // dedicated session-key address the runtime generated (falls back to any
+  // externally supplied key), never the wallet/owner address.
+  await postJSON<any>("/api/sessions", {
+    walletAddress,
+    sessionKey: txData.sessionKeyAddress || externalSessionKey,
+    organizationId,
+    dailySpendLimit: txData.maxValue,
+    expiry: txData.expiry,
+  }).catch(() => {});
+
+  return {
+    ...result,
+    sessionId: txData.sessionId,
+    nullifier: txData.nullifier,
+    proofHash: txData.proofHash,
+    sessionKeyAddress: txData.sessionKeyAddress,
+    runtimeCanSign: txData.runtimeCanSign,
+  };
 }
 
 /**

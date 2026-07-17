@@ -94,6 +94,19 @@ circuits/prover/
 
 # Build outputs (agentix)
 agentix/dist-publish/
+agentix/dist/
+
+# Test scratch home (isolated AGENTIX_HOME used by the test suite)
+agentix/.agentix-test/
+
+# npm pack tarballs
+*.tgz
+
+# Local scratch scripts used during audits/verification
+agentix/.run-server.sh
+agentix/.fuzz-test.ts
+agentix/.comp-test.ts
+agentix/.mcp-test.sh
 
 # Contract build artifacts (reproducible from source, ABIs in contracts/abis/)
 contracts/artifacts/
@@ -104,3 +117,10 @@ contracts/cache/
 # Docker
 .docker/
 docker-compose.override.yml
+
+# Local scratch / debug scripts (contain dev RPC keys, not for VCS)
+debug_sm_call.js
+setup_adc.sh
+scripts/get_cookies_playwright.mjs
+.mimocode/
+agentix/.agentix-e2e/

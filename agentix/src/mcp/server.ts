@@ -80,7 +80,7 @@ const tools = [
   // ═══════════════════════════════════════════════════════════════
   // WALLET (create + execute + read-only for agents)
   // ═══════════════════════════════════════════════════════════════
-  { name: "agentix_wallet_create",       description: "Deploy a new AgentWallet. The server pays deployment gas; you become the owner. Provide your agent address as ownerAddress.", inputSchema: { type: "object" as const, properties: { ownerAddress: { type: "string" } }, required: ["ownerAddress"] } },
+  { name: "agentix_wallet_create",       description: "Deploy a new AgentWallet. The server pays deployment gas; you become the owner. Provide your agent address as ownerAddress. Optionally provide harnessId (e.g. 'claude-code') to enforce one wallet per harness.", inputSchema: { type: "object" as const, properties: { ownerAddress: { type: "string" }, harnessId: { type: "string" } }, required: ["ownerAddress"] } },
   { name: "agentix_wallet_execute",      description: "Execute a transaction AS THE WALLET OWNER through the ERC-4337 bundler. Uses a 65-byte owner signature (no session limits). Provide your agent private key as ownerPrivateKey.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, target: { type: "string" }, value: { type: "string" }, data: { type: "string" }, ownerPrivateKey: { type: "string" } }, required: ["walletAddress", "target", "ownerPrivateKey"] } },
   { name: "agentix_wallet_list",         description: "List all wallets in local DB", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_wallet_get",          description: "Get wallet info (owner, SM, EP addresses)", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" } }, required: ["walletAddress"] } },
@@ -169,7 +169,7 @@ const tools = [
   // ═══════════════════════════════════════════════════════════════
   // BUNDLER (agent-autonomous execution)
   // ═══════════════════════════════════════════════════════════════
-  { name: "agentix_bundler_send", description: "Submit a session-signed UserOp through the local ERC-4337 bundler. Requires an active lightweight session. The agent signs the UserOp with its session key — key stays in your context.", inputSchema: { type: "object" as const, properties: { sender: { type: "string" }, target: { type: "string" }, value: { type: "string" }, calldata: { type: "string" }, sessionId: { type: "string" }, agentPrivateKey: { type: "string" } }, required: ["sender", "target", "sessionId", "agentPrivateKey"] } },
+  { name: "agentix_bundler_send", description: "Submit a session-signed UserOp through the local ERC-4337 bundler. Requires an active session. By default the runtime loads the session's dedicated key from its encrypted keystore and signs autonomously — no private key needed. Pass agentPrivateKey only for an external/self-custody session key.", inputSchema: { type: "object" as const, properties: { sender: { type: "string" }, target: { type: "string" }, value: { type: "string" }, calldata: { type: "string" }, sessionId: { type: "string" }, agentPrivateKey: { type: "string", description: "Optional. Only needed if the session key is self-custodied outside the runtime." } }, required: ["sender", "target", "sessionId"] } },
 
   // ═══════════════════════════════════════════════════════════════
   // AGENT KEY MANAGEMENT
@@ -198,10 +198,31 @@ const tools = [
   // ═══════════════════════════════════════════════════════════════
   // COMPILER TOOLS
   // ═══════════════════════════════════════════════════════════════
-  { name: "agentix_compile_intent",         description: "Compile an intent into a deterministic execution plan. Takes action + params, returns ExecutionPlan with risk score and explanation.", inputSchema: { type: "object" as const, properties: { action: { type: "string" }, params: { type: "object" }, source: { type: "string" } }, required: ["action", "params"] } },
+  { name: "agentix_parse_intent",           description: "Parse natural language into a structured intent. Returns the full action catalog with param schemas so YOU (the agent) can classify the user's free-text request into {action, params}. Use this BEFORE agentix_compile_intent when the user speaks in natural language rather than providing structured data. After calling this, classify the text yourself and pass the result to agentix_compile_intent.", inputSchema: { type: "object" as const, properties: { natural_language: { type: "string", description: "The user's free-text request to classify" } }, required: ["natural_language"] } },
+  { name: "agentix_compile_intent",         description: "Compile an intent into a deterministic execution plan. Takes action + params (structured), returns ExecutionPlan with risk score and explanation. For natural language input, call agentix_parse_intent first to classify the text into structured action+params.", inputSchema: { type: "object" as const, properties: { action: { type: "string" }, params: { type: "object" }, source: { type: "string" } }, required: ["action", "params"] } },
   { name: "agentix_get_plan",               description: "Get an execution plan by ID. Returns full plan with status, risk, and explanation.", inputSchema: { type: "object" as const, properties: { planId: { type: "string" } }, required: ["planId"] } },
   { name: "agentix_list_plans",             description: "List recent execution plans. Optionally filter by status.", inputSchema: { type: "object" as const, properties: { status: { type: "string" }, limit: { type: "number" } } } },
   { name: "agentix_approve_plan",           description: "Approve a plan that requires explicit approval (AUTHORITY risk).", inputSchema: { type: "object" as const, properties: { planId: { type: "string" } }, required: ["planId"] } },
+
+  // ═══════════════════════════════════════════════════════════════
+  // OWNER POLICY (agent-readable)
+  // ═══════════════════════════════════════════════════════════════
+  { name: "agentix_policy_get",             description: "Get the owner's spending policy for a wallet. Shows daily/per-tx limits, allowed targets, forbidden actions.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" } }, required: ["walletAddress"] } },
+  { name: "agentix_policy_check",           description: "Check if an action is allowed by the owner's policy. Returns allowed/denied with reason.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, action: { type: "string" }, params: { type: "object" } }, required: ["walletAddress", "action"] } },
+  { name: "agentix_capability_envelope",    description: "Get your capability envelope: wallet, budget, session, allowed actions, forbidden actions. Use this to understand what you can do.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, sessionId: { type: "string" } }, required: ["walletAddress"] } },
+
+  // ═══════════════════════════════════════════════════════════════
+  // OWNER POLICY (dashboard-only for write)
+  // ═══════════════════════════════════════════════════════════════
+  { name: "agentix_policy_set",             description: "⚠ DASHBOARD-ONLY: Set the owner's spending policy. Use the dashboard at http://localhost:3000.", inputSchema: { type: "object" as const, properties: {} } },
+
+  // ═══════════════════════════════════════════════════════════════
+  // BUNDLER (agent-submitable)
+  // ═══════════════════════════════════════════════════════════════
+  { name: "agentix_bundler_submit",           description: "Submit a signed UserOp to the local bundler for on-chain execution. The bundler pays gas and submits via EntryPoint handleOps.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, signedUserOp: { type: "object" }, action: { type: "string" } }, required: ["walletAddress", "signedUserOp", "action"] } },
+  { name: "agentix_bundler_status",           description: "Check bundler status: balance, pending ops, submission history.", inputSchema: { type: "object" as const, properties: {} } },
+  { name: "agentix_bundler_flush",            description: "Flush all pending UserOps from the queue and submit them.", inputSchema: { type: "object" as const, properties: {} } },
+  { name: "agentix_bundler_address",          description: "Get the bundler's EOA address (for funding).", inputSchema: { type: "object" as const, properties: {} } },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -214,7 +235,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     "agentix_session_create", "agentix_session_revoke",
     "agentix_session_prune", "agentix_wallet_whitelist",
     "agentix_wallet_execute_batch", "agentix_config_set",
-    "agentix_backup_create",
+    "agentix_backup_create", "agentix_policy_set",
   ];
   if (dashboardOnly.includes(name)) {
     return { content: [{ type: "text", text: JSON.stringify(DASHBOARD_ONLY, null, 2) }] };
@@ -232,6 +253,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const config = loadConfig();
         result = { status: "HEALTHY", checks: [
           { name: "RPC", status: config.rpcUrl ? "PASS" : "WARNING", message: config.rpcUrl || "Not configured" },
+          { name: "RPC Fallback", status: config.rpcFallbackUrl ? "PASS" : "INFO", message: config.rpcFallbackUrl || "Not configured" },
           { name: "Database", status: "PASS", message: config.database.path },
           { name: "Proxies", status: "PASS", message: `${Object.keys(config.contracts).length} contracts` },
         ]};
@@ -411,7 +433,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const provider = getProvider();
         const ethBalance = await provider.getBalance(walletAddr).catch(() => 0n);
 
-        if (!sessionData || sessionData[7]) {
+        if (!sessionData || sessionData[7] || sessionData[1] === ethers.ZeroAddress) {
           result = {
             valid: false,
             reason: "Session not found or already revoked",
@@ -460,7 +482,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) view returns (bool)",
         ], getProvider());
         try {
-          const valid = await sm.validateLightweightSession(args!.sessionId, args!.signer, args?.value || "0");
+          const valueStr = String(args?.value || "0");
+          const valueWei = valueStr.includes(".") ? ethers.parseEther(valueStr) : valueStr;
+          const valid = await sm.validateLightweightSession(args!.sessionId, args!.signer, valueWei);
           result = { valid, sessionId: args!.sessionId, signer: args!.signer };
         } catch (e: any) {
           result = { valid: false, error: e.reason || e.message };
@@ -568,7 +592,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const dm = new ethers.Contract(config.contracts.delegationManager, [
             "function verifyDelegationChain(bytes32[] calldata delegationLeaves, bytes32[][] calldata merkleProofs, address[] calldata delegators, address[] calldata delegates, bytes32[] calldata scopeHashes, uint64[] calldata expiries, uint8[] calldata maxDepths) view returns (bool)",
           ], getProvider());
-          const valid = await dm.verifyDelegationChain(args!.leaves, [[]], args!.delegators, [], args!.scopes, args!.expiries, [10]);
+          const scopeHashes = (args!.scopes as string[]).map((s: string) => ethers.solidityPackedKeccak256(["string"], [s]));
+          const valid = await dm.verifyDelegationChain(args!.leaves, args!.merkleProofs || [[]], args!.delegators, args!.delegates || [], scopeHashes, args!.expiries, args!.maxDepths || [10]);
           result = { valid };
         } catch (e: any) { result = { valid: false, error: e.message }; }
         break;
@@ -667,7 +692,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         try {
           const iface = new ethers.Interface(["function execute(address target, uint256 value, bytes calldata data) external"]);
           const callData = iface.encodeFunctionData("execute", [args!.target, args!.value || "0", args!.calldata || "0x"]);
-          const userOp = buildSessionUserOp(args!.sender as string, callData, args!.sessionId as string, args!.agentPrivateKey as string);
+          // Prefer the runtime-held session key: load it from the encrypted keystore
+          // so the agent needn't pass a private key. Fall back to an explicitly
+          // supplied agentPrivateKey (external/self-custody agent).
+          let signingKey = args!.agentPrivateKey as string | undefined;
+          if (!signingKey && args!.sessionId) {
+            const { loadSessionKey } = await import("../core/session-keystore");
+            const stored = loadSessionKey(args!.sessionId as string);
+            if (stored) signingKey = stored.privateKey;
+          }
+          if (!signingKey) {
+            throw new Error("No signing key: session has no stored key and no agentPrivateKey was provided.");
+          }
+          const userOp = await buildSessionUserOp(args!.sender as string, callData, args!.sessionId as string, signingKey);
           result = await bundleUserOp(userOp);
 
           if (!result.success) {
@@ -721,6 +758,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // ══════════════════════════════════════════════════════════
       // COMPILER
       // ══════════════════════════════════════════════════════════
+      case "agentix_parse_intent": {
+        const { buildClassificationPrompt, validateExtractedParams, getStructuredIntentSchema } = await import("../../packages/compiler/pipeline/nl-intent-parser");
+        const nlText = args!.natural_language as string;
+        // Return the classification prompt + schema so the agent can parse the NL text itself
+        result = {
+          instruction: "Classify the following natural language request into a StructuredIntent using the action catalog and rules below. Then call agentix_compile_intent with {action, params, source:'nl'}.",
+          natural_language: nlText,
+          classification_prompt: buildClassificationPrompt(),
+          structured_intent_schema: getStructuredIntentSchema(),
+          validate_endpoint: "After classifying, you can optionally call agentix_parse_intent again with {action, params} to validate the extracted params before compiling.",
+        };
+        break;
+      }
       case "agentix_compile_intent": {
         const { getCompiler } = await import("../../packages/compiler");
         const compiler = getCompiler();
@@ -758,6 +808,110 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { getCompiler } = await import("../../packages/compiler");
         const plan = getCompiler().approvePlan(args!.planId as string);
         result = plan || { error: "Plan not found or not in APPROVAL_REQUIRED state" };
+        break;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      // WALLET WRITE (through compiler gateway)
+      // ══════════════════════════════════════════════════════════
+      case "agentix_wallet_create": {
+        const { getCompilerGateway } = await import("../compiler-gateway");
+        const gateway = getCompilerGateway();
+        result = await gateway.executeIntent('wallet_create', {
+          ownerAddress: args!.ownerAddress,
+          harnessId: args!.harnessId,
+        }, 'mcp');
+        break;
+      }
+      case "agentix_wallet_execute": {
+        const { getCompilerGateway } = await import("../compiler-gateway");
+        const gateway = getCompilerGateway();
+        result = await gateway.executeIntent('wallet_execute', {
+          walletAddress: args!.walletAddress,
+          target: args!.target,
+          value: args!.value || '0',
+          data: args!.data || '0x',
+          ownerPrivateKey: args!.ownerPrivateKey,
+        }, 'mcp', { walletAddress: args!.walletAddress as string });
+        break;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      // OWNER POLICY (dashboard-only for set, agent-readable for get)
+      // ══════════════════════════════════════════════════════════
+      case "agentix_policy_get": {
+        const { getOwnerPolicy } = await import("../core/owner-policy");
+        result = getOwnerPolicy(args!.walletAddress as string) || { error: "No policy set for this wallet" };
+        break;
+      }
+      case "agentix_policy_check": {
+        const { checkPolicy } = await import("../core/owner-policy");
+        result = checkPolicy(
+          args!.walletAddress as string,
+          args!.action as string,
+          (args!.params as Record<string, unknown>) || {}
+        );
+        break;
+      }
+      case "agentix_capability_envelope": {
+        const { getCompilerGateway } = await import("../compiler-gateway");
+        const gateway = getCompilerGateway();
+        result = await gateway.getCapabilityEnvelope(
+          args!.walletAddress as string,
+          args?.sessionId as string | undefined
+        );
+        break;
+      }
+      case "agentix_policy_set": {
+        const { setOwnerPolicy } = await import("../core/owner-policy");
+        result = await setOwnerPolicy({
+          walletAddress: args!.walletAddress as string,
+          dailyLimit: (args!.dailyLimit as string) || '0.1',
+          perTxLimit: (args!.perTxLimit as string) || '0.05',
+          allowedTargets: (args!.allowedTargets as string[]) || [],
+          allowedActions: (args!.allowedActions as string[]) || ['erc20.transfer', 'erc20.approve', 'wallet.execute'],
+          forbiddenActions: (args!.forbiddenActions as string[]) || [],
+          sessionExpiry: (args!.sessionExpiry as number) || 86400,
+          autoCreateSessions: (args!.autoCreateSessions as boolean) ?? true,
+          signedBy: args!.signedBy as string || 'dashboard',
+          signature: args!.signature as string || '0x',
+        });
+        break;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      // BUNDLER
+      // ══════════════════════════════════════════════════════════
+      case "agentix_bundler_submit": {
+        const { submitUserOp, queueUserOp } = await import("../runtime/bundler-service");
+        const signedUserOp = args!.signedUserOp as any;
+        const walletAddr = args!.walletAddress as string;
+        const action = (args!.action as string) || 'unknown';
+
+        // Compute userOpHash for tracking
+        const { computeUserOpHash } = await import("../runtime/bundler");
+        const userOpHash = await computeUserOpHash(signedUserOp);
+
+        // Queue and submit
+        queueUserOp({ userOpHash, signedUserOp, submittedBy: 'agent', walletAddress: walletAddr, action });
+        const submitResult = await submitUserOp(signedUserOp);
+        result = { ...submitResult, userOpHash };
+        break;
+      }
+      case "agentix_bundler_status": {
+        const { getBundlerStatus } = await import("../runtime/bundler-service");
+        result = await getBundlerStatus();
+        break;
+      }
+      case "agentix_bundler_flush": {
+        const { flushPendingOps } = await import("../runtime/bundler-service");
+        result = await flushPendingOps();
+        break;
+      }
+      case "agentix_bundler_address": {
+        const { getBundlerStatus } = await import("../runtime/bundler-service");
+        const status = await getBundlerStatus();
+        result = { address: status.address, balance: status.balance, message: `Fund this address with Base Sepolia ETH for the bundler to pay gas.` };
         break;
       }
 
