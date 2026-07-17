@@ -5,20 +5,34 @@
 
 ---
 
+> ⚠️ **OUTDATED ARCHITECTURE NOTICE (read first).**
+> The tech-stack table below describes an EARLIER design (Express + PostgreSQL +
+> BullMQ + Redis + separate backend/frontend) that is **no longer how AgentIX V1
+> ships**. The current publishable runtime lives in `agentix/` and is **local-first**:
+> - **No server, no cloud, no PostgreSQL, no Redis/BullMQ.**
+> - Persistence is **SQLite** at `~/.agentix/db/` (override with `AGENTIX_HOME`).
+> - Distribution is `npm install -g agentix` / `npx agentix` — a bundled CLI + MCP
+>   server + optional localhost-only API server (port 3001, no auth) for the dashboard.
+> - Source of truth for the runtime is `agentix/src/` and `agentix/packages/`.
+> Treat the sections below as historical background only. See `agentix/README.md`
+> and `agentix/scripts/bundle.ts` for the real, current shape.
+
+---
+
 ## Project Overview
 
 **Name:** Agentix
 **Purpose:** Platform for issuing private agent credentials, verifying authorization with ZK proofs, and creating on-chain sessions/wallets for autonomous agents.
 **Repository:** `D:\BLOCKCHAIN AND ZK PROJECTS\AGENT_CREDENTIAL`
 
-### Tech Stack
+### Tech Stack (⚠ historical — see notice above; current runtime is local-first SQLite)
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| Frontend | Next.js 14 (App Router) | Operator UI |
-| Backend | Express.js + TypeScript | API server |
-| Database | PostgreSQL | Persistent state |
-| Queue | BullMQ + Redis | Async proof generation |
+| Frontend | Next.js 14 (App Router) | Operator UI (dashboard) |
+| ~~Backend~~ | ~~Express.js~~ → plain Node `http` server, localhost-only | API server |
+| ~~Database~~ | ~~PostgreSQL~~ → **SQLite** (better-sqlite3) | Persistent state |
+| ~~Queue~~ | ~~BullMQ + Redis~~ → **removed** (synchronous local proving) | Async proof generation |
 | Blockchain | Solidity + Hardhat | Smart contracts on Base Sepolia |
 | ZK Proofs | Circom + snarkjs | Groth16 proofs |
 | Account Abstraction | ERC-4337 | Smart contract wallets |

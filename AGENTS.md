@@ -1,7 +1,51 @@
 # AGENTS.md — Session Context
 
 ## Current Focus
-AgentIX V1 — Contracts redeployed on Base Sepolia, dashboard consolidated, identity system wired.
+AgentIX V1 — 6-stream integrity hardening pass. Streams 1-5 DONE + verified. All work is WORKING-TREE ONLY (not committed) pending review.
+
+## Session 2026-07-14 — 6-Stream Integrity Hardening (Contract calls, ZK, Merkle, SQLite, Dashboard)
+
+Resumed a 6-stream hardening pass. Stream 1 done prior session; completed Streams 2-5 + final verification this session. NOTHING COMMITTED YET — user wants to review first.
+
+### Verification snapshot (all green at session end)
+- Runtime `bun x tsc --project tsconfig.json` → exit 0
+- `bun run test` (e2e) → 31/31 pass
+- `bun x vitest run` circuit-compat + 07-merkle + 06-sqlite + 12-credentials → 37/37 pass
+- Dashboard (`apps/dashboard`): `bun x tsc --noEmit` exit 0, `bun run build` succeeds (163kB first load; benign npm-workspaces lockfile-patch warning during bun build is harmless)
+
+### Files changed this session (git working tree, uncommitted)
+- NEW `agentix/src/core/zk-prover.ts`
+- NEW `agentix/tests/circuit-compat.test.ts`
+- NEW `circuits/artifacts.manifest.json`
+- MOD `agentix/scripts/bundle.ts`, `src/core/database.ts`, `src/runtime/server.ts`,
+  `src/tools/credential.ts`, `src/tools/proof.ts`, `src/trees/active-tree.ts`, `src/utils/merkle.ts`
+- MOD `agentix/packages/indexer/storage/state-reconstructor.ts` (only if it was touched — verify with git status)
+
+### STREAM 2 — ZK portability + CRITICAL Poseidon bug (root cause of "no proof ever verified")
+- **Critical fix:** every Poseidon call used the SPREAD form `poseidon(...inputs)`, but circomlibjs expects a single ARRAY arg — the 2nd positional param is `initState`, not the second element. Canonical iden3 vector: `Poseidon([1,2]) = 7853200120776062878684798364095072458815029376092732009249414926327459813530`. Spread form silently produced wrong hashes, so ALL commitments/nullifiers/revocation-keys/Merkle nodes diverged from the circuit → no Groth16 proof could ever verify.
+- Fixed 6 call sites: `zk-prover.ts` (×3: commitment Poseidon7, nullifier Poseidon3, revocationKey Poseidon2 mod 2^64), `merkle.ts` hashPair, `credential.ts`.
+- After fix: real proof generates + verifies locally (`local verify: true`, 7 public signals). Credentials table was empty → NO data migration needed.
+- Portability hardening: `circuits/artifacts.manifest.json` (sha256 + byte length per artifact), hash-verified `verifyIntegrity()` preflight in zk-prover that refuses corrupted artifacts (verified a 1-byte tamper is caught), `AGENTIX_CIRCUITS_DIR` env override + multi-location resolution, `bundle.ts` ships circuits for standalone `npx agentix`.
+- Regression: circuit-compat.test.ts now pins canonical Poseidon([a,b]) vector + hashPair (the OLD test itself used the buggy spread form).
+
+### STREAM 3 — Merkle durability
+- Fixed `revokeCredential` (`src/tools/credential.ts`): was adding the COMMITMENT to the revoked SMT, but circuit + reload path (`revoked-tree.ts` loadFromDb) key by `revocationKey = Poseidon2(secret,0) mod 2^64`. Live revoke diverged from reloaded tree. Now computes real revocationKey via `computeRevocationKey`.
+- Added root-drift detection in `ActiveTree.loadFromDb` (`src/trees/active-tree.ts`): logs ERROR if rebuilt root != last anchored root in credential_roots instead of silently overwriting. Rebuilt root stays authoritative for proving; mismatch signals need to re-anchor on-chain.
+- Added Stream 3 regression test in circuit-compat.test.ts (revocationKey determinism + rebuild-from-keys root stability).
+
+### STREAM 4 — SQLite write-path audit
+- Audited every INSERT/UPDATE vs schema (accounting for ALTER TABLE ADD COLUMN migrations in database.ts).
+- **Bug found + fixed:** `identities` table was written by indexer `IdentityRegistered` reconstructor (`packages/indexer/storage/state-reconstructor.ts`) but NEVER created in schema → reconstruction throws. Added `CREATE TABLE identities (identity_id PK, wallet_address, credential_id, active, created_at)` + `idx_identities_wallet` to SCHEMA in `src/core/database.ts`. Smoke-tested insert works.
+- All other production write paths verified column-aligned (owner_policies 13 cols OK, all reconstructor col/value counts aligned). Remaining audit "hits" were test-local temp tables (test_organizations, chaos_concurrent, perf_test) — not real.
+
+### STREAM 5 — Dashboard data layer
+- No fix needed — already sound. Shared `apps/dashboard/src/lib/api.ts` (fetchJSON/postJSON/etc) + `useApi` hook (loading/error). Sections use local useState fetch (stylistic, not a bug) with uniformly defensive extraction (`data.value || data || []`, camelCase+snake_case fallbacks, Promise.allSettled for multi-fetch).
+- Verified ALL 40 client endpoints map to real server routes in `src/runtime/server.ts`. No shape drift. Typecheck + prod build pass.
+
+### NEXT STEPS (tomorrow)
+- User to review working-tree changes, then decide commit. (Suggested: stage the 10 files above with a hardening summary message.)
+- Consider committing in logical chunks: (a) ZK Poseidon fix + portability, (b) Merkle revoke fix + drift detection, (c) identities table.
+- Streams 1-5 complete; no Stream 6 (final verify was the 6th todo, done).
 
 ## Session 2026-07-01 — Fresh Deployment, Identity System, Agents Page Consolidation
 

@@ -20,3 +20,4 @@
 - Use an Event Bus as the central communication backbone; subsystems publish events rather than calling each other directly (Runtime → Event Bus → Compiler → Dashboard → Indexer → Logs → Diagnostics). Confidence: 0.75
 - Build a unified Scheduler for retry, delayed jobs, expired session cleanup, checkpoint writes, garbage collection, cache cleanup, replay, and background sync — not scattered setInterval timers. Confidence: 0.70
 - Before implementing major subsystems, produce an architecture.md defining for every component: single responsibility, data owned, data read, events published/subscribed, lifecycle/state machine, dependencies, and execution context (memory/disk/chain). Confidence: 0.85
+- x402 payment integration must route through the existing ERC-4337 bundler; the agent wallet is a smart contract wallet, not an EOA, so payments use UserOperations (bundler_send) rather than direct EIP-712 typed data signing with ethers. Confidence: 0.70
