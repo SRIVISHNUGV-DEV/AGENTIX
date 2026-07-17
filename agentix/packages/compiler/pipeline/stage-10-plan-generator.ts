@@ -1,5 +1,5 @@
 import { ParsedIntent } from '../types/intent';
-import { ExecutionPlan, ExecutionGraph } from '../types/execution-plan';
+import { ExecutionPlan, ExecutionGraph, PLAN_LIFECYCLE, PlanStatus } from '../types/execution-plan';
 import { ResolvedCapabilities } from '../types/capability';
 import { OptimizedPolicy } from '../types/policy';
 import { RiskAssessment } from '../types/risk';
@@ -56,7 +56,7 @@ export class ExecutionPlanGenerator {
   approve(planId: string): ExecutionPlan | null {
     const plan = this.planStore.get(planId);
     if (!plan) return null;
-    if (plan.status !== 'APPROVAL_REQUIRED') return plan;
+    if (!this._canTransition(plan.status, 'APPROVED')) return plan;
 
     plan.status = 'APPROVED';
     this.planStore.updateStatus(planId, 'APPROVED');
@@ -66,6 +66,7 @@ export class ExecutionPlanGenerator {
   reject(planId: string, reason: string): ExecutionPlan | null {
     const plan = this.planStore.get(planId);
     if (!plan) return null;
+    if (!this._canTransition(plan.status, 'REJECTED')) return plan;
 
     plan.status = 'REJECTED';
     this.planStore.updateStatus(planId, 'REJECTED', { rejectionReason: reason });
@@ -75,7 +76,7 @@ export class ExecutionPlanGenerator {
   execute(planId: string): ExecutionPlan | null {
     const plan = this.planStore.get(planId);
     if (!plan) return null;
-    if (plan.status !== 'APPROVED') return plan;
+    if (!this._canTransition(plan.status, 'EXECUTING')) return plan;
 
     plan.status = 'EXECUTING';
     plan.executedAt = Math.floor(Date.now() / 1000);
@@ -86,6 +87,7 @@ export class ExecutionPlanGenerator {
   complete(planId: string, txHash: string): ExecutionPlan | null {
     const plan = this.planStore.get(planId);
     if (!plan) return null;
+    if (!this._canTransition(plan.status, 'COMPLETED')) return plan;
 
     plan.status = 'COMPLETED';
     plan.completedAt = Math.floor(Date.now() / 1000);
@@ -97,6 +99,7 @@ export class ExecutionPlanGenerator {
   fail(planId: string, error: string): ExecutionPlan | null {
     const plan = this.planStore.get(planId);
     if (!plan) return null;
+    if (!this._canTransition(plan.status, 'FAILED')) return plan;
 
     plan.status = 'FAILED';
     this.planStore.updateStatus(planId, 'FAILED', { rejectionReason: error });
@@ -111,6 +114,11 @@ export class ExecutionPlanGenerator {
     plan.status = 'ARCHIVED';
     this.planStore.updateStatus(planId, 'ARCHIVED');
     return plan;
+  }
+
+  private _canTransition(from: PlanStatus, to: PlanStatus): boolean {
+    const rule = PLAN_LIFECYCLE.find((r) => r.from === from);
+    return rule ? rule.to.includes(to) : false;
   }
 
   private _computeHash(intent: ParsedIntent, policy: OptimizedPolicy, graph: ExecutionGraph): string {

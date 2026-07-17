@@ -73,16 +73,28 @@ export class PipelineOrchestrator {
     }
 
     // Check cache
-    const contentHash = checksum(JSON.stringify({ action: intent.normalizedAction, params: intent.params }));
+    const contentHash = checksum(JSON.stringify({
+      action: intent.normalizedAction,
+      params: intent.params,
+      walletAddress: context?.walletAddress || '',
+      sessionId: context?.sessionId || '',
+      organizationId: context?.organizationId || '',
+      contractAddresses: contractAddresses || {},
+    }));
     const cached = this.cache.get(contentHash);
     if (cached) {
-      return {
-        plan: JSON.parse(cached.planJson),
-        warnings: ['Returned from cache'],
-        errors: [],
-        cacheHit: true,
-        durationMs: Date.now() - startTime,
-      };
+      try {
+        const plan = JSON.parse(cached.planJson);
+        return {
+          plan,
+          warnings: ['Returned from cache'],
+          errors: [],
+          cacheHit: true,
+          durationMs: Date.now() - startTime,
+        };
+      } catch {
+        this.cache.invalidate(contentHash);
+      }
     }
 
     // Stage 2: Validate
@@ -139,15 +151,19 @@ export class PipelineOrchestrator {
       parallelBatches: [contractResolution.nodes.map((n) => n.id)],
     };
 
-    // Stage 7: Simulate
+    // Stage 7: Simulate first so the risk engine can consume the dry-run outcome
+    // (revert prediction, gas anomaly). Simulation is independent of policy so it
+    // could run in parallel, but risk depends on it — sequence sim → risk.
     const simulation = await this.simulator.simulate(intent, executionGraph, contractAddresses);
+
     warnings.push(...simulation.warnings);
     if (simulation.errors.length > 0) {
       warnings.push(`Simulation warnings: ${simulation.errors.join('; ')}`);
     }
 
-    // Stage 8: Risk Assessment
-    const risk = await this.riskEngine.assess(intent, capabilities);
+    // Stage 8: Risk assessment — now policy- and simulation-aware.
+    const risk = await this.riskEngine.assess(intent, capabilities, optimizedPolicy, simulation);
+
     warnings.push(...risk.warnings.map((w) => w.message));
 
     // Stage 9: Generate Explanation

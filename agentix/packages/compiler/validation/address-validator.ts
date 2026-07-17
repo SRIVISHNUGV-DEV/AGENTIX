@@ -6,13 +6,12 @@ export function isValidAddress(address: unknown): address is string {
 
 export function isChecksummed(address: string): boolean {
   if (!isValidAddress(address)) return false;
+  const { keccak256, getBytes } = require('ethers');
   const clean = address.slice(2).toLowerCase();
-  const crypto = require('crypto');
-  const hash = crypto.createHash('sha3-256').update(clean).digest('hex');
+  const hash = keccak256(getBytes('0x' + clean)).slice(2);
   for (let i = 0; i < 40; i++) {
     const charCode = address.charCodeAt(i + 2);
-    const hashChar = hash[i];
-    const hashNibble = parseInt(hashChar, 16);
+    const hashNibble = parseInt(hash[i], 16);
     if (charCode >= 65 && charCode <= 70 && hashNibble <= 7) return false;
     if (charCode >= 97 && charCode <= 102 && hashNibble > 7) return false;
   }

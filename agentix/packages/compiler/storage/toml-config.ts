@@ -3,6 +3,16 @@ import * as path from 'path';
 import * as os from 'os';
 import { CompilerConfig } from '../types/compilation';
 
+const DEFAULT_RISK_CONFIG = {
+  approvalThreshold: 75,
+  denyThreshold: 90,
+  weights: {},
+  behavioralEnabled: true,
+  notionalEnabled: true,
+  trustedAddresses: [] as string[],
+  blockedAddresses: [] as string[],
+};
+
 const DEFAULT_CONFIG: CompilerConfig = {
   pluginDirs: [path.join(os.homedir(), '.agentix', 'compiler', 'plugins')],
   defaultChainId: 84532,
@@ -11,6 +21,7 @@ const DEFAULT_CONFIG: CompilerConfig = {
   riskThreshold: 75,
   cacheTtl: 300,
   maxPolicyRules: 50,
+  risk: { ...DEFAULT_RISK_CONFIG },
 };
 
 const CONFIG_PATH = path.join(os.homedir(), '.agentix', 'compiler', 'compiler.toml');
@@ -65,13 +76,42 @@ export function loadCompilerConfig(): CompilerConfig {
       defaultChainId: (compiler?.default_chain_id as number) || DEFAULT_CONFIG.defaultChainId,
       simulationEnabled: (compiler?.simulation_enabled as boolean) ?? DEFAULT_CONFIG.simulationEnabled,
       naturalLanguageEnabled: (compiler?.natural_language_enabled as boolean) ?? DEFAULT_CONFIG.naturalLanguageEnabled,
-      riskThreshold: (compiler?.risk_threshold as number) || DEFAULT_CONFIG.riskThreshold,
-      cacheTtl: (compiler?.cache_ttl as number) || DEFAULT_CONFIG.cacheTtl,
-      maxPolicyRules: (compiler?.max_policy_rules as number) || DEFAULT_CONFIG.maxPolicyRules,
+    riskThreshold: (compiler?.risk_threshold as number) ?? DEFAULT_CONFIG.riskThreshold,
+    cacheTtl: (compiler?.cache_ttl as number) ?? DEFAULT_CONFIG.cacheTtl,
+    maxPolicyRules: (compiler?.max_policy_rules as number) ?? DEFAULT_CONFIG.maxPolicyRules,
+    risk: parseRiskConfig(parsed.risk as Record<string, unknown> | undefined, compiler),
     };
   } catch {
-    return { ...DEFAULT_CONFIG };
+    return { ...DEFAULT_CONFIG, risk: { ...DEFAULT_RISK_CONFIG } };
   }
+}
+
+function parseRiskConfig(
+  risk: Record<string, unknown> | undefined,
+  compiler: Record<string, unknown> | undefined
+): CompilerConfig['risk'] {
+  const weights: Record<string, number> = {};
+  if (risk?.weights && typeof risk.weights === 'object') {
+    for (const [k, v] of Object.entries(risk.weights as Record<string, unknown>)) {
+      const n = typeof v === 'number' ? v : parseFloat(String(v));
+      if (!Number.isNaN(n)) weights[k] = n;
+    }
+  }
+  const toAddrList = (v: unknown): string[] =>
+    Array.isArray(v) ? v.map((s) => String(s).toLowerCase()) : [];
+
+  return {
+    approvalThreshold:
+      (risk?.approval_threshold as number) ??
+      (compiler?.risk_threshold as number) ??
+      DEFAULT_RISK_CONFIG.approvalThreshold,
+    denyThreshold: (risk?.deny_threshold as number) ?? DEFAULT_RISK_CONFIG.denyThreshold,
+    weights,
+    behavioralEnabled: (risk?.behavioral_enabled as boolean) ?? DEFAULT_RISK_CONFIG.behavioralEnabled,
+    notionalEnabled: (risk?.notional_enabled as boolean) ?? DEFAULT_RISK_CONFIG.notionalEnabled,
+    trustedAddresses: toAddrList(risk?.trusted_addresses),
+    blockedAddresses: toAddrList(risk?.blocked_addresses),
+  };
 }
 
 export function saveCompilerConfig(config: CompilerConfig): void {

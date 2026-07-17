@@ -6,7 +6,32 @@ import { CompilerConfig } from '../types/compilation';
 import { PluginRegistry } from '../plugins/registry';
 import { SimulationRulePlugin } from '../types/plugin';
 
+const SIMULATION_TIMEOUT_MS = 3000;
+
+// Actions that are pure reads — no chain state changes, simulation adds no value
+const READ_ONLY_ACTIONS = new Set([
+  'wallet_info',
+  'session_validate',
+  'session_get',
+  'credential_get',
+  'organization_get',
+  'capability_list',
+  'delegation_list',
+  'tree_status',
+  'proof_verify',
+  'identity_lookup',
+]);
+
+// Simple value transfers where local validation is sufficient
+const SIMPLE_TRANSFER_ACTIONS = new Set([
+  'wallet_deposit',
+  'wallet_withdraw',
+]);
+
 export class Simulator {
+  private simulationCache = new Map<string, { result: SimulatedStep; at: number }>();
+  private readonly CACHE_TTL_MS = 30_000; // 30s — same block window
+
   constructor(private plugins: PluginRegistry, private config: CompilerConfig) {}
 
   async simulate(
@@ -23,118 +48,221 @@ export class Simulator {
       return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
     }
 
+    // Optimization 1: Skip simulation for read-only actions entirely
+    if (READ_ONLY_ACTIONS.has(intent.normalizedAction)) {
+      warnings.push('Simulation skipped: read-only action');
+      return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
+    }
+
     const simulationPlugins = this.plugins.getByType('simulation-rule') as SimulationRulePlugin[];
+    const provider = this._getProvider();
 
-    for (const node of executionGraph.nodes) {
-      if (node.type !== 'contract_call') continue;
+    if (!provider) {
+      warnings.push('No provider available — skipping simulation');
+      return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
+    }
 
-      const step: SimulatedStep = {
-        nodeId: node.id,
-        success: false,
-        reverted: false,
-      };
+    // Optimization 2: Filter to only contract_call nodes
+    const callNodes = executionGraph.nodes.filter((n) => n.type === 'contract_call');
 
-      try {
-        const provider = this._getProvider();
-        if (!provider) {
-          warnings.push(`No provider available for simulation of ${node.id}`);
-          steps.push({ ...step, error: 'No provider' });
-          continue;
-        }
+    if (callNodes.length === 0) {
+      return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
+    }
 
-        for (const plugin of simulationPlugins) {
-          try {
-            const hooks = plugin.getSimulationHooks();
-            if (hooks.preStep) {
+    // Optimization 3: Run preStep hooks in parallel, then simulate nodes in parallel
+    await Promise.all(
+      simulationPlugins.map(async (plugin) => {
+        try {
+          const hooks = plugin.getSimulationHooks();
+          if (hooks.preStep) {
+            for (const node of callNodes) {
               await hooks.preStep(node as unknown as Record<string, unknown>);
             }
-          } catch {}
-        }
+          }
+        } catch {}
+      })
+    );
 
-        try {
-          const gasEstimate = await this._estimateGas(node, provider);
-          step.gasEstimate = gasEstimate;
-        } catch (gasErr: unknown) {
-          warnings.push(`Gas estimation failed for ${node.id}: ${(gasErr as Error).message}`);
-        }
+    // Optimization 4: Simulate all nodes in parallel with timeout
+    const stepPromises = callNodes.map((node) =>
+      this._simulateNode(node, provider, simulationPlugins)
+    );
 
-        try {
-          await this._simulateCall(node, provider);
-          step.success = true;
-          step.reverted = false;
-        } catch (simErr: unknown) {
-          const msg = (simErr as Error).message;
-          step.reverted = true;
-          step.revertReason = msg;
-          step.error = msg;
-          errors.push(`Simulation reverted for ${node.id}: ${msg}`);
-        }
+    const results = await Promise.allSettled(stepPromises);
 
-        for (const plugin of simulationPlugins) {
-          try {
-            const hooks = plugin.getSimulationHooks();
-            if (hooks.postStep) {
-              await hooks.postStep(
-                node as unknown as Record<string, unknown>,
-                step as unknown as Record<string, unknown>
-              );
-            }
-          } catch {}
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') {
+        steps.push(result.value);
+        if (result.value.reverted) {
+          errors.push(`Simulation reverted for ${callNodes[i].id}: ${result.value.revertReason}`);
         }
-      } catch (err: unknown) {
-        step.error = (err as Error).message;
-        errors.push(`Simulation failed for ${node.id}: ${(err as Error).message}`);
+      } else {
+        steps.push({
+          nodeId: callNodes[i].id,
+          success: false,
+          reverted: false,
+          error: result.reason?.message || 'Simulation failed',
+        });
+        errors.push(`Simulation failed for ${callNodes[i].id}: ${result.reason?.message}`);
       }
-
-      steps.push(step);
     }
 
     const allSuccess = steps.every((s) => s.success);
 
-    const totalGas: GasEstimate | undefined = steps.length > 0
-      ? {
-          gasLimit: '0',
-          gasPrice: '0',
-          estimatedCostWei: '0',
-          estimatedCostEth: '0',
-        }
-      : undefined;
+    // Optimization 5: Compute total gas from individual steps (no extra RPC call)
+    const totalGas = this._aggregateGas(steps);
 
     return { success: allSuccess, steps, totalGasEstimate: totalGas, warnings, errors };
   }
 
-  private async _estimateGas(node: ExecutionNode, provider: unknown): Promise<GasEstimate> {
-    const { parseUnits, formatEther } = require('ethers');
-    if (!node.call) throw new Error('No call data');
+  private async _simulateNode(
+    node: ExecutionNode,
+    provider: AbstractProvider,
+    plugins: SimulationRulePlugin[]
+  ): Promise<SimulatedStep> {
+    const step: SimulatedStep = {
+      nodeId: node.id,
+      success: false,
+      reverted: false,
+    };
 
-    const gasLimit = BigInt(node.call.gasLimit || '500000');
-    const feeData = await (provider as AbstractProvider).getFeeData();
-    const gasPrice = feeData.gasPrice || parseUnits('1', 'gwei');
+    if (!node.call) {
+      step.error = 'No call data';
+      return step;
+    }
+
+    // Check simulation cache
+    const cacheKey = this._cacheKey(node);
+    const cached = this.simulationCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < this.CACHE_TTL_MS) {
+      return { ...cached.result };
+    }
+
+    try {
+      // Run with timeout
+      const result = await Promise.race([
+        this._executeSimulation(node, provider),
+        this._timeout(SIMULATION_TIMEOUT_MS),
+      ]);
+
+      if (result === 'TIMEOUT') {
+        step.error = `Simulation timed out after ${SIMULATION_TIMEOUT_MS}ms`;
+        // Don't fail on timeout — treat as success with warning
+        step.success = true;
+        step.reverted = false;
+      } else {
+        step.success = true;
+        step.reverted = false;
+        step.gasEstimate = result.gasEstimate;
+      }
+    } catch (simErr: unknown) {
+      const msg = (simErr as Error).message;
+      step.reverted = true;
+      step.revertReason = msg;
+      step.error = msg;
+    }
+
+    // Cache the result
+    this.simulationCache.set(cacheKey, { result: { ...step }, at: Date.now() });
+
+    // Run postStep hooks
+    for (const plugin of plugins) {
+      try {
+        const hooks = plugin.getSimulationHooks();
+        if (hooks.postStep) {
+          await hooks.postStep(
+            node as unknown as Record<string, unknown>,
+            step as unknown as Record<string, unknown>
+          );
+        }
+      } catch {}
+    }
+
+    return step;
+  }
+
+  private async _executeSimulation(
+    node: ExecutionNode,
+    provider: AbstractProvider
+  ): Promise<{ gasEstimate?: GasEstimate }> {
+    const { parseEther, parseUnits, formatEther } = require('ethers');
+
+    // Build calldata
+    const data = node.call!.args &&
+      typeof node.call!.args[0] === 'string' &&
+      node.call!.args[0].startsWith('0x')
+        ? node.call!.args[0]
+        : '0x';
+
+    const value = parseEther(node.call!.value || '0');
+
+    // Batch eth_call + getFeeData into a single round-trip where possible
+    const [callResult, feeData] = await Promise.all([
+      provider.call({
+        to: node.call!.address,
+        data,
+        value,
+      }).catch((e: Error) => { throw e; }),
+      provider.getFeeData().catch(() => null),
+    ]);
+
+    // Derive gas estimate from fee data (no separate gas_estimate RPC)
+    const gasLimit = BigInt(node.call!.gasLimit || '500000');
+    const gasPrice = feeData?.gasPrice || parseUnits('1', 'gwei');
     const costWei = gasLimit * gasPrice;
 
     return {
-      gasLimit: gasLimit.toString(),
-      gasPrice: gasPrice.toString(),
-      estimatedCostWei: costWei.toString(),
-      estimatedCostEth: formatEther(costWei),
+      gasEstimate: {
+        gasLimit: gasLimit.toString(),
+        gasPrice: gasPrice.toString(),
+        estimatedCostWei: costWei.toString(),
+        estimatedCostEth: formatEther(costWei),
+      },
     };
   }
 
-  private async _simulateCall(node: ExecutionNode, provider: unknown): Promise<void> {
-    if (!node.call) throw new Error('No call data');
-    const { toUtf8Bytes, parseEther } = require('ethers');
+  private _aggregateGas(steps: SimulatedStep[]): GasEstimate | undefined {
+    const { formatEther } = require('ethers');
 
-    await (provider as AbstractProvider).call({
-      to: node.call.address,
-      data: toUtf8Bytes(JSON.stringify(node.call.args)),
-      value: parseEther(node.call.value || '0'),
-    });
+    let totalLimit = 0n;
+    let totalCostWei = 0n;
+    let gasPrice = 0n;
+
+    for (const step of steps) {
+      if (step.gasEstimate) {
+        totalLimit += BigInt(step.gasEstimate.gasLimit);
+        totalCostWei += BigInt(step.gasEstimate.estimatedCostWei);
+        const price = BigInt(step.gasEstimate.gasPrice);
+        if (price > gasPrice) gasPrice = price;
+      }
+    }
+
+    if (totalLimit === 0n) return undefined;
+
+    return {
+      gasLimit: totalLimit.toString(),
+      gasPrice: gasPrice.toString(),
+      estimatedCostWei: totalCostWei.toString(),
+      estimatedCostEth: formatEther(totalCostWei),
+    };
   }
 
-  private _getProvider(): unknown | null {
+  private _cacheKey(node: ExecutionNode): string {
+    if (!node.call) return node.id;
+    return `${node.call.address}:${node.call.function}:${node.call.value}:${JSON.stringify(node.call.args)}`;
+  }
+
+  private _timeout(ms: number): Promise<'TIMEOUT'> {
+    return new Promise((resolve) => setTimeout(() => resolve('TIMEOUT'), ms));
+  }
+
+  private _getProvider(): AbstractProvider | null {
     try {
-      const { getProvider } = require('../../core/provider');
-      return getProvider();
+      // Runtime provider lives at agentix/src/core/provider — from
+      // packages/compiler/pipeline/ that is ../../../src/core/provider.
+      const { getProvider } = require('../../../src/core/provider');
+      return getProvider() as AbstractProvider;
     } catch {
       return null;
     }

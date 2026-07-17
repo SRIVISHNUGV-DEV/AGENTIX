@@ -94,3 +94,4 @@ export function getCompiler(config?: CompilerConfig): Compiler {
 
 export { COMPILER_SCHEMA } from './storage/schema';
 export * from './types';
+export { buildClassificationPrompt, getStructuredIntentSchema, validateExtractedParams, getActionSpec, ACTION_CATALOG } from './pipeline/nl-intent-parser';

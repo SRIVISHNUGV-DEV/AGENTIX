@@ -165,8 +165,13 @@ export class PolicyGenerator {
       maxBatchSize: 20,
     };
 
+    const seen = new Set<string>();
+
     for (const rule of rules) {
       if (!rule.limit) continue;
+      if (seen.has(rule.limit.field)) continue;
+      seen.add(rule.limit.field);
+
       switch (rule.limit.field) {
         case 'value':
           limits.maxValue = rule.limit.value as string;

@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS execution_plans (
     policy_json TEXT NOT NULL,
     risk_score INTEGER NOT NULL,
     risk_category TEXT NOT NULL,
+    risk_json TEXT DEFAULT '{}',
     explanation_json TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING',
+    status TEXT NOT NULL DEFAULT 'DRAFT',
     compiled_by TEXT,
     created_at INTEGER NOT NULL,
     expires_at INTEGER

@@ -86,6 +86,28 @@ function parseSimpleToml(content: string): Record<string, unknown> {
       else if ((value as string).startsWith('[') && (value as string).endsWith(']')) {
         value = (value as string).slice(1, -1).split(',').map((s: string) => s.trim().replace(/^"|"$/g, ''));
       }
+      // Parse inline tables: { key = "val", key2 = "val2" }
+      // The old parser stored the raw string, losing the structured data on round-trip.
+      else if ((value as string).startsWith('{') && (value as string).endsWith('}')) {
+        const inner = (value as string).slice(1, -1).trim();
+        const obj: Record<string, unknown> = {};
+        // Split on commas (naive — doesn't handle nested commas in strings, but
+        // sufficient for the flat inline tables we serialize like allowed_times)
+        const parts = inner.split(',').map((s) => s.trim()).filter(Boolean);
+        for (const part of parts) {
+          const m = part.match(/^(\w+)\s*=\s*(.+)$/);
+          if (m) {
+            let v: unknown = m[2].trim();
+            if ((v as string).startsWith('"') && (v as string).endsWith('"')) {
+              v = (v as string).slice(1, -1);
+            } else if (v === 'true') v = true;
+            else if (v === 'false') v = false;
+            else if (/^\d+$/.test(v as string)) v = parseInt(v as string, 10);
+            obj[m[1]] = v;
+          }
+        }
+        value = obj;
+      }
       currentSection[key] = value;
     }
   }

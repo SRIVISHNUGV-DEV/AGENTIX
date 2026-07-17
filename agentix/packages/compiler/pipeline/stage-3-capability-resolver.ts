@@ -78,12 +78,12 @@ export class CapabilityResolver {
       } catch {}
     }
 
-    if (graph.agent.identityId > 0) {
+    if (graph.agent.identityId > 0 && db) {
       try {
-        const credentials = (db?.query(
+        const credentials = db.query(
           'SELECT credential_id, organization_id, agent_id, nullifier, permissions, expiry, revoked FROM credentials WHERE agent_id = ? AND revoked = 0',
           [graph.agent.identityId]
-        ) || []) as Record<string, unknown>[];
+        ) as Record<string, unknown>[];
         for (const cred of credentials) {
           graph.credentials.push({
             credentialId: cred.credential_id as string,

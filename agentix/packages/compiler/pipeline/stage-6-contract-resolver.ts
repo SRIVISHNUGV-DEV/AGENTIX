@@ -15,7 +15,7 @@ export interface ContractResolution {
 }
 
 const KNOWN_CONTRACTS: Record<string, { name: string; functions: string[] }> = {
-  wallet_create: { name: 'AgentWalletFactory', functions: ['createWallet', 'createWallet'] },
+  wallet_create: { name: 'AgentWalletFactory', functions: ['createWallet'] },
   wallet_execute: { name: 'AgentWallet', functions: ['execute'] },
   wallet_execute_batch: { name: 'AgentWallet', functions: ['executeBatch'] },
   wallet_deposit: { name: 'AgentWallet', functions: ['addDeposit'] },
@@ -107,7 +107,9 @@ export class ContractResolver {
 
   private _getDefaultAddress(name: string): string | undefined {
     try {
-      const { loadConfig } = require('../../core/config');
+      // Runtime config lives at agentix/src/core/config — from
+      // packages/compiler/pipeline/ that is ../../../src/core/config.
+      const { loadConfig } = require('../../../src/core/config');
       const config = loadConfig();
       const keyMap: Record<string, string> = {
         AgentWalletFactory: 'agentWalletFactory',

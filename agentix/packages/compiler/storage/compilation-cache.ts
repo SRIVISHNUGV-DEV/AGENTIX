@@ -8,12 +8,21 @@ export class CompilationCacheStore {
       [contentHash]
     ) as Record<string, unknown> | undefined;
     if (!row) return null;
+
+    const createdAt = row.created_at as number;
+    const ttl = row.ttl as number;
+    const now = Math.floor(Date.now() / 1000);
+    if (createdAt + ttl < now) {
+      this.invalidate(contentHash);
+      return null;
+    }
+
     return {
       contentHash: row.content_hash as string,
       intentJson: row.intent_json as string,
       planJson: row.plan_json as string,
-      createdAt: row.created_at as number,
-      ttl: row.ttl as number,
+      createdAt,
+      ttl,
     };
   }
 
