@@ -36,6 +36,8 @@
     "publish:prep": "bun run bundle"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
     "ethers": "^6.16.0",
     "better-sqlite3": "^11.7.0",
     "circomlibjs": "^0.1.7",
@@ -44,7 +46,9 @@
   },
   "devDependencies": {
     "tsx": "^4.22.4",
+    "typescript": "~5.9.3",
     "vitest": "^4.1.9",
-    "@types/better-sqlite3": "^7.6.12"
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "22.20.0"
   }
 }

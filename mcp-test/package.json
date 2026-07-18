@@ -12,7 +12,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "bun test --serial",
-    "postinstall": "node dist/postinstall.js",
+    "postinstall": "node -e \"try{const fs=require('fs');if(fs.existsSync('dist/postinstall.js'))require('child_process').execSync('node dist/postinstall.js',{stdio:'inherit'})}catch(e){}\"",
     "prepublishOnly": "npm run build"
   },
   "engines": {
