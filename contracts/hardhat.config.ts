@@ -17,11 +17,10 @@ function loadEnvFile(envPath: string): Record<string, string> {
   return env;
 }
 
-const backendEnv = loadEnvFile(path.resolve(__dirname, "../backend/.env"));
 const contractsEnv = loadEnvFile(path.resolve(__dirname, ".env"));
 
-const rpcUrl = backendEnv.RPC_URL || process.env.RPC_URL || contractsEnv.RPC_URL || "";
-const privateKey = contractsEnv.PRIVATE_KEY || backendEnv.PRIVATE_KEY || process.env.PRIVATE_KEY || "";
+const rpcUrl = process.env.RPC_URL || contractsEnv.RPC_URL || "";
+const privateKey = contractsEnv.PRIVATE_KEY || process.env.PRIVATE_KEY || "";
 const etherscanApiKey = contractsEnv.ETHERSCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "";
 
 const allAccounts = [privateKey];

@@ -4,19 +4,27 @@ node_modules/
 # Build outputs
 dist/
 build/
-!circuits/build/
 .next/
 out/
+*.tsbuildinfo
 
-# Dependencies
-node_modules/
+# Typechain (generated from contracts)
+typechain-types/
 
-# Build outputs
-dist/
-build/
-!circuits/build/
-.next/
-out/
+# ZK proving artifacts — generated from source, never commit
+*.zkey
+*.r1cs
+*.sym
+*.ptau
+*.wasm
+circuits/prover/
+
+# npm pack tarballs
+*.tgz
+
+# Contract build artifacts and cache (reproducible from source)
+contracts/artifacts/
+contracts/cache/
 
 # Environment files — never commit secrets
 .env
@@ -27,37 +35,6 @@ out/
 .env.staging
 .env.development.local
 *.env
-runtime-local/.env
-runtime-local/node_modules/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Cache
-.cache/
-.parcel-cache/
-
-# Coverage
-coverage/
-
-# Typechain
-typechain-types/
-
-# Generated files
-*.generated.ts
 
 # Secrets and credentials — never commit
 *.pem
@@ -68,59 +45,53 @@ typechain-types/
 *.secret
 .npmrc
 **/.npmrc
-*.openclaude-profile.json
-.openclaude-profile.json
-**/openclaude-profile.json
 service-account*.json
 credentials*.json
 *.cred
+*.openclaude-profile.json
+.openclaude-profile.json
+**/openclaude-profile.json
 
-# Claude / AI tooling memory
-.claude/
-.openclaude/
-.memory/
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
 
-# ZK proving artifacts — never commit (large binaries, reproducible from source)
-*.zkey
-*.r1cs
-*.sym
-*.ptau
-*.wasm
-circuits/prover/
+# Logs and cache
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.parcel-cache/
+coverage/
 
-# Temporary files
-*.tmp
-*.temp
+# Generated files
+*.generated.ts
 
-# Build outputs (agentix)
+# Local test scratch
 agentix/dist-publish/
 agentix/dist/
-
-# Test scratch home (isolated AGENTIX_HOME used by the test suite)
 agentix/.agentix-test/
-
-# npm pack tarballs
-*.tgz
-
-# Local scratch scripts used during audits/verification
+agentix/.agentix-e2e/
 agentix/.run-server.sh
 agentix/.fuzz-test.ts
 agentix/.comp-test.ts
 agentix/.mcp-test.sh
 
-# Contract build artifacts (reproducible from source, ABIs in contracts/abis/)
-contracts/artifacts/
-
-# Contract build cache
-contracts/cache/
+# Claude / AI tooling memory
+.claude/
+.openclaude/
+.memory/
+.mimocode/
 
 # Docker
 .docker/
 docker-compose.override.yml
 
-# Local scratch / debug scripts (contain dev RPC keys, not for VCS)
-debug_sm_call.js
-setup_adc.sh
-scripts/get_cookies_playwright.mjs
-.mimocode/
-agentix/.agentix-e2e/
+# Temporary files
+*.tmp
+*.temp
