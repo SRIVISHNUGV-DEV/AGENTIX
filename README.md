@@ -5,7 +5,7 @@
 [![CI](https://github.com/SRIVISHNUGV-DEV/AGENTIX/actions/workflows/ci.yml/badge.svg)](https://github.com/SRIVISHNUGV-DEV/AGENTIX/actions)
 [![License](https://img.shields.io/badge/License-BSL_1.1-blue?style=for-the-badge)](LICENSE)
 [![Bun](https://img.shields.io/badge/Bun-1.x-black?style=for-the-badge&logo=bun)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.x-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636?style=for-the-badge&logo=solidity)](https://soliditylang.org/)
 [![Base Sepolia](https://img.shields.io/badge/Base-Sepolia-0052FF?style=for-the-badge&logo=ethereum)](https://sepolia.basescan.org/)
 [![Testnet only](https://img.shields.io/badge/Testnet-only-red?style=for-the-badge)](docs/SECURITY.md)
@@ -456,6 +456,8 @@ bun x tsc --project tsconfig.json --noEmit   # typecheck, the CI gate
 ```
 
 Verified on this tree, not claimed from CI badges: `bun run build` passes (Next.js dashboard compiles to 2 routes); `bun run test` passes with **27 test files and 277 tests green**; `bun x tsc --noEmit` passes; `npx hardhat compile` passes with **50 Solidity files, 62 artifacts, and 160 generated typings**. CI runs the same four jobs on every pull request to `main` and every push to `main`: AgentIX Typecheck, AgentIX Tests, AgentIX Build, Contracts Compile — all four green on the latest `main`.
+
+TypeScript is **7.0.2, pinned exact in `agentix/package.json`** (not a caret range, so a later 7.x does not silently change the compiler). The bump from 5.9.3 required one config change in `agentix/tsconfig.json`: `moduleResolution` went from `node` to `bundler`, because TS 7 removed `node`/`node10` resolution outright, and the `nodenext` alternative would have forced `.js` extensions onto hundreds of existing extensionless imports. Typecheck, CLI build, and the 277 unit tests were re-run against 7.0.2 and pass. Scope note: this bump covers the `agentix/` runtime only — `agentix/apps/dashboard` and `contracts/` still declare TypeScript ^5.8.2 (the 5.x line), because Next.js 14 and Hardhat/ts-node are not TS 7-ready; bumping those two is a separate toolchain upgrade, not a version number change.
 
 ---
 
