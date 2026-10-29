@@ -81,7 +81,7 @@ async function deployProtocol(): Promise<ProtocolContext> {
   );
 
   await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-  await ethers.provider.send("evm_increaseTime", [86400]);
+  await ethers.provider.send("evm_increaseTime", [172800]);
   await ethers.provider.send("evm_mine", []);
   await sessionManager.connect(owner).acceptWalletFactory();
   await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
@@ -312,14 +312,14 @@ describe("AgentWallet", function () {
   describe("Timelock Proposals", function () {
     it("Propose and accept sessionManager", async function () {
       await wallet.connect(ctx.owner).proposeSessionManager(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(ctx.owner).acceptSessionManager();
       expect(await wallet.sessionManager()).to.equal(ctx.alice.address);
     });
     it("Propose and accept entryPoint", async function () {
       await wallet.connect(ctx.owner).proposeEntryPoint(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(ctx.owner).acceptEntryPoint();
       expect(await wallet.entryPoint()).to.equal(ctx.alice.address);
@@ -394,7 +394,7 @@ describe("AgentWalletFactory", function () {
     });
     it("Reverts zero-address owner", async function () {
       await expect(ctx.factory["createWallet(address,bytes32)"](ethers.ZeroAddress, ethers.ZeroHash))
-        .to.be.revertedWithCustomError(ctx.factory, "InvalidOwnerError");
+        .to.be.revertedWithCustomError(ctx.factory, "FactoryInvalidOwnerError");
     });
     it("Same owner+salt returns same wallet", async function () {
       const salt = ethers.keccak256(ethers.toUtf8Bytes("idem"));
@@ -420,7 +420,7 @@ describe("AgentWalletFactory", function () {
   describe("Timelock Admin", function () {
     it("Updates implementation, sessionManager, entryPoint via timelock", async function () {
       await ctx.factory.connect(ctx.owner).proposeImplementation(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await ctx.factory.connect(ctx.owner).acceptImplementation();
       expect(await ctx.factory.implementation()).to.equal(ctx.alice.address);
@@ -432,7 +432,7 @@ describe("AgentWalletFactory", function () {
     it("Reverts accept before timelock", async function () {
       await ctx.factory.connect(ctx.owner).proposeImplementation(ctx.alice.address);
       await expect(ctx.factory.connect(ctx.owner).acceptImplementation())
-        .to.be.revertedWithCustomError(ctx.factory, "TimelockNotReadyError");
+        .to.be.revertedWithCustomError(ctx.factory, "FactoryTimelockNotReadyError");
     });
     it("setAgentIdentity", async function () {
       await ctx.factory.connect(ctx.owner).setAgentIdentity(ctx.alice.address);
@@ -596,7 +596,7 @@ describe("SessionManager", function () {
       await createSession(p);
       const signer = await impersonateWallet(walletAddr);
       await ctx.sessionManager.connect(signer).validateSession(
-        p.sessionId, ctx.sessionKey.address, 100n, ctx.alice.address
+        p.sessionId, ctx.sessionKey.address, 100n, ctx.alice.address, "0x"
       );
       await stopImpersonate(walletAddr);
       const session = await ctx.sessionManager.sessions(p.sessionId);
@@ -609,14 +609,14 @@ describe("SessionManager", function () {
       await createSession(p);
       const signer = await impersonateWallet(walletAddr);
       await ctx.sessionManager.connect(signer).validateSession(
-        p.sessionId, ctx.sessionKey.address, 600n, ctx.alice.address
+        p.sessionId, ctx.sessionKey.address, 600n, ctx.alice.address, "0x"
       );
       await ctx.sessionManager.connect(signer).validateSession(
-        p.sessionId, ctx.sessionKey.address, 300n, ctx.alice.address
+        p.sessionId, ctx.sessionKey.address, 300n, ctx.alice.address, "0x"
       );
       await expect(
         ctx.sessionManager.connect(signer).validateSession(
-          p.sessionId, ctx.sessionKey.address, 200n, ctx.alice.address
+          p.sessionId, ctx.sessionKey.address, 200n, ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "LimitExceeded");
       await stopImpersonate(walletAddr);
@@ -628,7 +628,7 @@ describe("SessionManager", function () {
       const signer = await impersonateWallet(walletAddr);
       await expect(
         ctx.sessionManager.connect(signer).validateSession(
-          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address
+          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "SessionExpired");
       await stopImpersonate(walletAddr);
@@ -639,7 +639,7 @@ describe("SessionManager", function () {
       const signer = await impersonateWallet(walletAddr);
       await expect(
         ctx.sessionManager.connect(signer).validateSession(
-          p.sessionId, ctx.attacker.address, 1n, ctx.alice.address
+          p.sessionId, ctx.attacker.address, 1n, ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "InvalidSigner");
       await stopImpersonate(walletAddr);
@@ -650,7 +650,7 @@ describe("SessionManager", function () {
       const s = await impersonateWallet(ctx.attacker.address);
       await expect(
         ctx.sessionManager.connect(s).validateSession(
-          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address
+          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "NotAgentWallet");
       await stopImpersonate(ctx.attacker.address);
@@ -661,7 +661,7 @@ describe("SessionManager", function () {
       const signer = await impersonateWallet(walletAddr);
       await expect(
         ctx.sessionManager.connect(signer).validateSession(
-          p.sessionId, ctx.sessionKey.address, 0n, ethers.ZeroAddress
+          p.sessionId, ctx.sessionKey.address, 0n, ethers.ZeroAddress, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "TargetNotAllowed");
       await stopImpersonate(walletAddr);
@@ -700,7 +700,7 @@ describe("SessionManager", function () {
       const signer = await impersonateWallet(walletAddr);
       await expect(
         ctx.sessionManager.connect(signer).validateSession(
-          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address
+          p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "SessionIsRevoked");
       await stopImpersonate(walletAddr);
@@ -784,11 +784,11 @@ describe("SessionManager", function () {
         sid, ctx.sessionKey.address, lowLimit, DAILY_TX, exp, [], sig
       );
       await ctx.sessionManager.connect(signer).validateLightweightSession(
-        sid, ctx.sessionKey.address, ethers.parseEther("0.3"), ctx.alice.address
+        sid, ctx.sessionKey.address, ethers.parseEther("0.3"), ctx.alice.address, "0x"
       );
       await expect(
         ctx.sessionManager.connect(signer).validateLightweightSession(
-          sid, ctx.sessionKey.address, ethers.parseEther("0.3"), ctx.alice.address
+          sid, ctx.sessionKey.address, ethers.parseEther("0.3"), ctx.alice.address, "0x"
         )
       ).to.be.revertedWithCustomError(ctx.sessionManager, "DailySpendLimitExceeded");
       await stopImpersonate(walletAddr);
@@ -802,10 +802,10 @@ describe("SessionManager", function () {
       await ctx.sessionManager.connect(signer).createLightweightSession(
         sid, ctx.sessionKey.address, DAILY_SPEND, lowTx, exp, [], sig
       );
-      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address);
-      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address);
+      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address, "0x");
+      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address, "0x");
       await expect(
-        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address)
+        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address, "0x")
       ).to.be.revertedWithCustomError(ctx.sessionManager, "DailyTxLimitExceeded");
       await stopImpersonate(walletAddr);
     });
@@ -815,9 +815,9 @@ describe("SessionManager", function () {
       const sig = await signLW(sid, ctx.sessionKey.address, walletAddr, DAILY_SPEND, DAILY_TX, exp);
       const signer = await impersonateWallet(walletAddr);
       await ctx.sessionManager.connect(signer).createLightweightSession(sid, ctx.sessionKey.address, DAILY_SPEND, DAILY_TX, exp, [], sig);
-      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.8"), ctx.alice.address);
+      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.8"), ctx.alice.address, "0x");
       await time.increase(24 * 60 * 60);
-      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.9"), ctx.alice.address);
+      await ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.9"), ctx.alice.address, "0x");
       const s = await ctx.sessionManager.getLightSession(sid);
       expect(s.dailySpendUsed).to.equal(ethers.parseEther("0.9"));
       expect(s.dailyTxUsed).to.equal(1n);
@@ -831,7 +831,7 @@ describe("SessionManager", function () {
       await ctx.sessionManager.connect(signer).createLightweightSession(sid, ctx.sessionKey.address, DAILY_SPEND, DAILY_TX, shortExp, [], sig);
       await time.increase(7200);
       await expect(
-        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address)
+        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.alice.address, "0x")
       ).to.be.revertedWithCustomError(ctx.sessionManager, "SessionExpired");
       await stopImpersonate(walletAddr);
     });
@@ -854,7 +854,7 @@ describe("SessionManager", function () {
         sid, ctx.sessionKey.address, DAILY_SPEND, DAILY_TX, exp, [ctx.alice.address], sig
       );
       await expect(
-        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.bob.address)
+        ctx.sessionManager.connect(signer).validateLightweightSession(sid, ctx.sessionKey.address, ethers.parseEther("0.1"), ctx.bob.address, "0x")
       ).to.be.revertedWithCustomError(ctx.sessionManager, "TargetNotAllowed");
       await stopImpersonate(walletAddr);
     });
@@ -905,7 +905,7 @@ describe("SessionManager", function () {
   describe("WalletFactory Timelock", function () {
     it("Propose and accept", async function () {
       await ctx.sessionManager.connect(ctx.owner).proposeWalletFactory(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await ctx.sessionManager.connect(ctx.owner).acceptWalletFactory();
       expect(await ctx.sessionManager.walletFactory()).to.equal(ctx.alice.address);
@@ -949,20 +949,24 @@ describe("CredentialRegistry", function () {
   });
 
   describe("Root Management", function () {
-    it("Issuer updates active root", async function () {
+    it("Issuer updates active root (via 2-day timelock)", async function () {
       const r = ethers.keccak256(ethers.toUtf8Bytes("root"));
-      await expect(ctx.credentialRegistry.updateActiveRoot(r))
+      await ctx.credentialRegistry.proposeActiveRoot(r);
+      await time.increase(172800);
+      await expect(ctx.credentialRegistry.acceptActiveRoot())
         .to.emit(ctx.credentialRegistry, "ActiveRootUpdated");
       expect(await ctx.credentialRegistry.activeRoot()).to.equal(r);
     });
-    it("Issuer updates revoked root", async function () {
+    it("Issuer updates revoked root (via 2-day timelock)", async function () {
       const r = ethers.keccak256(ethers.toUtf8Bytes("revoked"));
-      await expect(ctx.credentialRegistry.updateRevokedSecretRoot(r))
+      await ctx.credentialRegistry.proposeRevokedSecretRoot(r);
+      await time.increase(172800);
+      await expect(ctx.credentialRegistry.acceptRevokedSecretRoot())
         .to.emit(ctx.credentialRegistry, "RevokedSecretRootUpdated");
       expect(await ctx.credentialRegistry.revokedSecretRoot()).to.equal(r);
     });
     it("Non-issuer cannot update root", async function () {
-      await expect(ctx.credentialRegistry.connect(ctx.attacker).updateActiveRoot(ethers.id("bad")))
+      await expect(ctx.credentialRegistry.connect(ctx.attacker).proposeActiveRoot(ethers.id("bad")))
         .to.be.revertedWithCustomError(ctx.credentialRegistry, "OnlyIssuer");
     });
   });
@@ -985,7 +989,7 @@ describe("CredentialRegistry", function () {
   describe("Pausable & UUPS", function () {
     it("Pauses root updates", async function () {
       await ctx.credentialRegistry.pause();
-      await expect(ctx.credentialRegistry.updateActiveRoot(ethers.id("r")))
+      await expect(ctx.credentialRegistry.proposeActiveRoot(ethers.id("r")))
         .to.be.revertedWithCustomError(ctx.credentialRegistry, "EnforcedPause");
     });
     it("Owner can upgrade", async function () {
@@ -1126,7 +1130,9 @@ describe("DelegationManager", function () {
     it("Emergency revoke all and re-authorize clears roots", async function () {
       const scopeHash = ethers.keccak256(ethers.toUtf8Bytes("s"));
       const root = ethers.keccak256(ethers.toUtf8Bytes("r"));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, scopeHash, root, 0);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, scopeHash, root, 0);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, scopeHash);
       expect((await ctx.delegationManager.getDelegationRoot(ctx.alice.address, scopeHash)).root).to.equal(root);
       await ctx.delegationManager.emergencyRevokeAll(ctx.alice.address);
       expect(await ctx.delegationManager.revokedDelegators(ctx.alice.address)).to.be.true;
@@ -1141,8 +1147,10 @@ describe("DelegationManager", function () {
     it("Delegator updates own root", async function () {
       const sh = ethers.keccak256(ethers.toUtf8Bytes("scope"));
       const root = ethers.keccak256(ethers.toUtf8Bytes("root"));
-      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, root, exp);
+      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, root, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       const info = await ctx.delegationManager.getDelegationRoot(ctx.alice.address, sh);
       expect(info.root).to.equal(root);
       expect(info.expiresAt).to.equal(exp);
@@ -1151,22 +1159,26 @@ describe("DelegationManager", function () {
       await ctx.delegationManager.setRootUpdater(ctx.rootUpdater.address, true);
       const sh = ethers.keccak256(ethers.toUtf8Bytes("scope"));
       const root = ethers.keccak256(ethers.toUtf8Bytes("root"));
-      await ctx.delegationManager.connect(ctx.rootUpdater).updateDelegationRoot(ctx.alice.address, sh, root, 0);
+      await ctx.delegationManager.connect(ctx.rootUpdater).proposeDelegationRoot(ctx.alice.address, sh, root, 0);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.rootUpdater).acceptDelegationRoot(ctx.alice.address, sh);
       expect((await ctx.delegationManager.getDelegationRoot(ctx.alice.address, sh)).root).to.equal(root);
     });
     it("Revoked delegator cannot update root", async function () {
       await ctx.delegationManager.emergencyRevokeAll(ctx.alice.address);
       await expect(
-        ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, ethers.ZeroHash, ethers.ZeroHash, 0)
+        ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, ethers.ZeroHash, ethers.ZeroHash, 0)
       ).to.be.revertedWithCustomError(ctx.delegationManager, "DelegatorHasBeenRevoked");
     });
     it("32-scope limit", async function () {
       for (let i = 0; i < 32; i++) {
         const sh = ethers.keccak256(ethers.toUtf8Bytes(`scope-${i}`));
-        await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, ethers.keccak256(ethers.toUtf8Bytes(`r-${i}`)), 0);
+        await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, ethers.keccak256(ethers.toUtf8Bytes(`r-${i}`)), 0);
+        await time.increase(172800);
+        await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       }
       await expect(
-        ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, ethers.keccak256(ethers.toUtf8Bytes("overflow")), ethers.keccak256(ethers.toUtf8Bytes("overflow-root")), 0)
+        ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, ethers.keccak256(ethers.toUtf8Bytes("overflow")), ethers.keccak256(ethers.toUtf8Bytes("overflow-root")), 0)
       ).to.be.revertedWithCustomError(ctx.delegationManager, "ScopeLimitExceeded");
     });
   });
@@ -1174,11 +1186,13 @@ describe("DelegationManager", function () {
   describe("Single-Hop Verification", function () {
     it("Verifies valid delegation", async function () {
       const sh = ethers.keccak256(ethers.toUtf8Bytes("vs"));
-      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
       const leaf = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.alice.address, ctx.sessionKey.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       expect(await ctx.delegationManager.connect(ctx.sessionKey).verifyDelegation.staticCall(leaf, [], ctx.alice.address, sh, exp, 10)).to.be.true;
     });
     it("Rejects expired root", async function () {
@@ -1187,17 +1201,21 @@ describe("DelegationManager", function () {
       const leaf = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.alice.address, ctx.sessionKey.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       await time.increase(10);
       expect(await ctx.delegationManager.connect(ctx.sessionKey).verifyDelegation.staticCall(leaf, [], ctx.alice.address, sh, exp, 10)).to.be.false;
     });
     it("Rejects revoked delegator", async function () {
       const sh = ethers.keccak256(ethers.toUtf8Bytes("rd"));
-      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
       const leaf = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.alice.address, ctx.sessionKey.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, leaf, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       await ctx.delegationManager.emergencyRevokeAll(ctx.alice.address);
       expect(await ctx.delegationManager.connect(ctx.sessionKey).verifyDelegation.staticCall(leaf, [], ctx.alice.address, sh, exp, 10)).to.be.false;
     });
@@ -1206,15 +1224,19 @@ describe("DelegationManager", function () {
   describe("Multi-Hop Chain Verification", function () {
     it("Verifies valid 2-hop chain", async function () {
       const sh = ethers.keccak256(ethers.toUtf8Bytes("chain"));
-      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
       const l1 = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.alice.address, ctx.sessionKey.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, l1, exp);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, l1, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       const l2 = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.sessionKey.address, ctx.attacker.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.sessionKey).updateDelegationRoot(ctx.sessionKey.address, sh, l2, exp);
+      await ctx.delegationManager.connect(ctx.sessionKey).proposeDelegationRoot(ctx.sessionKey.address, sh, l2, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.sessionKey).acceptDelegationRoot(ctx.sessionKey.address, sh);
       expect(await ctx.delegationManager.connect(ctx.attacker).verifyDelegationChain.staticCall(
         [l1, l2], [[], []], [ctx.alice.address, ctx.sessionKey.address],
         [ctx.sessionKey.address, ctx.attacker.address], [sh, sh], [exp, exp], [10, 10]
@@ -1226,15 +1248,19 @@ describe("DelegationManager", function () {
     });
     it("Rejects broken chain", async function () {
       const sh = ethers.keccak256(ethers.toUtf8Bytes("broken"));
-      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
       const l1 = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.alice.address, ctx.sessionKey.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.alice).updateDelegationRoot(ctx.alice.address, sh, l1, exp);
+      await ctx.delegationManager.connect(ctx.alice).proposeDelegationRoot(ctx.alice.address, sh, l1, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.alice).acceptDelegationRoot(ctx.alice.address, sh);
       const l2 = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
         ["address", "address", "bytes32", "uint64"], [ctx.attacker.address, ctx.attacker.address, sh, exp]
       ));
-      await ctx.delegationManager.connect(ctx.attacker).updateDelegationRoot(ctx.attacker.address, sh, l2, exp);
+      await ctx.delegationManager.connect(ctx.attacker).proposeDelegationRoot(ctx.attacker.address, sh, l2, exp);
+      await time.increase(172800);
+      await ctx.delegationManager.connect(ctx.attacker).acceptDelegationRoot(ctx.attacker.address, sh);
       expect(await ctx.delegationManager.connect(ctx.attacker).verifyDelegationChain.staticCall(
         [l1, l2], [[], []], [ctx.alice.address, ctx.attacker.address],
         [ctx.sessionKey.address, ctx.attacker.address], [sh, sh], [exp, exp], [10, 10]
@@ -1291,9 +1317,13 @@ describe("OrganizationRegistry + Anchor", function () {
     const addr = await ctx.orgRegistry.getCredentialAnchor(orgId);
     const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", addr);
     const root = ethers.keccak256(ethers.toUtf8Bytes("root"));
-    await expect(anchor.connect(ctx.alice).updateRoot(root)).to.emit(anchor, "RootUpdated");
+    await anchor.connect(ctx.alice).proposeRoot(root);
+    await time.increase(172800);
+    await expect(anchor.connect(ctx.alice).acceptRoot()).to.emit(anchor, "RootUpdated");
     expect(await anchor.currentRoot()).to.equal(root);
-    await anchor.connect(ctx.alice).updateRevokedRoot(ethers.keccak256(ethers.toUtf8Bytes("rev")));
+    await anchor.connect(ctx.alice).proposeRevokedRoot(ethers.keccak256(ethers.toUtf8Bytes("rev")));
+    await time.increase(172800);
+    await anchor.connect(ctx.alice).acceptRevokedRoot();
     await anchor.connect(ctx.alice).incrementEpoch();
     expect(await anchor.currentEpoch()).to.equal(1n);
     await anchor.connect(ctx.alice).setVisibility(1);
@@ -1305,7 +1335,7 @@ describe("OrganizationRegistry + Anchor", function () {
     await ctx.orgRegistry.registerOrganization(orgId, "Auth", ctx.alice.address);
     const addr = await ctx.orgRegistry.getCredentialAnchor(orgId);
     const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", addr);
-    await expect(anchor.connect(ctx.attacker).updateRoot(ethers.id("bad"))).to.be.reverted;
+    await expect(anchor.connect(ctx.attacker).proposeRoot(ethers.id("bad"))).to.be.reverted;
   });
   it("RootAlreadyCurrent reverts", async function () {
     const orgId = ethers.id("same");
@@ -1313,8 +1343,10 @@ describe("OrganizationRegistry + Anchor", function () {
     const addr = await ctx.orgRegistry.getCredentialAnchor(orgId);
     const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", addr);
     const root = ethers.keccak256(ethers.toUtf8Bytes("r"));
-    await anchor.connect(ctx.alice).updateRoot(root);
-    await expect(anchor.connect(ctx.alice).updateRoot(root)).to.be.revertedWithCustomError(anchor, "RootAlreadyCurrent");
+    await anchor.connect(ctx.alice).proposeRoot(root);
+    await time.increase(172800);
+    await anchor.connect(ctx.alice).acceptRoot();
+    await expect(anchor.connect(ctx.alice).proposeRoot(root)).to.be.revertedWithCustomError(anchor, "RootAlreadyCurrent");
   });
 });
 
@@ -1421,15 +1453,15 @@ describe("Cross-Contract Integration", function () {
 
     const s2 = await impersonateWallet(wAddr);
     expect(await ctx.sessionManager.connect(s2).validateSession.staticCall(
-      p.sessionId, ctx.sessionKey.address, 100n, ctx.alice.address
+      p.sessionId, ctx.sessionKey.address, 100n, ctx.alice.address, "0x"
     )).to.be.true;
     await stopImpersonate(wAddr);
 
     await ctx.sessionManager.connect(ctx.sessionKey).revokeSession(p.sessionId, wAddr);
     const s3 = await impersonateWallet(wAddr);
     await expect(ctx.sessionManager.connect(s3).validateSession(
-      p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address
-    )).to.be.revertedWithCustomError(ctx.sessionManager, "SessionIsRevoked");
+      p.sessionId, ctx.sessionKey.address, 1n, ctx.alice.address, "0x")
+    ).to.be.revertedWithCustomError(ctx.sessionManager, "SessionIsRevoked");
     await stopImpersonate(wAddr);
 
     expect(await ctx.agentIdentity.isActive(id)).to.be.true;
@@ -1437,7 +1469,7 @@ describe("Cross-Contract Integration", function () {
 
   it("Capability and delegation verification", async function () {
     const capId = ethers.id("int-cap");
-    const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+    const exp = BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
     await ctx.capabilityRegistry.registerCapability(capId, "act", exp);
     const leaf = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
       ["bytes32", "address", "address", "bytes32", "uint64"],
@@ -1450,7 +1482,9 @@ describe("Cross-Contract Integration", function () {
     const dLeaf = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
       ["address", "address", "bytes32", "uint64"], [ctx.owner.address, ctx.sessionKey.address, sh, exp]
     ));
-    await ctx.delegationManager.connect(ctx.owner).updateDelegationRoot(ctx.owner.address, sh, dLeaf, exp);
+    await ctx.delegationManager.connect(ctx.owner).proposeDelegationRoot(ctx.owner.address, sh, dLeaf, exp);
+    await time.increase(172800);
+    await ctx.delegationManager.connect(ctx.owner).acceptDelegationRoot(ctx.owner.address, sh);
     expect(await ctx.delegationManager.connect(ctx.sessionKey).verifyDelegation.staticCall(dLeaf, [], ctx.owner.address, sh, exp, 10)).to.be.true;
   });
 
@@ -1460,7 +1494,9 @@ describe("Cross-Contract Integration", function () {
     const addr = await ctx.orgRegistry.getCredentialAnchor(orgId);
     const anchor = await ethers.getContractAt("OrganizationCredentialAnchor", addr);
     const root = ethers.keccak256(ethers.toUtf8Bytes("org-root"));
-    await anchor.connect(ctx.alice).updateRoot(root);
+    await anchor.connect(ctx.alice).proposeRoot(root);
+    await time.increase(172800);
+    await anchor.connect(ctx.alice).acceptRoot();
     expect(await anchor.currentRoot()).to.equal(root);
   });
 });

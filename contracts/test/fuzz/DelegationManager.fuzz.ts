@@ -44,7 +44,10 @@ describe("Fuzz — DelegationManager", function () {
     for (let i = 0; i < 100; i++) {
       const root = randBytes32();
       const expiresAt = BigInt(Math.floor(Date.now() / 1000) + 86400);
-      await delMgr.updateDelegationRoot(owner.address, scopeHash, root, expiresAt);
+      await delMgr.proposeDelegationRoot(owner.address, scopeHash, root, expiresAt);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await delMgr.acceptDelegationRoot(owner.address, scopeHash);
       const stored = await delMgr.getDelegationRoot(owner.address, scopeHash);
       expect(stored.root).to.equal(root);
     }
@@ -54,7 +57,7 @@ describe("Fuzz — DelegationManager", function () {
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes("scope"));
     await delMgr.emergencyRevokeAll(owner.address);
     await expect(
-      delMgr.updateDelegationRoot(owner.address, scopeHash, randBytes32(), 0)
+      delMgr.proposeDelegationRoot(owner.address, scopeHash, randBytes32(), 0)
     ).to.be.reverted;
   });
 
@@ -64,7 +67,7 @@ describe("Fuzz — DelegationManager", function () {
       const leaf = randBytes32();
       leaves.push(leaf);
       await delMgr.revokeDelegation(leaf, owner.address);
-      expect(await delMgr.isRevoked(leaf)).to.be.true;
+      expect(await delMgr.isRevoked(owner.address, leaf)).to.be.true;
     }
     for (const leaf of leaves) {
       await expect(delMgr.revokeDelegation(leaf, owner.address)).to.be.reverted;
@@ -86,11 +89,14 @@ describe("Fuzz — DelegationManager", function () {
   it("Fuzz: scope limit enforcement", async function () {
     for (let i = 0; i < 32; i++) {
       const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(`scope-${i}`));
-      await delMgr.updateDelegationRoot(owner.address, scopeHash, randBytes32(), 0);
+      await delMgr.proposeDelegationRoot(owner.address, scopeHash, randBytes32(), 0);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await delMgr.acceptDelegationRoot(owner.address, scopeHash);
     }
     const extraScope = ethers.keccak256(ethers.toUtf8Bytes("extra-scope"));
     await expect(
-      delMgr.updateDelegationRoot(owner.address, extraScope, randBytes32(), 0)
+      delMgr.proposeDelegationRoot(owner.address, extraScope, randBytes32(), 0)
     ).to.be.reverted;
   });
 });

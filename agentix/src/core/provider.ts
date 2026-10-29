@@ -106,44 +106,67 @@ export async function checkRpcConnection(): Promise<{ connected: boolean; chainI
   const primaryUrl = config.rpcUrl;
   const fallbackUrl = _getFallbackUrl();
 
+  // Every provider created here is single-use for this probe. An ethers
+  // JsonRpcProvider keeps retrying network detection on a 1s loop ("retry
+  // in 1s") for as long as it lives, which holds the Node event loop open
+  // forever after the probe returns — `init --rpc` used to report
+  // "Initialization Complete" and then never exit. Destroy every created
+  // provider once the probe is done, on all paths.
+  const created: any[] = [];
+  const destroyAll = () => {
+    for (const p of created) {
+      try { p.destroy(); } catch {}
+    }
+  };
+
+  let result: { connected: boolean; chainId?: number; blockNumber?: number; error?: string; rpcUrl?: string } | undefined;
+
   // Try primary
   if (primaryUrl) {
     try {
       const provider = _createProvider(primaryUrl);
+      created.push(provider);
       const [chainId, blockNumber] = await Promise.all([
         provider.getNetwork().then((n) => Number(n.chainId)),
         provider.getBlockNumber(),
       ]);
       resetPrimaryFailure();
-      return { connected: true, chainId, blockNumber, rpcUrl: primaryUrl };
+      result = { connected: true, chainId, blockNumber, rpcUrl: primaryUrl };
     } catch (err: any) {
       logger.warn("provider", `Primary RPC failed: ${err.message}`);
     }
   }
 
   // Try each fallback in the rotation list until one responds.
-  const fallbackUrls = _getFallbackUrls();
-  if (fallbackUrl && !fallbackUrls.includes(fallbackUrl)) fallbackUrls.push(fallbackUrl);
-  let lastErr = "";
-  for (const url of fallbackUrls) {
-    try {
-      const fallback = _createProvider(url);
-      const [chainId, blockNumber] = await Promise.all([
-        fallback.getNetwork().then((n) => Number(n.chainId)),
-        fallback.getBlockNumber(),
-      ]);
-      markPrimaryFailed();
-      return { connected: true, chainId, blockNumber, rpcUrl: url };
-    } catch (err: any) {
-      lastErr = err.message;
-      logger.warn("provider", `Fallback RPC failed (${url}): ${err.message}`);
+  if (!result) {
+    const fallbackUrls = _getFallbackUrls();
+    if (fallbackUrl && !fallbackUrls.includes(fallbackUrl)) fallbackUrls.push(fallbackUrl);
+    let lastErr = "";
+    for (const url of fallbackUrls) {
+      try {
+        const fallback = _createProvider(url);
+        created.push(fallback);
+        const [chainId, blockNumber] = await Promise.all([
+          fallback.getNetwork().then((n) => Number(n.chainId)),
+          fallback.getBlockNumber(),
+        ]);
+        markPrimaryFailed();
+        result = { connected: true, chainId, blockNumber, rpcUrl: url };
+        break;
+      } catch (err: any) {
+        lastErr = err.message;
+        logger.warn("provider", `Fallback RPC failed (${url}): ${err.message}`);
+      }
+    }
+    if (!result) {
+      result = fallbackUrls.length
+        ? { connected: false, error: `Primary failed; all ${fallbackUrls.length} fallback(s) failed: ${lastErr}` }
+        : { connected: false, error: "No RPC URL configured" };
     }
   }
 
-  if (fallbackUrls.length) {
-    return { connected: false, error: `Primary failed; all ${fallbackUrls.length} fallback(s) failed: ${lastErr}` };
-  }
-  return { connected: false, error: "No RPC URL configured" };
+  destroyAll();
+  return result;
 }
 
 export async function getBalance(address: string): Promise<string> {

@@ -10,6 +10,7 @@ import { getSessionService } from "../../packages/services/session-service";
 import { getProofService } from "../../packages/services/proof-service";
 import { BackupEngine } from "../../packages/core/backup-engine";
 import { loadConfig } from "../core/config";
+import { LOCAL_TOKEN_HEADER, verifyLocalToken } from "../core/local-token";
 import { join } from "path";
 import type { ZodType } from "zod";
 import {
@@ -32,17 +33,50 @@ const PREFERRED_PORT = parseInt(
   10
 );
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
-const HOST = "127.0.0.1"; // Localhost only — no auth needed
+// Localhost binding is NOT authentication (R-5): loopback is reachable from
+// any browser tab, local process, and forwarded port. State-changing routes
+// additionally require the per-run localhost token (see local-token.ts).
+const HOST = "127.0.0.1";
+
+/**
+ * CORS allowlist (R-5). The pre-fix server answered every response with
+ * `Access-Control-Allow-Origin: *`, so any website could read API responses
+ * from a victim's browser (modulo the browser's Private Network Access
+ * check, which is an accident of browser policy, not a control here).
+ * Now only listed dashboard origins are reflected, and only on responses
+ * to requests that actually carry such an Origin. Same-origin requests
+ * (the dashboard's default proxied path) need no CORS headers at all.
+ * Override with AGENTIX_DASHBOARD_ORIGINS (comma-separated) if the
+ * dashboard runs on a different origin.
+ */
+const CORS_ALLOWLIST = (process.env.AGENTIX_DASHBOARD_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function corsHeadersFor(req: http.IncomingMessage): Record<string, string> {
+  const origin = req.headers.origin;
+  if (typeof origin === "string" && CORS_ALLOWLIST.includes(origin)) {
+    return {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": `Content-Type, ${LOCAL_TOKEN_HEADER}`,
+      Vary: "Origin",
+    };
+  }
+  return {};
+}
 // The port we actually bound to (resolved at startup). Declared here so request
 // handlers can reference it; assigned in the async bootstrap block below.
 let BOUND_PORT = PREFERRED_PORT;
 
 function json(res: http.ServerResponse, data: any, status = 200) {
+  // No CORS headers here by design (R-5): the request handler sets a
+  // reflected allowlisted Origin per request via res.setHeader before
+  // dispatch. A blanket `Access-Control-Allow-Origin: *` on every response
+  // used to let any website read API responses.
   res.writeHead(status, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(JSON.stringify(data));
 }
@@ -84,18 +118,58 @@ function validateBody<T>(res: http.ServerResponse, schema: ZodType<T>, body: unk
 
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
-    res.writeHead(200, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
+    // Preflight: reflect only allowlisted origins (R-5). A preflight from
+    // any other origin gets no CORS headers, so the browser blocks the
+    // follow-up request. Non-browser OPTIONS (no Origin) needs no headers.
+    const cors = corsHeadersFor(req);
+    if (req.headers.origin && Object.keys(cors).length === 0) {
+      res.writeHead(403);
+      return res.end();
+    }
+    res.writeHead(200, cors);
     return res.end();
   }
 
   const url = new URL(req.url || "/", `http://${HOST}:${BOUND_PORT}`);
   const path = url.pathname;
 
+  // Per-request CORS reflection for allowlisted dashboard origins. Applied
+  // via setHeader (not writeHead) so json() responses inherit it without
+  // threading an origin through every handler.
+  const cors = corsHeadersFor(req);
+  for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
+
   try {
+    // ── Localhost token gate (R-5, R-10) ─────────────────────────────
+    // Every non-GET route requires the per-run X-Agentix-Token header, and
+    // so do the sensitive GETs that enable the documented exploits
+    // (session enumeration for the R-8 relay, payment policy, runtime
+    // config, proof artifact paths, policy reads). Reads of public-ish
+    // state (health, events, actions log) stay open.
+    // EXCEPTION: POST /api/bundler/send enforces its own caller-identity
+    // rule in its handler (R-8: caller-supplied session key = proof of
+    // possession, else the localhost token for stored-key relay) instead
+    // of the blanket token rule, because agents holding a session key but
+    // not the token are the relay's legitimate callers.
+    const SENSITIVE_GETS = new Set([
+      "/api/sessions/all",
+      "/api/x402/policy",
+      "/api/config",
+      "/api/proofs/artifacts",
+    ]);
+    const isSensitiveGet =
+      req.method === "GET" &&
+      (SENSITIVE_GETS.has(path) || path.startsWith("/api/policy/") || path.startsWith("/api/sessions"));
+    const needsToken =
+      (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && path !== "/api/bundler/send") ||
+      isSensitiveGet;
+    if (needsToken && !verifyLocalToken(req.headers[LOCAL_TOKEN_HEADER.toLowerCase()])) {
+      return json(res, {
+        success: false,
+        error: "Local token required. This route requires the per-run X-Agentix-Token header — see the server startup log or AGENTIX_HOME/.local-token (dashboard: paste it once in Settings).",
+      }, 403);
+    }
+
     // ── Health & Status ──────────────────────────────────────────────
     if (path === "/api/health") {
       return json(res, { status: "ok", version: "1.0.0", uptime: process.uptime(), port: BOUND_PORT });
@@ -322,7 +396,10 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const { getCompilerGateway } = await import("../compiler-gateway");
       const gateway = getCompilerGateway();
-      const result = await gateway.executeIntent(body.action, body.params, 'rest', body.context);
+      // No body.context pass-through (R-2): the gateway takes its wallet
+      // scope from params only. A caller-supplied context used to let a
+      // requester choose which wallet's policy applied.
+      const result = await gateway.executeIntent(body.action, body.params, 'rest');
       return json(res, result, result.success ? 200 : 400);
     }
 
@@ -368,8 +445,45 @@ const server = http.createServer(async (req, res) => {
 
     if (path === "/api/policy" && req.method === "POST") {
       const body = await parseBody(req);
-      const { setOwnerPolicy } = await import("../core/owner-policy");
-      const policy = await setOwnerPolicy(body);
+      const { setOwnerPolicy, verifyPolicySignature } = await import("../core/owner-policy");
+      // R-3: policy-set is an owner act, and the stored signedBy/signature
+      // fields were NEVER verified — anyone could overwrite any wallet's
+      // policy and then spend within it. Now the caller must present a
+      // valid EIP-191 signature over the canonical policy payload by the
+      // wallet's registered owner (wallets table). All fields are
+      // required: the signature must cover exactly what is stored, so no
+      // server-side defaulting happens between verification and storage.
+      // An unregistered wallet has no owner on record and cannot set a
+      // policy (fail closed). The stored signedBy is the RECOVERED signer,
+      // never the caller's claim. (Writes are additionally token-gated by
+      // the global gate above.)
+      const required = ["walletAddress", "dailyLimit", "perTxLimit", "allowedTargets", "allowedActions", "forbiddenActions", "sessionExpiry", "autoCreateSessions"];
+      const missing = required.filter((k) => body[k] === undefined);
+      if (missing.length > 0) {
+        return json(res, { success: false, error: `Missing policy fields: ${missing.join(", ")} (all fields are required so the owner signature covers exactly what is stored)` }, 400);
+      }
+      const { runSingle } = await import("../core/database");
+      const ownerRow = runSingle<{ owner_address: string }>(
+        "SELECT owner_address FROM wallets WHERE wallet_address = ?",
+        body.walletAddress
+      );
+      if (!ownerRow?.owner_address) {
+        return json(res, { success: false, error: "Cannot verify policy-set signature: wallet is not registered locally (no owner on record)." }, 403);
+      }
+      const policyPayload = {
+        walletAddress: body.walletAddress,
+        dailyLimit: body.dailyLimit,
+        perTxLimit: body.perTxLimit,
+        allowedTargets: body.allowedTargets,
+        allowedActions: body.allowedActions,
+        forbiddenActions: body.forbiddenActions,
+        sessionExpiry: body.sessionExpiry,
+        autoCreateSessions: body.autoCreateSessions,
+      };
+      if (!verifyPolicySignature(policyPayload, body.signature, ownerRow.owner_address)) {
+        return json(res, { success: false, error: "Policy-set signature invalid: the EIP-191 signature over the canonical policy payload must come from the wallet's registered owner." }, 403);
+      }
+      const policy = await setOwnerPolicy({ ...policyPayload, signedBy: ownerRow.owner_address, signature: body.signature });
       return json(res, policy, 201);
     }
 
@@ -463,7 +577,11 @@ const server = http.createServer(async (req, res) => {
       return json(res, { success: true, data: tx.data, value: tx.value, chainId: tx.chainId });
     }
 
-    // ── Credential Root Update ───────────────────────────────────────
+    // ── Credential Root Proposal / Accept (2-day timelock) ──────────
+    // Root changes are PROPOSE + ACCEPT since the C-5 fix: proposing does
+    // NOT change the active root. These endpoints must never report a
+    // propose as "root updated" — the response says "proposed" and names
+    // the accept step explicitly.
     if (path === "/api/credentials/update-root" && req.method === "POST") {
       const body = await parseBody(req);
       const adapter = await import("../blockchain/adapter");
@@ -477,8 +595,33 @@ const server = http.createServer(async (req, res) => {
             skipped: true,
           }, 400);
         }
-        const result = await adapter.sendRootUpdate(body.root);
-        return json(res, { success: true, ...result, root: body.root });
+        const result = await adapter.sendRootProposal(body.root);
+        return json(res, {
+          success: true,
+          status: "proposed",
+          ...result,
+          root: body.root,
+          message: "Root proposed on-chain. It becomes effective only after the 2-day timelock AND a POST to /api/credentials/accept-root.",
+        });
+      } catch (e: any) {
+        return json(res, { success: false, error: e.message }, 400);
+      }
+    }
+
+    if (path === "/api/credentials/accept-root" && req.method === "POST") {
+      const adapter = await import("../blockchain/adapter");
+      try {
+        const signerAddr = adapter.getSignerAddress();
+        const authorized = await adapter.isIssuer(signerAddr);
+        if (!authorized) {
+          return json(res, {
+            success: false,
+            error: `Backend signer ${signerAddr} is not an issuer. Add it via: credReg.addIssuer(${signerAddr})`,
+            skipped: true,
+          }, 400);
+        }
+        const result = await adapter.sendRootAccept();
+        return json(res, { success: true, status: "accepted", ...result });
       } catch (e: any) {
         return json(res, { success: false, error: e.message }, 400);
       }
@@ -498,6 +641,27 @@ const server = http.createServer(async (req, res) => {
       const { bundleUserOp, buildSessionUserOp } = await import("./bundler");
       const { assessBundlerOp } = await import("./bundler-risk-gate");
       const { ethers } = await import("ethers");
+
+      // ── R-8 CALLER IDENTITY — FIRST, before assessment ─────────────
+      // This route is exempt from the blanket localhost token gate because
+      // agents holding a session key (but not the token) are its legitimate
+      // callers. The binding is therefore enforced HERE, before anything
+      // else: a caller-supplied agentPrivateKey IS proof of possession
+      // (they hold the key); a stored-key relay with no supplied key
+      // requires the localhost token (owner-equivalent). A bare sessionId
+      // from any other caller is rejected — knowing a sessionId is not
+      // proof of ownership — and checking identity first also avoids
+      // oracling session existence through the gate's error messages.
+      // Caller-supplied keys are used transiently and never persisted.
+      let agentPrivateKey: string | undefined = body.agentPrivateKey;
+      if (!agentPrivateKey && body.userOp.sessionId) {
+        if (!verifyLocalToken(req.headers[LOCAL_TOKEN_HEADER.toLowerCase()])) {
+          return json(res, {
+            success: false,
+            error: "Stored-key relay requires the localhost token: a bare sessionId is not proof of session ownership. Supply agentPrivateKey (proof of possession) or the X-Agentix-Token header.",
+          }, 403);
+        }
+      }
 
       // ── RISK ENFORCEMENT GATE ────────────────────────────────────
       // The relay used to execute any session-signed op with no safety check,
@@ -527,7 +691,6 @@ const server = http.createServer(async (req, res) => {
       // dedicated key from the encrypted keystore and signs autonomously — the
       // client never handles a private key. Fallback: an external/self-custody
       // agent may still pass agentPrivateKey directly.
-      let agentPrivateKey: string | undefined = body.agentPrivateKey;
       if (!agentPrivateKey && body.userOp.sessionId) {
         const { loadSessionKey } = await import("../core/session-keystore");
         const stored = loadSessionKey(body.userOp.sessionId);
@@ -682,7 +845,11 @@ const server = http.createServer(async (req, res) => {
         sessionManagerAddress: config.contracts.sessionManager,
         // Dedicated session key — pass sessionKeyAddress back into create-lightweight-tx.
         sessionKeyAddress,
-        sessionPrivateKey: genKey ? genKey.privateKey : undefined,
+        // R-13: the private key is returned ONLY for an explicit
+        // self-custody caller (selfCustody:true). Otherwise the runtime
+        // holds the encrypted key and signs on the session's behalf — the
+        // dashboard never needed this field (it uses sessionKeyAddress).
+        sessionPrivateKey: body.selfCustody === true && genKey ? genKey.privateKey : undefined,
         runtimeCanSign: !!genKey,
       });
     }
@@ -760,6 +927,20 @@ const server = http.createServer(async (req, res) => {
         proof: proofResult.calldata,
       });
 
+      // 4b. Optional token allowlist (C-1 runtime half). Standard sessions
+      // have no allowlist parameter at creation, and token selectors are
+      // DENIED on-chain unless the token contract is allowlisted. When the
+      // caller supplies allowedTargets, return a second prepared tx —
+      // wallet.execute(setSessionTargets) — that the wallet owner must
+      // send AFTER the session creation confirms, before any token
+      // payment is attempted. Without this step, token payments revert.
+      const requestedTargets: string[] = Array.isArray(body.allowedTargets)
+        ? body.allowedTargets.filter((t: unknown) => typeof t === "string" && t)
+        : [];
+      const setTargetsTx = requestedTargets.length
+        ? adapter.encodeSetSessionTargets(body.walletAddress, encoded.sessionId, requestedTargets)
+        : undefined;
+
       // 5. Persist the encrypted private key bound to this session so the runtime
       //    can sign on the agent's behalf. Only when we generated it ourselves.
       if (generatedKey) {
@@ -780,11 +961,17 @@ const server = http.createServer(async (req, res) => {
         proofHash: proofResult.proofHash,
         activeRoot: proofResult.activeRoot,
         revokedRoot: proofResult.revokedRoot,
-        // The dedicated session key. Address is registered on-chain; the private
-        // key is returned ONCE for a self-custody agent (also stored encrypted so
-        // the runtime can sign). Null when the caller supplied their own key.
+        // C-1: present only when allowedTargets were supplied. The owner
+        // must relay this AFTER the session creation confirms; until then
+        // token transfers from this session revert on-chain.
+        setTargetsTx,
+        setTargetsNote: setTargetsTx
+          ? "Send setTargetsTx (from the wallet owner) after the session creation confirms, before any token payment."
+          : "No allowedTargets supplied: this standard session cannot move tokens until the owner sends wallet.execute(setSessionTargets).",
+        // R-13: as above — the private key is returned ONLY for an explicit
+        // self-custody caller. The runtime holds the encrypted key otherwise.
         sessionKeyAddress,
-        sessionPrivateKey: generatedKey ? generatedKey.privateKey : undefined,
+        sessionPrivateKey: body.selfCustody === true && generatedKey ? generatedKey.privateKey : undefined,
         runtimeCanSign: !!generatedKey,
       });
     }
@@ -1209,7 +1396,13 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/backups" && req.method === "POST") {
       const config = loadConfig();
       const engine = new BackupEngine(config.backup.path);
-      const body = await parseBody(req);
+      const raw = await parseBody(req);
+      // Item 21: backups now validates its body (BackupCreateSchema is
+      // all-optional, so this cannot reject a legitimate caller — it only
+      // rejects wrong-typed fields).
+      const { BackupCreateSchema } = await import("../../packages/shared/schemas");
+      const body = validateBody(res, BackupCreateSchema, raw);
+      if (!body) return;
       const backup = engine.create(body.description);
       return json(res, backup, 201);
     }
@@ -1227,14 +1420,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/x402/policy" && req.method === "GET") {
-      const { getPaymentPolicy } = await import("../core/x402-client");
-      return json(res, getPaymentPolicy());
+      // R-7: NEVER return the session private key. The public view reports
+      // only whether a key is stored; the key itself is never serialized.
+      const { getPublicPaymentPolicy } = await import("../core/x402-client");
+      return json(res, getPublicPaymentPolicy());
     }
 
     if (path === "/api/x402/policy" && req.method === "POST") {
       const body = await parseBody(req);
-      const { savePaymentPolicy } = await import("../core/x402-client");
-      savePaymentPolicy(body);
+      const { savePaymentPolicy, getPaymentPolicy } = await import("../core/x402-client");
+      // R-7 consequence: since GET no longer returns the key, a dashboard
+      // save that omits it must NOT blank the stored key. An absent/empty
+      // sessionKey preserves the stored one; only an explicitly supplied
+      // non-empty key overwrites it. (Writes are already token-gated by
+      // the global gate above.)
+      const existing = getPaymentPolicy();
+      const merged = { ...body };
+      if (!merged.sessionKey && existing.sessionKey) merged.sessionKey = existing.sessionKey;
+      savePaymentPolicy(merged);
       return json(res, { success: true });
     }
 
@@ -1677,6 +1880,14 @@ const server = http.createServer(async (req, res) => {
 // port to the runtime manifest so the dashboard (and any other local client)
 // can find the API without a hardcoded port.
 (async () => {
+  // Per-run localhost token (R-5): generated fresh every boot, printed once
+  // here so the owner can paste it into the dashboard Settings token field.
+  // It is also written 0600 to AGENTIX_HOME/.local-token for local clients.
+  const { ensureLocalToken, getLocalTokenPath } = await import("../core/local-token");
+  const localToken = ensureLocalToken();
+  console.log(`AgentIX API local token (per-run, required on state-changing routes): ${localToken}`);
+  console.log(`(Also written to ${getLocalTokenPath()}; the dashboard Settings page accepts it.)`);
+
   const { findFreePort, writeRuntimeManifest } = await import("../core/ports");
   try {
     BOUND_PORT = await findFreePort(PREFERRED_PORT, HOST);

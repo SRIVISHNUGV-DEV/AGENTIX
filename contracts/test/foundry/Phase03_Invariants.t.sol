@@ -47,9 +47,9 @@ contract Phase03_Invariants is AuditHarness {
 
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -66,9 +66,9 @@ contract Phase03_Invariants is AuditHarness {
 
         vm.startPrank(w);
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+        , "");
         assertFalse(ok2);
         vm.stopPrank();
     }
@@ -113,24 +113,24 @@ contract Phase03_Invariants is AuditHarness {
 
         vm.startPrank(w);
         (bool ok1,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.4 ether, address(0xBEEF)
-        ));
+        , "");
         require(ok1);
 
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.2 ether, address(0xBEEF)
-        ));
+        , "");
         assertFalse(ok2);
         vm.stopPrank();
 
         vm.warp(block.timestamp + 1 days);
         vm.startPrank(w);
         (bool ok3,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.3 ether, address(0xBEEF)
-        ));
+        , "");
         require(ok3);
         vm.stopPrank();
 
@@ -163,9 +163,9 @@ contract Phase03_Invariants is AuditHarness {
 
         vm.startPrank(w);
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)",
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)",
             sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+        , "");
         assertFalse(ok2);
         vm.stopPrank();
     }

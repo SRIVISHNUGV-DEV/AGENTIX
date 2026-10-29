@@ -29,8 +29,8 @@ contract Phase09_WalletAbuse is AuditHarness {
         vm.warp(block.timestamp + 2 hours);
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -44,8 +44,8 @@ contract Phase09_WalletAbuse is AuditHarness {
         sm.call(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }

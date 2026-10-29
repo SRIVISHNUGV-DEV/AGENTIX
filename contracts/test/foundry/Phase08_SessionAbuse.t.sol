@@ -54,8 +54,8 @@ contract Phase08_SessionAbuse is AuditHarness {
         _createLightSession(w1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w2);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -66,16 +66,16 @@ contract Phase08_SessionAbuse is AuditHarness {
         bytes32 sid = keccak256("accum");
         _createLightSession(w, sid, sessionKey1, 1 ether, 1000, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w);
-        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
-        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
+        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.3 ether, address(0xBEEF), "");
+        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.3 ether, address(0xBEEF), "");
         (,,,,, uint256 dSpend,,) = _getLightSession(sid);
         assertEq(dSpend, 0.6 ether);
-        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
+        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.3 ether, address(0xBEEF), "");
         (,,,,, dSpend,,) = _getLightSession(sid);
         assertEq(dSpend, 0.9 ether);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.2 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.2 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -87,8 +87,8 @@ contract Phase08_SessionAbuse is AuditHarness {
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey2, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey2, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -120,11 +120,11 @@ contract Phase08_SessionAbuse is AuditHarness {
         bytes32 sid = keccak256("revoke-during");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w);
-        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)));
+        _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.1 ether, address(0xBEEF), "");
         _smCall(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }

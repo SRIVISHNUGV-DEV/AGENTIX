@@ -11,7 +11,12 @@ export class DelegationModule {
     private readonly db: Database,
   ) {}
 
-  async updateRoot(
+  /**
+   * Propose a new delegation root for (delegator, scopeHash). This does NOT
+   * update the root: it becomes effective only after the contract's 2-day
+   * timelock AND an acceptRoot() call. Never report a propose as "root updated".
+   */
+  async proposeRoot(
     delegator: string, scopeHash: string, newRoot: string, expiresAt: number,
     options?: TxOptions
   ): Promise<TransactionResult> {
@@ -20,8 +25,36 @@ export class DelegationModule {
     assertNonZero(newRoot, 'newRoot');
     const dm = this.contracts.send('DelegationManager');
     return this.tx.send(
-      () => dm.updateDelegationRoot(delegator, scopeHash, newRoot, expiresAt),
-      { description: 'Update delegation root for ' + delegator, ...options }
+      () => dm.proposeDelegationRoot(delegator, scopeHash, newRoot, expiresAt),
+      { description: 'Propose delegation root for ' + delegator + ' (effective after 2-day timelock + accept)', ...options }
+    );
+  }
+
+  /** Complete a pending delegation-root proposal after the 2-day timelock. Reverts before the delay (TimelockNotReady). */
+  async acceptRoot(
+    delegator: string, scopeHash: string,
+    options?: TxOptions
+  ): Promise<TransactionResult> {
+    assertAddress(delegator, 'delegator');
+    assertNonZero(scopeHash, 'scopeHash');
+    const dm = this.contracts.send('DelegationManager');
+    return this.tx.send(
+      () => dm.acceptDelegationRoot(delegator, scopeHash),
+      { description: 'Accept pending delegation root for ' + delegator, ...options }
+    );
+  }
+
+  /** Cancel a pending delegation-root proposal. */
+  async cancelRoot(
+    delegator: string, scopeHash: string,
+    options?: TxOptions
+  ): Promise<TransactionResult> {
+    assertAddress(delegator, 'delegator');
+    assertNonZero(scopeHash, 'scopeHash');
+    const dm = this.contracts.send('DelegationManager');
+    return this.tx.send(
+      () => dm.cancelDelegationRoot(delegator, scopeHash),
+      { description: 'Cancel pending delegation root for ' + delegator, ...options }
     );
   }
 
@@ -43,9 +76,17 @@ export class DelegationModule {
     return { root, expiresAt: Number(expiresAt), createdAt: Number(createdAt) };
   }
 
-  async isRevoked(leafHash: string): Promise<boolean> {
+  /**
+   * Is the leaf revoked FOR THIS DELEGATOR? Revocations are namespaced per
+   * delegator since the C-3 fix: the same leaf hash under another delegator
+   * is a different revocation. Callers must pass the delegator whose tree
+   * the leaf belongs to — a 1-arg call cannot answer this question.
+   */
+  async isRevoked(delegator: string, leafHash: string): Promise<boolean> {
+    assertAddress(delegator, 'delegator');
+    assertNonZero(leafHash, 'leafHash');
     const dm = this.contracts.get('DelegationManager');
-    return await dm.isRevoked(leafHash);
+    return await dm.isRevoked(delegator, leafHash);
   }
 
   async verify(

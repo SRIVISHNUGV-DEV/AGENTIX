@@ -204,7 +204,7 @@ describe("OrganizationLayer — Unit & Security", function () {
     it("Should set a new credential anchor via timelock", async function () {
       const newAnchorAddr = await newAnchorImpl.getAddress();
       await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await orgRegistry.acceptCredentialAnchor(ORG_ID);
       const org = await orgRegistry.getOrganization(ORG_ID);
@@ -215,7 +215,7 @@ describe("OrganizationLayer — Unit & Security", function () {
       const org = await orgRegistry.getOrganization(ORG_ID);
       const newAnchorAddr = await newAnchorImpl.getAddress();
       await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await expect(orgRegistry.acceptCredentialAnchor(ORG_ID))
         .to.emit(orgRegistry, "CredentialAnchorUpdated")
@@ -335,58 +335,79 @@ describe("OrganizationLayer — Unit & Security", function () {
     });
 
     describe("Root Updates", function () {
-      it("Should update root", async function () {
+      it("Should update root (via 2-day timelock)", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
-        await anchor.connect(orgOwner).updateRoot(newRoot);
+        await anchor.connect(orgOwner).proposeRoot(newRoot);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRoot();
         expect(await anchor.currentRoot()).to.equal(newRoot);
       });
 
       it("Should emit RootUpdated event", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
-        await expect(anchor.connect(orgOwner).updateRoot(newRoot))
+        await anchor.connect(orgOwner).proposeRoot(newRoot);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await expect(anchor.connect(orgOwner).acceptRoot())
           .to.emit(anchor, "RootUpdated")
           .withArgs(ORG_ID, ethers.ZeroHash, newRoot);
       });
 
       it("Should reject duplicate root", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
-        await anchor.connect(orgOwner).updateRoot(newRoot);
-        await expect(anchor.connect(orgOwner).updateRoot(newRoot))
+        await anchor.connect(orgOwner).proposeRoot(newRoot);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRoot();
+        await expect(anchor.connect(orgOwner).proposeRoot(newRoot))
           .to.be.revertedWithCustomError(anchor, "RootAlreadyCurrent");
       });
 
       it("Should allow root update after epoch change", async function () {
         const root1 = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
-        await anchor.connect(orgOwner).updateRoot(root1);
+        await anchor.connect(orgOwner).proposeRoot(root1);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRoot();
         await anchor.connect(orgOwner).incrementEpoch();
         const root2 = ethers.keccak256(ethers.toUtf8Bytes("root-2"));
-        await anchor.connect(orgOwner).updateRoot(root2);
+        await anchor.connect(orgOwner).proposeRoot(root2);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRoot();
         expect(await anchor.currentRoot()).to.equal(root2);
       });
 
       it("Should prevent non-owner from updating root", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
-        await expect(anchor.connect(alice).updateRoot(newRoot)).to.be.reverted;
+        await expect(anchor.connect(alice).proposeRoot(newRoot)).to.be.reverted;
       });
     });
 
     describe("Revoked Root Updates", function () {
-      it("Should update revoked root", async function () {
+      it("Should update revoked root (via 2-day timelock)", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("revoked-1"));
-        await anchor.connect(orgOwner).updateRevokedRoot(newRoot);
+        await anchor.connect(orgOwner).proposeRevokedRoot(newRoot);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRevokedRoot();
         expect(await anchor.revokedRoot()).to.equal(newRoot);
       });
 
       it("Should emit RevokedRootUpdated event", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("revoked-1"));
-        await expect(anchor.connect(orgOwner).updateRevokedRoot(newRoot))
+        await anchor.connect(orgOwner).proposeRevokedRoot(newRoot);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await expect(anchor.connect(orgOwner).acceptRevokedRoot())
           .to.emit(anchor, "RevokedRootUpdated")
           .withArgs(ORG_ID, ethers.ZeroHash, newRoot);
       });
 
       it("Should prevent non-owner from updating revoked root", async function () {
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("revoked-1"));
-        await expect(anchor.connect(alice).updateRevokedRoot(newRoot)).to.be.reverted;
+        await expect(anchor.connect(alice).proposeRevokedRoot(newRoot)).to.be.reverted;
       });
     });
 
@@ -450,8 +471,14 @@ describe("OrganizationLayer — Unit & Security", function () {
       it("Should return roots via getRoots()", async function () {
         const root = ethers.keccak256(ethers.toUtf8Bytes("root"));
         const revoked = ethers.keccak256(ethers.toUtf8Bytes("revoked"));
-        await anchor.connect(orgOwner).updateRoot(root);
-        await anchor.connect(orgOwner).updateRevokedRoot(revoked);
+        await anchor.connect(orgOwner).proposeRoot(root);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRoot();
+        await anchor.connect(orgOwner).proposeRevokedRoot(revoked);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await anchor.connect(orgOwner).acceptRevokedRoot();
         const [r, rr] = await anchor.getRoots();
         expect(r).to.equal(root);
         expect(rr).to.equal(revoked);
@@ -469,7 +496,7 @@ describe("OrganizationLayer — Unit & Security", function () {
       it("Should block root updates when paused", async function () {
         await anchor.connect(orgOwner).pause();
         const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root"));
-        await expect(anchor.connect(orgOwner).updateRoot(newRoot))
+        await expect(anchor.connect(orgOwner).proposeRoot(newRoot))
           .to.be.revertedWithCustomError(anchor, "EnforcedPause");
       });
 

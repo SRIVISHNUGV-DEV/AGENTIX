@@ -125,22 +125,17 @@ export async function whitelistAddress(
   partyAddress: string,
   status: boolean = true
 ): Promise<WalletResult> {
-  try {
-    const wallet = getWalletContract(walletAddress);
-    logger.info("wallet", `Setting whitelist for ${partyAddress} to ${status} on ${walletAddress}`);
-
-    const tx = await wallet.setWhiteListedParty(partyAddress, status);
-    const receipt = await tx.wait();
-
-    return {
-      success: true,
-      walletAddress,
-      txHash: receipt.hash,
-      details: { party: partyAddress, whitelisted: status },
-    };
-  } catch (e: any) {
-    return { success: false, error: e.message };
-  }
+  // AgentWallet has NO whitelist feature: setWhiteListedParty does not
+  // exist on the contract (verified against the fresh ABI), and the
+  // contract test suite's whitelist tests were deleted for exactly that
+  // reason. Fail explicitly instead of sending a call that reverts.
+  // Authorization is handled by SessionManager session allowlists.
+  return {
+    success: false,
+    walletAddress,
+    error: "AgentWallet does not support whitelisting: no setWhiteListedParty function exists on the contract. Authorization is handled by SessionManager session allowlists (setSessionTargets / allowedTargets at creation).",
+    details: { party: partyAddress, whitelisted: status },
+  };
 }
 
 export async function executeTransaction(

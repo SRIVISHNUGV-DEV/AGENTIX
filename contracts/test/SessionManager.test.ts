@@ -61,7 +61,7 @@ describe("SessionManager", function () {
     const factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
 
     await sessionManager.proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.acceptWalletFactory();
 
@@ -164,7 +164,7 @@ describe("SessionManager", function () {
 
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
-      const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(p.sessionId, sessionKeyAddr, 1n);
+      const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(p.sessionId, sessionKeyAddr, 1n, operator.address, "0x");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
       expect(valid).to.be.true;
     });
@@ -183,7 +183,7 @@ describe("SessionManager", function () {
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
       await expect(
-        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKeyAddr, 1n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKeyAddr, 1n, operator.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
@@ -322,12 +322,15 @@ describe("CredentialRegistry", function () {
   });
 
   describe("Root Management", function () {
-    it("Should allow issuer to update active root", async function () {
+    it("Should allow issuer to update active root (via 2-day timelock)", async function () {
       await credentialRegistry.addIssuer(await issuer.getAddress());
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
 
+      await credentialRegistry.connect(issuer).proposeActiveRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).acceptActiveRoot()
       ).to.emit(credentialRegistry, "ActiveRootUpdated");
 
       expect(await credentialRegistry.activeRoot()).to.equal(newRoot);
@@ -337,7 +340,7 @@ describe("CredentialRegistry", function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
 
       await expect(
-        credentialRegistry.connect(unauthorized).updateActiveRoot(newRoot)
+        credentialRegistry.connect(unauthorized).proposeActiveRoot(newRoot)
       ).to.be.revertedWithCustomError(credentialRegistry, "OnlyIssuer");
     });
   });
@@ -349,12 +352,15 @@ describe("CredentialRegistry", function () {
 
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).proposeActiveRoot(newRoot)
       ).to.be.revertedWithCustomError(credentialRegistry, "EnforcedPause");
 
       await credentialRegistry.unpause();
+      await credentialRegistry.connect(issuer).proposeActiveRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).acceptActiveRoot()
       ).to.emit(credentialRegistry, "ActiveRootUpdated");
     });
   });

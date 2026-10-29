@@ -40,6 +40,26 @@ export interface AgentixConfig {
   };
 }
 
+/**
+ * Canonical contract addresses: contracts/deployments/baseSepolia-84532.json
+ * (the deployment record the README calls canonical; the SDK in
+ * src/sdk/config.ts already uses this same set). These defaults were
+ * reconciled to that set so the runtime, the SDK, and the deployment record
+ * no longer disagree out of the box. `entryPoint` is NOT in the deployment
+ * JSON; it keeps the canonical EntryPoint singleton address, which the SDK
+ * also uses. The deployment JSON is flat — it does not distinguish proxies
+ * from implementations — so `implementations` below mirrors `contracts` for
+ * the six entries it carries, exactly as before; do not read that mirroring
+ * as proof that an address is a proxy or an implementation.
+ *
+ * LIVE-HEALTH WARNING (verified 2026-10-29 on the public Base Sepolia RPC):
+ * BOTH the old defaults and this deployment-JSON set have contracts deployed,
+ * verifier bytecode is identical across the two sets, anchor and wallet
+ * implementations differ, and all 12 proxy addresses in both sets read an
+ * all-zero ERC1967 implementation slot. Neither set is therefore known to be
+ * live-healthy: do NOT run a real-contract demo against these addresses.
+ * Live on-chain flows need a fresh verified deployment first.
+ */
 const DEFAULT_CONFIG: AgentixConfig = {
   version: "1.0.0",
   chainId: 84532,
@@ -47,25 +67,25 @@ const DEFAULT_CONFIG: AgentixConfig = {
   rpcFallbackUrl: "https://base-sepolia-rpc.publicnode.com",
   networkName: "baseSepolia",
   contracts: {
-    groth16Verifier: "0x7bA15966B895BEb00B291a73Aa672918D1E27cf9",
-    credentialRegistry: "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
-    sessionManager: "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
-    agentWalletFactory: "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
-    agentWalletImplementation: "0x206630bC8C366b94d4F73382f9F1742795F49de2",
-    capabilityRegistry: "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
-    delegationManager: "0x2F7e35D096b43A002964bB6e343494188ca51D11",
-    organizationRegistry: "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
-    organizationCredentialAnchor: "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
-    agentIdentity: "0x5eb3688D61187550400A940D43461e7984Ca405c",
+    groth16Verifier: "0x3056bB17323228d1829D2f6A2a96Af8e079095c2",
+    credentialRegistry: "0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E",
+    sessionManager: "0x9b7B7d631098f046eaFb4637DC859eBA51e238C0",
+    agentWalletFactory: "0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1",
+    agentWalletImplementation: "0x6C826A49aD8447FD94d61f515013ea93066e94C5",
+    capabilityRegistry: "0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A",
+    delegationManager: "0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5",
+    organizationRegistry: "0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443",
+    organizationCredentialAnchor: "0x491aD666EFb0E79Ce8406a10914033eEdB6165b6",
+    agentIdentity: "0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71",
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
   },
   implementations: {
-    credentialRegistry: "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
-    sessionManager: "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
-    agentWalletFactory: "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
-    capabilityRegistry: "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
-    delegationManager: "0x2F7e35D096b43A002964bB6e343494188ca51D11",
-    organizationRegistry: "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
+    credentialRegistry: "0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E",
+    sessionManager: "0x9b7B7d631098f046eaFb4637DC859eBA51e238C0",
+    agentWalletFactory: "0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1",
+    capabilityRegistry: "0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A",
+    delegationManager: "0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5",
+    organizationRegistry: "0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443",
   },
   database: { path: join(AGENTIX_HOME, "db", "agentix.db") },
   backup: { path: join(AGENTIX_HOME, "backups") },
@@ -121,6 +141,11 @@ export function ensureDirectories(): void {
     "tools",
     "cache",
     "backups",
+    // "keys" is the session-keystore's home (MASTER_SECRET_PATH =
+    // <home>/keys/master.key, created lazily by session-keystore.ts on
+    // first use). It is created eagerly here so doctor's directory check
+    // covers every directory the runtime owns: 16 in total.
+    "keys",
   ];
   for (const d of dirs) {
     const p = join(AGENTIX_HOME, d);

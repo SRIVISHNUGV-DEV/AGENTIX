@@ -9,10 +9,13 @@ import { getProvider } from "../core/provider";
 import { getEventBus } from "../../packages/core/eventbus";
 
 /**
- * Anchor the active root on-chain.
- * This sends a transaction to the CredentialRegistry contract to update the root.
+ * Propose the active root on-chain.
+ * This does NOT update the root: since the C-5 timelock fix, a root change
+ * takes a propose transaction, a 2-day wait, and an acceptRootOnChain()
+ * transaction. Callers must never describe this as "anchored" — the root
+ * is only proposed until the accept lands.
  */
-export async function anchorRootOnChain(root: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
+export async function proposeRootOnChain(root: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
     const adapter = await import("../blockchain/adapter");
     const signerAddr = adapter.getSignerAddress();
@@ -20,7 +23,26 @@ export async function anchorRootOnChain(root: string): Promise<{ success: boolea
     if (!authorized) {
       return { success: false, error: `Backend signer ${signerAddr} is not an issuer. Add it via: credReg.addIssuer(${signerAddr})` };
     }
-    const result = await adapter.sendRootUpdate(root);
+    const result = await adapter.sendRootProposal(root);
+    return { success: true, txHash: result.txHash };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Complete a pending root proposal after the 2-day timelock.
+ * Reverts before the delay (TimelockNotReady).
+ */
+export async function acceptRootOnChain(): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    const adapter = await import("../blockchain/adapter");
+    const signerAddr = adapter.getSignerAddress();
+    const authorized = await adapter.isIssuer(signerAddr);
+    if (!authorized) {
+      return { success: false, error: `Backend signer ${signerAddr} is not an issuer. Add it via: credReg.addIssuer(${signerAddr})` };
+    }
+    const result = await adapter.sendRootAccept();
     return { success: true, txHash: result.txHash };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -222,15 +244,15 @@ export async function issueCredential(params: {
       );
     } catch {}
 
-    // Auto-anchor root on-chain if requested
+    // Auto-propose root on-chain if requested (propose only — accept is a separate step after the timelock)
     let txHash: string | undefined;
     if (autoAnchor) {
-      const anchorResult = await anchorRootOnChain(root.toString());
+      const anchorResult = await proposeRootOnChain(root.toString());
       if (anchorResult.success) {
         txHash = anchorResult.txHash;
-        logger.info("credential", `Auto-anchored root on-chain: ${txHash}`);
+        logger.info("credential", `Auto-proposed root on-chain (effective after 2-day timelock + accept): ${txHash}`);
       } else {
-        logger.warn("credential", `Auto-anchor failed: ${anchorResult.error}`);
+        logger.warn("credential", `Auto-propose failed: ${anchorResult.error}`);
       }
     }
 
@@ -309,15 +331,15 @@ export async function revokeCredential(
       );
     } catch {}
 
-    // Auto-anchor root on-chain if requested
+    // Auto-propose root on-chain if requested (propose only — accept is a separate step after the timelock)
     let txHash: string | undefined;
     if (autoAnchor) {
-      const anchorResult = await anchorRootOnChain(activeTree.getRoot());
+      const anchorResult = await proposeRootOnChain(activeTree.getRoot());
       if (anchorResult.success) {
         txHash = anchorResult.txHash;
-        logger.info("credential", `Auto-anchored root on-chain after revocation: ${txHash}`);
+        logger.info("credential", `Auto-proposed root on-chain after revocation (effective after 2-day timelock + accept): ${txHash}`);
       } else {
-        logger.warn("credential", `Auto-anchor failed after revocation: ${anchorResult.error}`);
+        logger.warn("credential", `Auto-propose failed after revocation: ${anchorResult.error}`);
       }
     }
 

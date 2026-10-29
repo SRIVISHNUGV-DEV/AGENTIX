@@ -16,18 +16,26 @@ async function main() {
   console.log(`  Deployer: ${deployer.address}`);
   console.log("═══════════════════════════════════════════════════════\n");
 
-  // Contract addresses from deployment
+  // Contract addresses from deployment — reconciled to
+  // deployments/baseSepolia-84532.json (network baseSepolia, chainId 84532,
+  // deployed 2026-07-01). Every entry below matches that file exactly except
+  // entryPoint, which the JSON does not contain: its value is retained as-is
+  // from the previous version of this script and is UNVERIFIED against any
+  // deployment record. agentWalletImpl takes the JSON's `agentWallet` value
+  // (the JSON has no separate implementation key; the factory.implementation()
+  // check below is the on-chain test of that reading). anchorImpl is
+  // currently unused by the checks below but is kept in sync regardless.
   const ADDRS = {
-    groth16Verifier: "0x7bA15966B895BEb00B291a73Aa672918D1E27cf9",
-    agentWalletImpl: "0x206630bC8C366b94d4F73382f9F1742795F49de2",
-    anchorImpl: "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
-    credentialRegistry: "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
-    sessionManager: "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
-    agentWalletFactory: "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
-    capabilityRegistry: "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
-    delegationManager: "0x2F7e35D096b43A002964bB6e343494188ca51D11",
-    organizationRegistry: "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
-    agentIdentity: "0x5eb3688D61187550400A940D43461e7984Ca405c",
+    groth16Verifier: "0x3056bB17323228d1829D2f6A2a96Af8e079095c2",
+    agentWalletImpl: "0x6C826A49aD8447FD94d61f515013ea93066e94C5",
+    anchorImpl: "0x491aD666EFb0E79Ce8406a10914033eEdB6165b6",
+    credentialRegistry: "0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E",
+    sessionManager: "0x9b7B7d631098f046eaFb4637DC859eBA51e238C0",
+    agentWalletFactory: "0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1",
+    capabilityRegistry: "0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A",
+    delegationManager: "0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5",
+    organizationRegistry: "0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443",
+    agentIdentity: "0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71",
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
   };
 

@@ -27,6 +27,7 @@ error SessionValidationFailedError();
 error OwnershipTransferPendingError();
 error BatchTooLargeError();
 error BatchNotAllowedForSessionError();
+error SessionTargetDenied();
 error TimelockNotReadyError();
 error TimelockActiveError();
 
@@ -51,9 +52,12 @@ interface IEntryPoint {
 }
 
 /// @notice Interface for the SessionManager contract used to validate session-based operations.
+/// @dev The `data` parameter is the inner calldata of the execute() call — the SessionManager
+///      needs it to enforce the token-selector rule (token transfers carry ETH value 0 and
+///      would otherwise bypass session spend limits).
 interface ISessionManager {
-    function validateSession(bytes32 sessionId, address signer, uint256 value, address target) external returns (bool);
-    function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target) external returns (bool);
+    function validateSession(bytes32 sessionId, address signer, uint256 value, address target, bytes calldata data) external returns (bool);
+    function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target, bytes calldata data) external returns (bool);
     function getSessionType(bytes32 sessionId) external view returns (uint8);
 }
 
@@ -276,7 +280,7 @@ contract AgentWallet is ReentrancyGuard {
         bytes calldata
     ) external {}
 
-    /// @notice Proposes a new SessionManager with a 24-hour timelock.
+    /// @notice Proposes a new SessionManager with a 2-day timelock.
     /// @param _sessionManager The proposed new SessionManager address.
     function proposeSessionManager(address _sessionManager) external onlyOwner onlyInitialized {
         if (_sessionManager == address(0)) revert InvalidSessionManagerError();
@@ -297,7 +301,7 @@ contract AgentWallet is ReentrancyGuard {
         emit SessionManagerUpdated(oldSessionManager, sessionManager);
     }
 
-    /// @notice Proposes a new EntryPoint with a 24-hour timelock.
+    /// @notice Proposes a new EntryPoint with a 2-day timelock.
     /// @param _entryPoint The proposed new EntryPoint address.
     function proposeEntryPoint(address _entryPoint) external onlyOwner onlyInitialized {
         if (_entryPoint == address(0)) revert InvalidEntryPointError();
@@ -326,6 +330,12 @@ contract AgentWallet is ReentrancyGuard {
     /// @dev Validates a user operation. Supports two signature modes:
     ///      - 65-byte owner signature (direct execution)
     ///      - Session-based signature (sessionId + sessionSignature)
+    /// @dev Session path denies two targets outright (fail closed): the EntryPoint itself
+    ///      (blocks the deposit-drain variant, where a session calls withdrawTo on the
+    ///      EntryPoint with value 0) and the wallet itself (blocks self-calls that could
+    ///      rewire sessionManager/entryPoint). The SessionManager additionally denies
+    ///      itself, the CredentialRegistry, and the DelegationManager, and enforces the
+    ///      token-selector allowlist rule. Owner path is unaffected by these denials.
     /// @dev Replay protection is NOT implemented here — SessionManager owns nullifier validation.
     function _validateUserOperation(
         PackedUserOperation calldata userOp,
@@ -343,7 +353,10 @@ contract AgentWallet is ReentrancyGuard {
 
         (sessionId,) = abi.decode(userOp.signature, (bytes32, bytes));
         address target = _extractTarget(userOp.callData);
-        _validateSession(sessionId, signer, spendValue, target);
+        bytes memory innerData = _extractData(userOp.callData);
+        if (target == entryPoint) revert SessionTargetDenied();
+        if (target == address(this)) revert SessionTargetDenied();
+        _validateSession(sessionId, signer, spendValue, target, innerData);
         return (spendValue, sessionId, signer);
     }
 
@@ -370,17 +383,18 @@ contract AgentWallet is ReentrancyGuard {
         bytes32 sessionId,
         address signer,
         uint256 spendValue,
-        address target
+        address target,
+        bytes memory innerData
     ) internal {
         uint8 sessionType = ISessionManager(sessionManager).getSessionType(sessionId);
         if (sessionType == 1) {
             bool valid = ISessionManager(sessionManager).validateLightweightSession(
-                sessionId, signer, spendValue, target
+                sessionId, signer, spendValue, target, innerData
             );
             if (!valid) revert LightweightSessionValidationFailedError();
         } else if (sessionType == 0) {
             bool valid = ISessionManager(sessionManager).validateSession(
-                sessionId, signer, spendValue, target
+                sessionId, signer, spendValue, target, innerData
             );
             if (!valid) revert SessionValidationFailedError();
         } else {
@@ -427,6 +441,19 @@ contract AgentWallet is ReentrancyGuard {
         if (selector == EXECUTE_SELECTOR) {
             (address target,,) = abi.decode(callData[4:], (address, uint256, bytes));
             return target;
+        }
+
+        revert UnsupportedCallDataError();
+    }
+
+    /// @dev Extracts the inner calldata from execute() callData (the `data` argument).
+    ///      The SessionManager inspects this for the token-selector rule.
+    function _extractData(bytes calldata callData) internal pure returns (bytes memory) {
+        bytes4 selector = bytes4(callData[:4]);
+
+        if (selector == EXECUTE_SELECTOR) {
+            (,, bytes memory data) = abi.decode(callData[4:], (address, uint256, bytes));
+            return data;
         }
 
         revert UnsupportedCallDataError();

@@ -9,7 +9,7 @@ import { PageHeader, EmptyState, Badge, Button, Card, Table, Dialog, Input, Sele
 import { fetchJSON, postJSON, truncate, explorerAddress } from '@/lib/api';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 import {
-  sendAndWaitForWalletCreation, getAccount, sendUpdateRoot, sendEntryPointDeposit, sendCreateLightweightSession,
+  sendAndWaitForWalletCreation, getAccount, sendProposeRoot, sendEntryPointDeposit, sendCreateLightweightSession,
   sendCreateStandardSession,
 } from '@/lib/tx-sender';
 
@@ -95,9 +95,9 @@ export function CredentialsPage() {
       completeFlowStep('credential');
 
       setFlowState(prev => ({ ...prev, currentStep: 'root', credentialSecret: credResult.secret, credentialId: credResult.credentialId, activeRoot: credResult.activeRoot, error: '' }));
-      const rootResult = await sendUpdateRoot(credResult.activeRoot);
+      const rootResult = await sendProposeRoot(credResult.activeRoot);
       if (rootResult.success) completeFlowStep('root');
-      else { setFlowState(prev => ({ ...prev, error: `Root update failed: ${rootResult.error}` })); completeFlowStep('root'); }
+      else { setFlowState(prev => ({ ...prev, error: `Root proposal failed: ${rootResult.error}` })); completeFlowStep('root'); }
 
       // Org-issued credentials default to a ZK (standard) session: the proof
       // authorizes on-chain, the org policy stays private, and no owner signature

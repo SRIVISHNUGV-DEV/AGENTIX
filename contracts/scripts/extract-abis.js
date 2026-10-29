@@ -4,7 +4,9 @@ const path = require("path");
 const ARTIFACTS_DIR = path.resolve(__dirname, "../artifacts/src");
 const OUTPUT_DIR = path.resolve(__dirname, "../abis");
 
-const PRODUCTION_CONTRACTS = [
+// NOTE: testnet-only, unaudited contracts — the old PRODUCTION_CONTRACTS name
+// was renamed (D-1 honesty pass); nothing here is production.
+const TESTNET_CONTRACTS = [
   "AgentIdentity",
   "AgentWallet",
   "AgentWalletFactory",
@@ -19,6 +21,7 @@ const PRODUCTION_CONTRACTS = [
 
 // Interfaces defined inline in contracts — hardhat generates artifacts for these
 const INTERFACES = [
+  "IAgentIdentity",
   "IAgentWallet",
   "ICredentialRegistry",
   "IAgentWalletFactory",
@@ -55,7 +58,7 @@ console.log("Extracting ABIs...\n");
 
 const allAbis = {};
 
-for (const name of PRODUCTION_CONTRACTS) {
+for (const name of TESTNET_CONTRACTS) {
   const abi = extractAbi(name);
   if (abi) {
     const outPath = path.join(OUTPUT_DIR, `${name}.json`);
@@ -94,5 +97,5 @@ fs.writeFileSync(
   JSON.stringify(manifest, null, 2)
 );
 
-console.log(`\nDone — ${PRODUCTION_CONTRACTS.length} contracts + ${INTERFACES.length} interfaces`);
+console.log(`\nDone — ${TESTNET_CONTRACTS.length} contracts + ${INTERFACES.length} interfaces`);
 console.log(`Manifest: abis/MANIFEST.json`);
