@@ -132,7 +132,7 @@ contract Audit01_CredentialRegistry is Test {
         registry.removeIssuer(issuer1);
         vm.prank(issuer1);
         vm.expectRevert(OnlyIssuer.selector);
-        registry.updateActiveRoot(keccak256("test"));
+        registry.proposeActiveRoot(keccak256("test"));
     }
 
     // ═══════════════════════════════════════════════
@@ -172,21 +172,24 @@ contract Audit01_CredentialRegistry is Test {
     function test_UpdateActiveRoot_OnlyIssuer() public {
         vm.prank(attacker);
         vm.expectRevert(OnlyIssuer.selector);
-        registry.updateActiveRoot(keccak256("root"));
+        registry.proposeActiveRoot(keccak256("root"));
     }
 
     function test_UpdateActiveRoot_RevertsOnZero() public {
         vm.prank(issuer1);
         vm.expectRevert(RootCannotBeZero.selector);
-        registry.updateActiveRoot(bytes32(0));
+        registry.proposeActiveRoot(bytes32(0));
     }
 
     function test_UpdateActiveRoot_Works() public {
         bytes32 root = keccak256("new-root");
         vm.prank(issuer1);
+        registry.proposeActiveRoot(root);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
         vm.expectEmit(true, true, true, true);
         emit ActiveRootUpdated(root);
-        registry.updateActiveRoot(root);
+        registry.acceptActiveRoot();
         assertEq(registry.activeRoot(), root);
     }
 
@@ -195,16 +198,22 @@ contract Audit01_CredentialRegistry is Test {
         registry.pause();
         vm.prank(issuer1);
         vm.expectRevert();
-        registry.updateActiveRoot(keccak256("root"));
+        registry.proposeActiveRoot(keccak256("root"));
     }
 
     function test_UpdateActiveRoot_MultipleUpdates() public {
         bytes32 root1 = keccak256("root1");
         bytes32 root2 = keccak256("root2");
         vm.prank(issuer1);
-        registry.updateActiveRoot(root1);
+        registry.proposeActiveRoot(root1);
+        vm.warp(block.timestamp + 2 days);
         vm.prank(issuer1);
-        registry.updateActiveRoot(root2);
+        registry.acceptActiveRoot();
+        vm.prank(issuer1);
+        registry.proposeActiveRoot(root2);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
+        registry.acceptActiveRoot();
         assertEq(registry.activeRoot(), root2);
     }
 
@@ -215,21 +224,24 @@ contract Audit01_CredentialRegistry is Test {
     function test_UpdateRevokedRoot_OnlyIssuer() public {
         vm.prank(attacker);
         vm.expectRevert(OnlyIssuer.selector);
-        registry.updateRevokedSecretRoot(keccak256("root"));
+        registry.proposeRevokedSecretRoot(keccak256("root"));
     }
 
     function test_UpdateRevokedRoot_RevertsOnZero() public {
         vm.prank(issuer1);
         vm.expectRevert(RootCannotBeZero.selector);
-        registry.updateRevokedSecretRoot(bytes32(0));
+        registry.proposeRevokedSecretRoot(bytes32(0));
     }
 
     function test_UpdateRevokedRoot_Works() public {
         bytes32 root = keccak256("revoked-root");
         vm.prank(issuer1);
+        registry.proposeRevokedSecretRoot(root);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
         vm.expectEmit(true, true, true, true);
         emit RevokedSecretRootUpdated(root);
-        registry.updateRevokedSecretRoot(root);
+        registry.acceptRevokedSecretRoot();
         assertEq(registry.revokedSecretRoot(), root);
     }
 
@@ -238,7 +250,7 @@ contract Audit01_CredentialRegistry is Test {
         registry.pause();
         vm.prank(issuer1);
         vm.expectRevert();
-        registry.updateRevokedSecretRoot(keccak256("root"));
+        registry.proposeRevokedSecretRoot(keccak256("root"));
     }
 
     // ═══════════════════════════════════════════════
@@ -324,14 +336,20 @@ contract Audit01_CredentialRegistry is Test {
     function testFuzz_ActiveRoot(bytes32 root) public {
         vm.assume(root != bytes32(0));
         vm.prank(issuer1);
-        registry.updateActiveRoot(root);
+        registry.proposeActiveRoot(root);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
+        registry.acceptActiveRoot();
         assertEq(registry.activeRoot(), root);
     }
 
     function testFuzz_RevokedRoot(bytes32 root) public {
         vm.assume(root != bytes32(0));
         vm.prank(issuer1);
-        registry.updateRevokedSecretRoot(root);
+        registry.proposeRevokedSecretRoot(root);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
+        registry.acceptRevokedSecretRoot();
         assertEq(registry.revokedSecretRoot(), root);
     }
 
@@ -357,7 +375,7 @@ contract Audit01_CredentialRegistry is Test {
         for (uint256 i = 0; i < attackers.length; i++) {
             vm.prank(attackers[i]);
             vm.expectRevert();
-            registry.updateActiveRoot(keccak256("root"));
+            registry.proposeActiveRoot(keccak256("root"));
         }
     }
 
@@ -404,7 +422,7 @@ contract Audit01_CredentialRegistry is Test {
     function test_Adversarial_DirectImplCall() public {
         vm.prank(attacker);
         vm.expectRevert();
-        CredentialRegistry(impl).updateActiveRoot(keccak256("impl-attack"));
+        CredentialRegistry(impl).proposeActiveRoot(keccak256("impl-attack"));
     }
 
     function test_Adversarial_PausedStateISOLATION() public {
@@ -413,7 +431,10 @@ contract Audit01_CredentialRegistry is Test {
         vm.prank(owner);
         registry.addIssuer(issuer1);
         vm.prank(issuer1);
-        registry.updateActiveRoot(root1);
+        registry.proposeActiveRoot(root1);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
+        registry.acceptActiveRoot();
 
         vm.prank(owner);
         registry.pause();
@@ -421,7 +442,7 @@ contract Audit01_CredentialRegistry is Test {
         // Root updates blocked
         vm.prank(issuer1);
         vm.expectRevert();
-        registry.updateActiveRoot(keccak256("root2"));
+        registry.proposeActiveRoot(keccak256("root2"));
 
         // But nullifiers still work
         bytes32 n = keccak256("n-paused-state");
@@ -436,13 +457,16 @@ contract Audit01_CredentialRegistry is Test {
         assertFalse(registry.issuers(issuer1));
         vm.prank(issuer1);
         vm.expectRevert(OnlyIssuer.selector);
-        registry.updateActiveRoot(keccak256("root"));
+        registry.proposeActiveRoot(keccak256("root"));
 
         vm.prank(owner);
         registry.addIssuer(issuer1);
         assertTrue(registry.issuers(issuer1));
         vm.prank(issuer1);
-        registry.updateActiveRoot(keccak256("root"));
+        registry.proposeActiveRoot(keccak256("root"));
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(issuer1);
+        registry.acceptActiveRoot();
     }
 
     function test_Adversarial_MassNullifierFlood() public {

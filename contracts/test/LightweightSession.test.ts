@@ -29,8 +29,8 @@ describe("LightweightSession", function () {
 
     const messageHash = ethers.keccak256(
       ethers.AbiCoder.defaultAbiCoder().encode(
-        ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
-        [chainId, smAddr, walletAddr, sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry]
+        ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256", "address[]"],
+        [chainId, smAddr, walletAddr, sessionIdBytes32, sessionKeyAddr, spendLimit, txLimit, expiry, []]
       )
     );
 
@@ -44,7 +44,7 @@ describe("LightweightSession", function () {
       sessionKeyAddr,
       spendLimit,
       txLimit,
-      expiry,
+      expiry, [],
       signature
     );
 
@@ -107,7 +107,7 @@ describe("LightweightSession", function () {
 
     // Activate factory via timelock
     await sessionManager.proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.acceptWalletFactory();
 
@@ -140,8 +140,8 @@ describe("LightweightSession", function () {
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
-          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256", "address[]"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, expiry, []]
         )
       );
 
@@ -159,7 +159,7 @@ describe("LightweightSession", function () {
         sessionKey,
         DAILY_SPEND_LIMIT,
         DAILY_TX_LIMIT,
-        expiry,
+        expiry, [],
         signature
       );
 
@@ -175,14 +175,15 @@ describe("LightweightSession", function () {
     it("should reject session with invalid signature", async function () {
       const sessionId = ethers.id("test-session-2");
       const sessionKey = await sessionKeySigner.getAddress();
+      const expiry = await getExpiry();
       const chainId = (await ethers.provider.getNetwork()).chainId;
       const smAddr = await sessionManager.getAddress();
       const walletAddress = await wallet.getAddress();
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
-          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256", "address[]"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, expiry, []]
         )
       );
 
@@ -197,7 +198,7 @@ describe("LightweightSession", function () {
           sessionKey,
           DAILY_SPEND_LIMIT,
           DAILY_TX_LIMIT,
-          expiry,
+          expiry, [],
           signature
         )
       ).to.be.revertedWithCustomError(sessionManager, "NotWalletOwner");
@@ -208,6 +209,7 @@ describe("LightweightSession", function () {
     it("should reject duplicate session", async function () {
       const sessionId = ethers.id("test-session-3");
       const sessionKey = await sessionKeySigner.getAddress();
+      const expiry = await getExpiry();
 
       await createSession("test-session-3", owner, sessionKey);
 
@@ -217,8 +219,8 @@ describe("LightweightSession", function () {
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256"],
-          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, EXPIRY]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint256", "address[]"],
+          [chainId, smAddr, walletAddress, sessionId, sessionKey, DAILY_SPEND_LIMIT, DAILY_TX_LIMIT, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -232,7 +234,7 @@ describe("LightweightSession", function () {
           sessionKey,
           DAILY_SPEND_LIMIT,
           DAILY_TX_LIMIT,
-          expiry,
+          expiry, [],
           signature
         )
       ).to.be.revertedWithCustomError(sessionManager, "SessionAlreadyExists");
@@ -252,11 +254,11 @@ describe("LightweightSession", function () {
 
       const value = ethers.parseEther("0.1");
       const valid = await sessionManager.connect(walletSigner).validateLightweightSession.staticCall(
-        sessionId, sessionKey, value
+        sessionId, sessionKey, value, other.address, "0x"
       );
       expect(valid).to.be.true;
 
-      await sessionManager.connect(walletSigner).validateLightweightSession(sessionId, sessionKey, value);
+      await sessionManager.connect(walletSigner).validateLightweightSession(sessionId, sessionKey, value, other.address, "0x");
 
       const session = await sessionManager.getLightSession(sessionId);
       expect(session.dailySpendUsed).to.equal(value);
@@ -275,12 +277,12 @@ describe("LightweightSession", function () {
       const walletSigner = await ethers.getSigner(walletAddress);
 
       await sessionManager.connect(walletSigner).validateLightweightSession(
-        sessionId, sessionKey, ethers.parseEther("0.3")
+        sessionId, sessionKey, ethers.parseEther("0.3"), other.address, "0x"
       );
 
       await expect(
         sessionManager.connect(walletSigner).validateLightweightSession(
-          sessionId, sessionKey, ethers.parseEther("0.3")
+          sessionId, sessionKey, ethers.parseEther("0.3"), other.address, "0x"
         )
       ).to.be.revertedWithCustomError(sessionManager, "DailySpendLimitExceeded");
 
@@ -297,15 +299,15 @@ describe("LightweightSession", function () {
       const walletSigner = await ethers.getSigner(walletAddress);
 
       await sessionManager.connect(walletSigner).validateLightweightSession(
-        sessionId, sessionKey, ethers.parseEther("0.1")
+        sessionId, sessionKey, ethers.parseEther("0.1"), other.address, "0x"
       );
       await sessionManager.connect(walletSigner).validateLightweightSession(
-        sessionId, sessionKey, ethers.parseEther("0.1")
+        sessionId, sessionKey, ethers.parseEther("0.1"), other.address, "0x"
       );
 
       await expect(
         sessionManager.connect(walletSigner).validateLightweightSession(
-          sessionId, sessionKey, ethers.parseEther("0.1")
+          sessionId, sessionKey, ethers.parseEther("0.1"), other.address, "0x"
         )
       ).to.be.revertedWithCustomError(sessionManager, "DailyTxLimitExceeded");
 
@@ -327,7 +329,7 @@ describe("LightweightSession", function () {
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddress]);
       const walletSigner = await ethers.getSigner(walletAddress);
       await expect(
-        sessionManager.connect(walletSigner).validateLightweightSession(sessionId, sessionKey, ethers.parseEther("0.1"))
+        sessionManager.connect(walletSigner).validateLightweightSession(sessionId, sessionKey, ethers.parseEther("0.1"), other.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "SessionIsRevoked");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddress]);
     });
@@ -343,14 +345,14 @@ describe("LightweightSession", function () {
       const walletSigner = await ethers.getSigner(walletAddress);
 
       await sessionManager.connect(walletSigner).validateLightweightSession(
-        sessionId, sessionKey, ethers.parseEther("0.5")
+        sessionId, sessionKey, ethers.parseEther("0.5"), other.address, "0x"
       );
 
       await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
       await ethers.provider.send("evm_mine", []);
 
       await sessionManager.connect(walletSigner).validateLightweightSession(
-        sessionId, sessionKey, ethers.parseEther("0.9")
+        sessionId, sessionKey, ethers.parseEther("0.9"), other.address, "0x"
       );
 
       const session = await sessionManager.getLightSession(sessionId);
@@ -376,7 +378,7 @@ describe("LightweightSession", function () {
 
       await expect(
         sessionManager.connect(walletSigner).validateLightweightSession(
-          sessionId, sessionKey, ethers.parseEther("0.1")
+          sessionId, sessionKey, ethers.parseEther("0.1"), other.address, "0x"
         )
       ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
 

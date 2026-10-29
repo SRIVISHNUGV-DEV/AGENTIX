@@ -2,6 +2,38 @@ import { StructuredIntent, ParsedIntent, IntentIR, NL_PATTERNS, IntentSource, In
 import { CompilerConfig } from '../types/compilation';
 import { generateId } from '@agentix/utils';
 
+/**
+ * The canonical action-alias map. One source of truth: the gateway, the
+ * compiler, and every enforcement check MUST resolve an incoming action
+ * through this function before gating on it. Gating on a pre-normalisation
+ * string is a bypass (R-1): `new_capability` is `capability_register` after
+ * normalisation, and an owner-only check on the raw spelling misses it.
+ */
+export const ACTION_ALIASES: Record<string, string> = {
+  'send': 'wallet_execute',
+  'transfer': 'wallet_execute',
+  'deploy_wallet': 'wallet_create',
+  'new_wallet': 'wallet_create',
+  'make_wallet': 'wallet_create',
+  'new_session': 'session_create_lightweight',
+  'start_session': 'session_create_lightweight',
+  'kill_session': 'session_revoke',
+  'end_session': 'session_revoke',
+  'new_credential': 'credential_issue',
+  'give_credential': 'credential_issue',
+  'remove_credential': 'credential_revoke',
+  'new_org': 'organization_register',
+  'register_org': 'organization_register',
+  'new_capability': 'capability_register',
+  'new_delegation': 'delegation_create',
+};
+
+/** Lowercase, trim, and alias-map an action to its canonical gateway name. */
+export function normalizeAction(action: string): string {
+  const lower = action.toLowerCase().trim();
+  return ACTION_ALIASES[lower] || lower;
+}
+
 export class IntentParser {
   constructor(private config: CompilerConfig) {}
 
@@ -62,26 +94,7 @@ export class IntentParser {
   }
 
   private _normalizeAction(action: string): string {
-    const lower = action.toLowerCase().trim();
-    const aliasMap: Record<string, string> = {
-      'send': 'wallet_execute',
-      'transfer': 'wallet_execute',
-      'deploy_wallet': 'wallet_create',
-      'new_wallet': 'wallet_create',
-      'make_wallet': 'wallet_create',
-      'new_session': 'session_create_lightweight',
-      'start_session': 'session_create_lightweight',
-      'kill_session': 'session_revoke',
-      'end_session': 'session_revoke',
-      'new_credential': 'credential_issue',
-      'give_credential': 'credential_issue',
-      'remove_credential': 'credential_revoke',
-      'new_org': 'organization_register',
-      'register_org': 'organization_register',
-      'new_capability': 'capability_register',
-      'new_delegation': 'delegation_create',
-    };
-    return aliasMap[lower] || lower;
+    return normalizeAction(action);
   }
 
   private _errorIntent(message: string, action: string): ParsedIntent {

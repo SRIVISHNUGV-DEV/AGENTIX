@@ -13,7 +13,10 @@
  *   const root = await callContractRead("CredentialRegistry", "activeRoot", []);
  *
  *   // Write (requires signer, returns prepared tx for browser to sign)
- *   const tx = prepareContractWrite("CredentialRegistry", "updateActiveRoot", [root]);
+ *   const tx = prepareContractWrite("CredentialRegistry", "proposeActiveRoot", [root]);
+ *   // NOTE: root changes are propose + accept since the C-5 timelock fix.
+ *   // Proposing does NOT change the root; acceptActiveRoot() after the
+ *   // 2-day timelock completes it. Never describe a propose as an update.
  */
 
 import { ethers } from "ethers";

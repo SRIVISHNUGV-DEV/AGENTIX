@@ -326,9 +326,32 @@ export async function verifyVoucher(
 }
 
 /**
+ * Assess a verified voucher against the shared bundler risk gate WITHOUT
+ * executing anything (R-12). The voucher amount is a USDC token amount, so
+ * it is presented to the gate as ERC-20 transfer calldata — the gate's
+ * token decoding then sees the amount (as a token move, not as ETH value)
+ * and the owner policy's token-action/target allowlists apply. This
+ * function never sends a transaction and never touches a signer.
+ */
+export async function assessVoucherPayment(
+  voucher: PaymentVoucher
+): Promise<{ allowed: boolean; reason: string }> {
+  const { assessBundlerOp } = await import("../runtime/bundler-risk-gate");
+  const transferCalldata = new ethers.Interface([
+    "function transfer(address to, uint256 amount) returns (bool)",
+  ]).encodeFunctionData("transfer", [voucher.payTo, voucher.amount]);
+  const gate = await assessBundlerOp({
+    sender: voucher.wallet,
+    target: voucher.payTo,
+    value: "0",
+    calldata: transferCalldata,
+  });
+  return { allowed: gate.allowed, reason: gate.reason };
+}
+
+/**
  * Verify a voucher and mark the nonce as used (atomic).
- * Call this when accepting a voucher for payment.
- * Routes through compiler gateway for risk assessment if available.
+ * Risk-assesses via the shared gate WITHOUT executing (R-12).
  */
 export async function acceptVoucher(
   voucher: PaymentVoucher,
@@ -337,29 +360,20 @@ export async function acceptVoucher(
   const check = await verifyVoucher(voucher, chainId);
   if (!check.valid) return { accepted: false, error: check.error };
 
-  // Route through compiler gateway for risk assessment
+  // Non-executing risk assessment. The pre-fix code called
+  // gateway.executeIntent("wallet_execute", …) as a "risk check" — which
+  // EXECUTED a real wallet.execute transaction as a side effect — and on
+  // any gateway exception accepted the voucher on signature alone
+  // (fail-open). Both are gone: assessment never executes, and any
+  // assessment failure or error REJECTS the voucher.
   try {
-    const { getCompilerGateway } = await import("../compiler-gateway");
-    const gateway = getCompilerGateway();
-    const riskResult = await gateway.executeIntent("wallet_execute", {
-      walletAddress: voucher.wallet,
-      target: voucher.payTo,
-      value: "0",
-      amount: voucher.amount,
-      recipient: voucher.payTo,
-      paymentType: "x402-voucher",
-      resource: voucher.resource,
-    }, "mcp", { walletAddress: voucher.wallet });
-
-    if (!riskResult.success && riskResult.requiresApproval) {
-      return { accepted: false, error: `Voucher requires approval: ${riskResult.explanation || "Risk engine flagged this"}` };
-    }
-    if (!riskResult.success) {
-      return { accepted: false, error: `Voucher blocked by risk engine: ${riskResult.errors?.join("; ") || "Unknown"}` };
+    const assessment = await assessVoucherPayment(voucher);
+    if (!assessment.allowed) {
+      return { accepted: false, error: `Voucher blocked by risk gate: ${assessment.reason}` };
     }
   } catch (e: any) {
-    // Compiler unavailable — proceed with signature-only verification
-    logger.warn("x402-voucher", `Compiler gateway unavailable, accepting on signature only: ${e.message}`);
+    logger.warn("x402-voucher", `Risk assessment failed, rejecting voucher: ${e.message}`);
+    return { accepted: false, error: `Voucher risk assessment failed: ${e.message}` };
   }
 
   // Mark nonce as used BEFORE serving the response (prevent double-spend)

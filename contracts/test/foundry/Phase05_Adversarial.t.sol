@@ -58,7 +58,7 @@ contract Phase05_Adversarial is AuditHarness {
         vm.deal(w, 1 ether);
         vm.prank(owner1);
         (bool ok,) = w.call(abi.encodeWithSignature("execute(address,uint256,bytes)",
-            address(bomb), 0, abi.encodeWithSignature("ping()")));
+            address(bomb), 0, abi.encodeWithSignature("ping()"))));
         assertTrue(ok);
     }
 
@@ -83,16 +83,16 @@ contract Phase05_Adversarial is AuditHarness {
     function test_NonWallet_CannotValidateSession() public {
         vm.prank(attacker);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateSession(bytes32,address,uint256,address)", keccak256("x"), attacker, 0, address(0xBEEF)
-        ));
+            "validateSession(bytes32,address,uint256,address,bytes)", keccak256("x"), attacker, 0, address(0xBEEF)
+        , "");
         assertFalse(ok);
     }
 
     function test_NonWallet_CannotValidateLightweightSession() public {
         vm.prank(attacker);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", keccak256("x"), attacker, 0, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", keccak256("x"), attacker, 0, address(0xBEEF)
+        , "");
         assertFalse(ok);
     }
 
@@ -106,8 +106,8 @@ contract Phase05_Adversarial is AuditHarness {
         require(ok);
         vm.startPrank(w);
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
+        , "");
         assertFalse(ok2);
         vm.stopPrank();
     }
@@ -120,8 +120,8 @@ contract Phase05_Adversarial is AuditHarness {
         vm.warp(block.timestamp + 1 hours + 1);
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
@@ -193,15 +193,15 @@ contract Phase05_Adversarial is AuditHarness {
         sm.call(abi.encodeWithSignature("pause()"));
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok);
         vm.stopPrank();
     }
 
     function test_CredentialRegistry_WhilePaused_BlocksRootUpdate() public {
         credReg.call(abi.encodeWithSignature("pause()"));
-        (bool ok,) = credReg.call(abi.encodeWithSignature("updateActiveRoot(bytes32)", keccak256("root")));
+        (bool ok,) = credReg.call(abi.encodeWithSignature("proposeActiveRoot(bytes32)", keccak256("root")));
         assertFalse(ok);
     }
 
@@ -214,12 +214,12 @@ contract Phase05_Adversarial is AuditHarness {
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), allowed);
         vm.startPrank(w);
         (bool ok1,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xCAFE)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xCAFE)
+        , "");
         assertFalse(ok1);
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertTrue(ok2);
         vm.stopPrank();
     }
@@ -231,16 +231,16 @@ contract Phase05_Adversarial is AuditHarness {
         _createLightSession(w, sid, sessionKey1, 10 ether, 2, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w);
         (bool ok1,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertTrue(ok1);
         (bool ok2,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertTrue(ok2);
         (bool ok3,) = sm.call(abi.encodeWithSignature(
-            "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
-        ));
+            "validateLightweightSession(bytes32,address,uint256,address,bytes)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
+        , "");
         assertFalse(ok3);
         vm.stopPrank();
     }

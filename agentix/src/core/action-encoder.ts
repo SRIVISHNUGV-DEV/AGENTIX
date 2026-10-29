@@ -23,6 +23,7 @@ import { getProxyGuard } from "./proxy-guard";
 import { loadConfig } from "./config";
 import { getProvider } from "./provider";
 import { logger } from "./logger";
+import { parseValueToWei } from "./owner-policy";
 
 export interface EncodedAction {
   to: string;
@@ -42,10 +43,14 @@ type ArgBuilder = (p: Record<string, any>) => {
   toAddress?: (p: Record<string, any>) => string;
 };
 
-const toWei = (v: unknown): bigint => {
-  if (v === undefined || v === null || v === "") return 0n;
-  try { return BigInt(v as any); } catch { return 0n; }
-};
+// FAIL-CLOSED (R-9): unparseable values THROW instead of silently becoming
+// 0n. The pre-fix `catch { return 0n; }` turned a malformed amount into a
+// zero-value transaction — including the CLI's `--value <eth>` decimal
+// inputs, which BigInt() rejects and which therefore all silently sent 0.
+// Integer strings are wei; decimal strings are ETH (see parseValueToWei in
+// core/owner-policy for the units rule); anything else throws, and the
+// gateway reports an encoding error instead of sending.
+const toWei = (v: unknown): bigint => parseValueToWei(v);
 const req = (p: Record<string, any>, k: string): any => {
   const v = p[k];
   if (v === undefined || v === null || v === "") throw new Error(`Missing required param "${k}"`);
@@ -99,18 +104,42 @@ const ACTIONS: Record<string, ArgBuilder> = {
   }),
   credential_issue: (p) => ({
     contract: "CredentialRegistry",
-    fn: "updateActiveRoot",
+    fn: "proposeActiveRoot",
     args: [req(p, "root")],
   }),
   credential_revoke: (p) => ({
     contract: "CredentialRegistry",
-    fn: "updateRevokedSecretRoot",
+    fn: "proposeRevokedSecretRoot",
     args: [req(p, "root")],
   }),
   credential_update_root: (p) => ({
     contract: "CredentialRegistry",
-    fn: "updateActiveRoot",
+    fn: "proposeActiveRoot",
     args: [req(p, "root")],
+  }),
+  // Root ACCEPT actions (C-5 timelock): complete a pending proposal after
+  // the 2-day delay. Accepting before the delay reverts (TimelockNotReady).
+  // Like the propose actions above, these are authority writes: the gateway
+  // gates them to owner approval, never auto-execution.
+  credential_accept_root: (p) => ({
+    contract: "CredentialRegistry",
+    fn: "acceptActiveRoot",
+    args: [],
+  }),
+  credential_accept_revoked_root: (p) => ({
+    contract: "CredentialRegistry",
+    fn: "acceptRevokedSecretRoot",
+    args: [],
+  }),
+  credential_cancel_root: (p) => ({
+    contract: "CredentialRegistry",
+    fn: "cancelActiveRoot",
+    args: [],
+  }),
+  credential_cancel_revoked_root: (p) => ({
+    contract: "CredentialRegistry",
+    fn: "cancelRevokedSecretRoot",
+    args: [],
   }),
   organization_register: (p) => ({
     contract: "OrganizationRegistry",
@@ -139,8 +168,45 @@ const ACTIONS: Record<string, ArgBuilder> = {
   }),
   delegation_create: (p) => ({
     contract: "DelegationManager",
-    fn: "updateDelegationRoot",
+    fn: "proposeDelegationRoot",
     args: [req(p, "delegator"), req(p, "scopeHash"), req(p, "root"), req(p, "expiresAt")],
+  }),
+  delegation_accept_root: (p) => ({
+    contract: "DelegationManager",
+    fn: "acceptDelegationRoot",
+    args: [req(p, "delegator"), req(p, "scopeHash")],
+  }),
+  delegation_cancel_root: (p) => ({
+    contract: "DelegationManager",
+    fn: "cancelDelegationRoot",
+    args: [req(p, "delegator"), req(p, "scopeHash")],
+  }),
+  // Anchor root actions (C-5 timelock). Anchors are per-organization
+  // instances, not the singleton proxy: the target comes from params, the
+  // same per-instance pattern as wallet actions above.
+  anchor_accept_root: (p) => ({
+    contract: "OrganizationCredentialAnchor",
+    fn: "acceptRoot",
+    args: [],
+    toAddress: (pp) => req(pp, "anchorAddress"),
+  }),
+  anchor_accept_revoked_root: (p) => ({
+    contract: "OrganizationCredentialAnchor",
+    fn: "acceptRevokedRoot",
+    args: [],
+    toAddress: (pp) => req(pp, "anchorAddress"),
+  }),
+  anchor_cancel_root: (p) => ({
+    contract: "OrganizationCredentialAnchor",
+    fn: "cancelRoot",
+    args: [],
+    toAddress: (pp) => req(pp, "anchorAddress"),
+  }),
+  anchor_cancel_revoked_root: (p) => ({
+    contract: "OrganizationCredentialAnchor",
+    fn: "cancelRevokedRoot",
+    args: [],
+    toAddress: (pp) => req(pp, "anchorAddress"),
   }),
   delegation_revoke: (p) => ({
     contract: "DelegationManager",

@@ -14,7 +14,7 @@
 
 AI agents already act: they call tools, move funds, and sign things. The infrastructure around them was built for humans — a person approves, a person holds the key, a person notices when something looks wrong. Give an agent a raw private key and a standing permission and you get the worst of both worlds: machine speed with no governor.
 
-**AGENTIX is that governor.** A local-first runtime where an agent gets a smart wallet, a credential, and a session — and every action it proposes is validated, simulated, risk-scored, and explained *before* it executes. Nothing runs on ambient authority. Nothing runs on a standing key.
+**AGENTIX is that governor.** A local-first runtime where an agent gets a smart wallet, a credential, and a session — and every action it proposes is validated, simulated, risk-scored, and explained *before* it executes. Nothing runs on an agent-held standing key: the agent proposes, and the runtime's signer executes only what passes policy and risk.
 
 > An agent proposes a swap that would drain its budget. AGENTIX checks its credential, confirms the session is live, finds the spend limit exceeded, and denies the action with a reason — before any signature is produced. A different action, inside budget and inside scope, passes the same gates, gets simulated, scored low-risk, explained in plain terms, and only then executes.
 
@@ -40,7 +40,7 @@ cd agentix && bun install && bun run build && bun x tsx src/index.ts init && bun
 
 - [The model in one table](#the-model-in-one-table)
 - [How it works](#how-it-works)
-  - [The gateway: every action passes through one door](#the-gateway-every-action-passes-through-one-door)
+  - [The gateway: the gated path for intents](#the-gateway-the-gated-path-for-intents)
   - [The 10-stage compiler](#the-10-stage-compiler)
   - [Sessions: two ways to be allowed](#sessions-two-ways-to-be-allowed)
   - [Credentials and the ZK circuit](#credentials-and-the-zk-circuit)
@@ -78,39 +78,46 @@ For any agent action, AGENTIX answers six questions — and a "no" anywhere stop
 
 Everything below is how the code actually runs — gateway, compiler, contracts, and circuit, in the order an action travels through them. File paths are given so you can check each claim against the implementation.
 
-### The gateway: every action passes through one door
+### The gateway: the gated path for intents
 
-All entry points — MCP, REST, CLI, SDK, dashboard, and natural-language intent — funnel into one class: the compiler gateway (`agentix/src/compiler-gateway.ts`, method `executeIntent`). There is no second path to the chain. An action travels these steps, in order:
+Intents that go through the compiler gateway (`agentix/src/compiler-gateway.ts`, method `executeIntent`) pass one set of gates, in order — and every gate runs on the action's **normalised** name (lowercased, alias-mapped), so a spelling like `new_capability` or `WALLET_CREATE` cannot slip past a check written for `capability_register` or `wallet_create`:
 
 0. **Input guard.** Non-string actions and non-object params are rejected with a clean error instead of crashing deeper in the pipeline.
-1. **Read-only actions skip the policy check.** Queries return information; they move no value, so they do not need permission.
-2. **Owner-only actions always require approval.** Creating a wallet, transferring wallet ownership, registering or deactivating an organisation, and registering a capability can never auto-execute — the gateway returns them for a human to sign on the dashboard.
-3. **Owner policy check.** For anything else, the wallet's owner policy is checked: allowed and forbidden actions, daily limits, per-transaction limits. A policy denial returns the policy's reason, and the plan is held for approval rather than executed.
-4. **Contract addresses load from config.** The gateway resolves the factory, wallet, session manager, credential registry, organisation registry, capability registry, delegation manager, and identity contracts it will talk to.
-5. **Compile through the 10-stage pipeline** (next section). Compilation errors stop the action here.
-6. **Log the intent** as compiled, with its plan id, value, target, and risk score.
-7. **Risk gate.** If the plan's risk assessment requires approval, the plan is returned for human review instead of executing.
-8. **Auto-approve within-policy plans.** Only plans that passed policy and risk get approved, and approval is an explicit step, not a default.
-9. **Execute on-chain.** The action is encoded into address-validated, ABI-encoded calldata — the encoder resolves the target through a proxy guard and asserts the target is actually deployed on this chain before anything is signed — then sent with the runtime signer, and the receipt's transaction hash is captured.
-10. **Complete or fail the plan**, log the outcome, and emit a `WalletExecuted` event on the event bus.
+1. **Normalise.** The action is lowercased and alias-mapped before any gate runs; the original spelling is still recorded in the action log.
+2. **Read-only actions skip the policy check.** Queries return information; they move no value, so they do not need permission.
+3. **Owner-only actions always require approval.** Creating a wallet, transferring wallet ownership, registering or deactivating an organisation, and registering a capability can never auto-execute — the gateway returns them for a human to sign on the dashboard.
+4. **Authority writes always require approval.** Delegation roots and credential roots are trust anchors, not wallet-scoped actions, so they can never auto-execute either — even though they carry no wallet address, they are held for owner approval rather than policy-skipped.
+5. **Owner policy check.** For anything else, the wallet's owner policy is checked on the normalised action: allowed and forbidden actions, allowed targets, daily limits, per-transaction limits. The wallet scope comes from the request's params only — never from a caller-supplied context object. A state-changing action with no wallet address is **denied**, not policy-skipped, and a policy denial returns the policy's reason. With no policy set at all, everything state-changing is denied.
+6. **Contract addresses load from config.** The gateway resolves the factory, wallet, session manager, credential registry, organisation registry, capability registry, delegation manager, and identity contracts it will talk to.
+7. **Compile through the 10-stage pipeline** (next section). Compilation errors stop the action here.
+8. **Log the intent** as compiled, with its plan id, value, target, and risk score.
+9. **Risk gate.** If the plan's risk assessment requires approval, the plan is returned for human review instead of executing.
+10. **Auto-approve within-policy plans.** Only plans that passed policy and risk get approved, and approval is an explicit step, not a default.
+11. **Execute on-chain.** The action is encoded into address-validated, ABI-encoded calldata — the encoder resolves the target through a proxy guard and asserts the target is actually deployed on this chain before anything is signed — then sent with the runtime signer, and the receipt's transaction hash is captured. Before sending, the gateway re-checks the normalised action against the owner-only and authority lists, so a plan built under one spelling cannot execute under another.
+12. **Complete or fail the plan**, log the outcome, and emit a `WalletExecuted` event on the event bus.
+
+That is the gated path — it is not the only path to the chain. The CLI's `agent` quick helpers and the `tools/*` commands (tree, delegation, capability, proof, backup, contracts, rpc, protocol, fund) sign directly with the runtime signer and bypass the gateway; they are a local-operator surface, not an agent surface, and must not be described as gateway-gated. The MCP bundler tools and the REST bundler relay pass through the same risk/policy gate as the gateway (`assessBundlerOp`), but they are relay paths, not gateway paths.
 
 ```mermaid
 flowchart TD
     A["Agent action arrives from MCP, REST, CLI, SDK, dashboard, or natural language"] --> B["Step 0 - Validate input shape"]
-    B --> C["Step 1 - Read-only action"]
-    C -->|Yes| FREE["Return information, no policy check"]
-    C -->|No| D["Step 2 - Owner-only action"]
-    D -->|Yes| OWNER["Hold for owner signature on dashboard"]
-    D -->|No| E["Step 3 - Owner policy check"]
-    E -->|Denied| HOLD["Hold for approval with policy reason"]
-    E -->|Allowed| F["Step 5 - 10-stage compile"]
-    F -->|Errors| FAIL1["Fail with compilation errors"]
-    F -->|Plan built| G["Step 7 - Risk gate"]
-    G -->|Approval required| REVIEW["Return plan for human review"]
-    G -->|Within policy| H["Step 8 - Approve plan"]
-    H --> I["Step 9 - Encode, validate target, send transaction"]
-    I -->|Receipt| J["Step 10 - Complete plan, log, emit event"]
-    I -->|Error| FAIL2["Fail plan with execution error"]
+    B --> C["Step 1 - Normalise action (lowercase + alias map)"]
+    C --> D["Step 2 - Read-only action"]
+    D -->|Yes| FREE["Return information, no policy check"]
+    D -->|No| E["Step 3 - Owner-only action"]
+    E -->|Yes| OWNER["Hold for owner signature on dashboard"]
+    E -->|No| F["Step 4 - Authority write (delegation/credential root)"]
+    F -->|Yes| OWNER
+    F -->|No| G["Step 5 - Owner policy check (params wallet scope only)"]
+    G -->|Denied or no wallet scope| HOLD["Deny, or hold for approval with policy reason"]
+    G -->|Allowed| H["Step 7 - 10-stage compile"]
+    H -->|Errors| FAIL1["Fail with compilation errors"]
+    H -->|Plan built| I["Step 9 - Risk gate"]
+    I -->|Approval required| REVIEW["Return plan for human review"]
+    I -->|Within policy| J["Step 10 - Approve plan"]
+    J --> K["Step 11 - Re-check owner-only/authority lists, encode, validate target, send transaction"]
+    K -->|Receipt| L["Step 12 - Complete plan, log, emit event"]
+    K -->|Error| FAIL2["Fail plan with execution error"]
 ```
 
 <details>
@@ -120,7 +127,7 @@ flowchart TD
 
 **Always require owner approval**: `wallet_create`, `wallet_transfer_ownership`, `organization_register`, `organization_deactivate`, `capability_register`.
 
-When no owner policy is set, the defaults are narrow: the only allowed action is `wallet.execute`, and `changeOwner` and `upgradeImplementation` are forbidden.
+When no owner policy is set, every state-changing action is denied. The default forbidden list uses gateway action names: `wallet_transfer_ownership` and `wallet_withdraw`.
 </details>
 
 ### The 10-stage compiler
@@ -194,7 +201,7 @@ sequenceDiagram
 
 ### Credentials and the ZK circuit
 
-Credentials are issued through organisations, not self-asserted. The organisation owner adds issuers (`CredentialRegistry.addIssuer`); issuers publish two Merkle roots — the **active root** for valid credentials and the **revoked secret root** for revoked ones (`updateActiveRoot`, `updateRevokedSecretRoot`). The session manager is the only other contract authorised to touch the registry, and only to mark nullifiers used. No credential root can be set by an individual without issuer authorisation.
+Credentials are issued through organisations, not self-asserted. The organisation owner adds issuers (`CredentialRegistry.addIssuer`); issuers publish two Merkle roots — the **active root** for valid credentials and the **revoked secret root** for revoked ones. Root changes are two-step since the timelock fix: `proposeActiveRoot` / `proposeRevokedSecretRoot` propose, and the root changes only after the 2-day timelock AND the matching `accept*` call (`acceptActiveRoot` / `acceptRevokedSecretRoot`). A propose must never be described as a root update. The session manager is the only other contract authorised to touch the registry, and only to mark nullifiers used. No credential root can be set by an individual without issuer authorisation.
 
 The circuit (`circuits/credential_V1.circom`, Circom 2.1.0, Groth16 over BN128, Merkle depth 20) proves five things at once, without revealing the credential:
 
@@ -269,7 +276,7 @@ Sensitive wallet changes are two-step by design, never one transaction: changing
 
 ### Where state lives
 
-Everything local lives in one place: `~/.agentix`, with the database at `~/.agentix/db/agentix.db` (SQLite via better-sqlite3, 35 tables as reported by the health check). That includes wallets, credentials, sessions, plans, policies, compiled-plan caches, the event log, and the action log — the `agent_actions` table records each action with its plan id, value, target, risk score, and risk category, plus the transaction hash when one exists. The event bus carries runtime events such as `WalletExecuted`. The API's bound port is recorded in `~/.agentix/runtime.json` so the dashboard can discover it without manual wiring. Test runs use a separate database (`.agentix-test/db/agentix.db`), so testing never touches real runtime state.
+Everything local lives in one place: `~/.agentix`, with the database at `~/.agentix/db/agentix.db` (SQLite via better-sqlite3, 34 application tables as reported by the health check — the 35th row in sqlite_master is sqlite_sequence, SQLite's internal bookkeeping table). That includes wallets, credentials, sessions, plans, policies, compiled-plan caches, the event log, and the action log — the `agent_actions` table records each action with its plan id, value, target, risk score, and risk category, plus the transaction hash when one exists. The event bus carries runtime events such as `WalletExecuted`. The API's bound port is recorded in `~/.agentix/runtime.json` so the dashboard can discover it without manual wiring. Test runs use a separate database (`.agentix-test/db/agentix.db`), so testing never touches real runtime state.
 
 ### How agents connect
 
@@ -296,17 +303,17 @@ Everything local lives in one place: `~/.agentix`, with the database at `~/.agen
 | Keygen | 1 | Generate agent key pair |
 | Onboarding | 2 | Status, fund options |
 | Compiler | 5 | Parse intent, compile, get plan, list plans, approve plan |
-| Policy | 5 | Get, check, set, capability envelope |
-| Dashboard-only | 8 | Blocked for agents — see below |
+| Policy | 3 | Get, check, capability envelope — the 4th policy tool, `policy_set`, is counted under Dashboard-only, not here, so the categories sum to the 69 distinct tools with no double-count |
+| Dashboard-only | 8 | Blocked for agents — see below (includes `policy_set`) |
 
 > [!IMPORTANT]
-> **The dashboard-only gate.** Eight operations are blocked for AI agents and require the owner's wallet: `agentix_session_create`, `agentix_session_revoke`, `agentix_session_prune`, `agentix_wallet_execute_batch`, `agentix_config_set`, `agentix_backup_create`, `agentix_policy_set`, and the deprecated `agentix_wallet_whitelist`. Session creation and revocation, batch execution, config changes, backups, and policy changes are owner acts by design — an agent that could grant itself a session or rewrite its own policy would make every other gate meaningless.
+> **The dashboard-only gate.** Eight operations are blocked for AI agents at the MCP layer and require the owner: `agentix_session_create`, `agentix_session_revoke`, `agentix_session_prune`, `agentix_wallet_execute_batch`, `agentix_config_set`, `agentix_backup_create`, `agentix_policy_set`, and the deprecated `agentix_wallet_whitelist`. Session creation and revocation, batch execution, config changes, backups, and policy changes are owner acts by design — an agent that could grant itself a session or rewrite its own policy would make every other gate meaningless. The MCP name check is not the whole enforcement: state-changing REST calls additionally require a per-run localhost token (see below), policy changes additionally require an owner signature verified against the wallet's registered owner, and plan approval over MCP additionally requires an owner attestation signature. `session_prune` and `wallet_whitelist` have no live REST equivalent; the other six are token-gated on REST.
 
-**REST API.** The API is a plain Node HTTP server (no framework) bound to `127.0.0.1`, with a 1 MB body cap, CORS open to local origins, and every request body validated against Zod schemas that live in `packages/shared/schemas`. Counting the route strings in `agentix/src/runtime/server.ts` gives 94 distinct `/api/` paths, including: health, runtime info, and stats; onboarding (status, diagnostics, harnesses, fund, init); organisations and their requests; credentials (including oracle, next agent/org ids, root updates); sessions (including prepare and create-transaction endpoints for both lightweight and standard sessions); wallets (create, deposit, EntryPoint deposit, execute, link, whitelist, confirm); delegations; capabilities and the capability envelope; policy and policy checks; plans with approve and reject; execute and execute-plan; compile and debug simulation; proofs (generate, verify, artifacts); Merkle trees (list, export, import, rebuild, snapshots, verify); contract reads, prepared writes, registry, and functions; events and the event indexer (status, run, reindex, reproduce); bundler; backups; actions; anomalies; transactions; identity; config; diagnostics; price; and an x402 payments surface (balance, batch, buy, payments, policy, seller routes and stats, vouchers).
+**REST API.** The API is a plain Node HTTP server (no framework) bound to `127.0.0.1`, with a 1 MB body cap. Loopback binding is not authentication: every state-changing route requires a per-run localhost token (`X-Agentix-Token`, fresh on each server start, printed once in the server log and written `0600` to `~/.agentix/.local-token`; the dashboard's Settings page stores it in browser localStorage), and CORS reflects only allowlisted dashboard origins (`http://localhost:3000`, `http://127.0.0.1:3000`, plus `AGENTIX_DASHBOARD_ORIGINS`) — never `*`. The one exemption is `POST /api/bundler/send`, which instead binds the relay to caller identity: a caller-supplied session key is proof of possession, and a stored-key relay requires the localhost token; a bare session id is rejected. Nine routes validate their body against Zod schemas in `packages/shared/schemas` (organisations/requests, credentials, wallets, sessions POST, sessions DELETE, capabilities, delegations, config PUT, backups); other routes parse to `{}` on malformed bodies, which is a pre-existing gap, not a guarantee. Counting the route strings in `agentix/src/runtime/server.ts` gives 94 distinct `/api/` paths, including: health, runtime info, and stats; onboarding (status, diagnostics, harnesses, fund, init); organisations and their requests; credentials (including oracle, next agent/org ids, root proposals + accepts); sessions (including prepare and create-transaction endpoints for both lightweight and standard sessions); wallets (create, deposit, EntryPoint deposit, execute, link, whitelist, confirm); delegations; capabilities and the capability envelope; policy and policy checks; plans with approve and reject; execute and execute-plan; compile and debug simulation; proofs (generate, verify, artifacts); Merkle trees (list, export, import, rebuild, snapshots, verify); contract reads, prepared writes, registry, and functions; events and the event indexer (status, run, reindex, reproduce); bundler; backups; actions; anomalies; transactions; identity; config; diagnostics; price; and an x402 payments surface (balance, batch, buy, payments, policy, seller routes and stats, vouchers).
 
 **Dashboard.** A Next.js 14 app served by the runtime, with sections for overview, wallets, sessions, credentials, capabilities, delegations, organisations, identities, transactions, actions, plans, trees, events, anomalies, backups, analytics, diagnostics, developer tools, settings, onboarding, and x402. It discovers the API port automatically from `runtime.json`.
 
-**CLI.** The `agentix` command covers init, setup, connect, health, diagnostics, doctor, config, org, credential, session, wallet, tree, delegation, capability, proof, backup, contracts, RPC connectivity tests, and protocol information — run `bun x tsx src/index.ts --help` for the full list.
+**CLI.** The `agentix` command covers init, setup, connect, health, diagnostics, doctor, config, org, cred, session, wallet, tree, delegation, capability, proof, backup, contracts, rpc, protocol, wizard, fund, agent, compile, execute-plan, plans, and plan (26 commands) — run `bun x tsx src/index.ts --help` for the full list.
 
 ---
 
@@ -322,14 +329,14 @@ flowchart TD
         CLI["CLI"]
         DASH["Local dashboard - Next.js 14"]
     end
-    subgraph Gateway["Compiler gateway - single write path"]
+    subgraph Gateway["Compiler gateway - gated intent path"]
         POL["Policy"]
         RISK["Risk"]
         COMP["Compile"]
         EXEC["Execute"]
     end
     subgraph Core["Core runtime - local only"]
-        DB["SQLite state - 35 tables"]
+        DB["SQLite state - 34 application tables"]
         BUS["Event bus"]
         TREE["Merkle trees - depth 20"]
         ZK["ZK prover - Groth16"]
@@ -347,7 +354,7 @@ flowchart TD
 | Layer | Technology | Purpose |
 |---|---|---|
 | **Consumption** | MCP server, REST API, CLI, Next.js dashboard | Every way an agent or a human talks to the runtime |
-| **Compiler gateway** | TypeScript policy engine | The single write path: Policy → Risk → Compile → Execute |
+| **Compiler gateway** | TypeScript policy engine | The gated intent path: Normalise → Policy → Risk → Compile → Execute |
 | **Core runtime** | SQLite, event bus, Merkle trees, Groth16 prover | Local state, history, revocation, and ZK proofs |
 | **Protocol** | Solidity 0.8.24, Hardhat | 10 contracts: wallets, credentials, sessions, capabilities, delegation |
 | **Circuit** | Circom, Groth16, BN128 | `credential_V1.circom` — Merkle depth 20, 7 public signals |
@@ -358,7 +365,7 @@ Full detail lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Contracts on Base Sepolia
 
-Deployed July 2026. Addresses below are copied from [`contracts/deployments/baseSepolia-84532.json`](contracts/deployments/baseSepolia-84532.json), which is the canonical record — if any other document in this repo shows a different address, this file wins.
+Deployed July 2026. Addresses below are copied from [`contracts/deployments/baseSepolia-84532.json`](contracts/deployments/baseSepolia-84532.json), which is the canonical record — if any other document in this repo shows a different address, this file wins. **Live-health warning:** both the old config-default set and this deployment set have contracts deployed on Base Sepolia, and all 12 proxy addresses in both sets read an all-zero ERC1967 implementation slot — do not run a real-contract demo against either set. Live on-chain flows need a fresh verified deployment first.
 
 | Contract | Address | Role |
 |---|---|---|
@@ -382,7 +389,7 @@ Deployed July 2026. Addresses below are copied from [`contracts/deployments/base
 
 | Path | What it is |
 |---|---|
-| `agentix/` | **The project.** The runtime: `src/` (core, MCP server, runtime, tools, SDK, blockchain, compiler gateway), `packages/` (shared, core, services, compiler, indexer, scheduler, merkle-tree, agent-manifest), `apps/dashboard/` (local dashboard), `tests/`, `bin/` (CLI entry points). Its own README is [`agentix/README.md`](agentix/README.md). |
+| `agentix/` | **The project.** The runtime: `src/` (core, MCP server, runtime, tools, SDK, blockchain, compiler gateway), `packages/` (shared, core, services, compiler, scheduler, merkle-tree, agent-manifest), `apps/dashboard/` (local dashboard), `tests/`, `bin/` (CLI entry points). Its own README is [`agentix/README.md`](agentix/README.md). |
 | `contracts/` | The protocol contracts (Solidity): credential registry, session manager, capability registry, delegation manager, organisation registry, agent wallet + factory, Groth16 verifier. Tests under `contracts/test/`, deployment scripts under `contracts/scripts/`. |
 | `circuits/` | The ZK circuit: `credential_V1.circom` (Groth16, BN128, Merkle depth 20). Build artifacts are generated from source and are not committed. |
 | `docs/` | `ARCHITECTURE.md`, `SETUP.md`, `SECURITY.md`, `PROTOCOL_ASSUMPTIONS.md`. That is the whole documentation set — if a doc is not here, it does not exist. |

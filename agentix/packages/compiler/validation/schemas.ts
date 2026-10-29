@@ -98,6 +98,28 @@ export const CredentialRevokeSchema = z.object({
   }),
 });
 
+// Root ACCEPT / CANCEL actions (C-5 timelock). Accept takes no params:
+// it completes whichever proposal is pending. Cancel likewise.
+export const CredentialAcceptRootSchema = z.object({
+  action: z.literal('credential_accept_root'),
+  params: z.object({}).passthrough(),
+});
+
+export const CredentialAcceptRevokedRootSchema = z.object({
+  action: z.literal('credential_accept_revoked_root'),
+  params: z.object({}).passthrough(),
+});
+
+export const CredentialCancelRootSchema = z.object({
+  action: z.literal('credential_cancel_root'),
+  params: z.object({}).passthrough(),
+});
+
+export const CredentialCancelRevokedRootSchema = z.object({
+  action: z.literal('credential_cancel_revoked_root'),
+  params: z.object({}).passthrough(),
+});
+
 export const OrganizationRegisterSchema = z.object({
   action: z.literal('organization_register'),
   params: z.object({
@@ -128,6 +150,50 @@ export const DelegationCreateSchema = z.object({
   }),
 });
 
+export const DelegationAcceptRootSchema = z.object({
+  action: z.literal('delegation_accept_root'),
+  params: z.object({
+    delegator: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+    scopeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  }),
+});
+
+export const DelegationCancelRootSchema = z.object({
+  action: z.literal('delegation_cancel_root'),
+  params: z.object({
+    delegator: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+    scopeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  }),
+});
+
+export const AnchorAcceptRootSchema = z.object({
+  action: z.literal('anchor_accept_root'),
+  params: z.object({
+    anchorAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  }),
+});
+
+export const AnchorAcceptRevokedRootSchema = z.object({
+  action: z.literal('anchor_accept_revoked_root'),
+  params: z.object({
+    anchorAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  }),
+});
+
+export const AnchorCancelRootSchema = z.object({
+  action: z.literal('anchor_cancel_root'),
+  params: z.object({
+    anchorAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  }),
+});
+
+export const AnchorCancelRevokedRootSchema = z.object({
+  action: z.literal('anchor_cancel_revoked_root'),
+  params: z.object({
+    anchorAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  }),
+});
+
 const SCHEMA_MAP: Record<string, z.ZodType> = {
   wallet_create: WalletCreateSchema,
   wallet_execute: WalletExecuteSchema,
@@ -139,9 +205,19 @@ const SCHEMA_MAP: Record<string, z.ZodType> = {
   session_revoke: SessionRevokeSchema,
   credential_issue: CredentialIssueSchema,
   credential_revoke: CredentialRevokeSchema,
+  credential_accept_root: CredentialAcceptRootSchema,
+  credential_accept_revoked_root: CredentialAcceptRevokedRootSchema,
+  credential_cancel_root: CredentialCancelRootSchema,
+  credential_cancel_revoked_root: CredentialCancelRevokedRootSchema,
   organization_register: OrganizationRegisterSchema,
   capability_register: CapabilityRegisterSchema,
   delegation_create: DelegationCreateSchema,
+  delegation_accept_root: DelegationAcceptRootSchema,
+  delegation_cancel_root: DelegationCancelRootSchema,
+  anchor_accept_root: AnchorAcceptRootSchema,
+  anchor_accept_revoked_root: AnchorAcceptRevokedRootSchema,
+  anchor_cancel_root: AnchorCancelRootSchema,
+  anchor_cancel_revoked_root: AnchorCancelRevokedRootSchema,
 };
 
 export function getSchemaForAction(action: string): z.ZodType | undefined {

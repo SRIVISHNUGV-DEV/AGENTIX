@@ -39,6 +39,11 @@
         "internalType": "address",
         "name": "target",
         "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
       }
     ],
     "name": "validateLightweightSession",
@@ -73,6 +78,11 @@
         "internalType": "address",
         "name": "target",
         "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
       }
     ],
     "name": "validateSession",

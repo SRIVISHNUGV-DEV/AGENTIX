@@ -37,9 +37,17 @@ async function sendAndWait(txPromise: Promise<any>, delay = 8000): Promise<any> 
   throw new Error("Tx failed after retries");
 }
 
+// Root changes are timelocked (2 days, C-5). On a live network this script
+// runs in two phases: by default it PROPOSES root changes and asserts the
+// pending values; rerun with ACCEPT_PHASE=1 after the timelock elapses to
+// ACCEPT them and assert the active values. (A local hardhat run cannot warp
+// a live chain, so the two runs are separated by wall-clock time.)
+const ACCEPT_PHASE = process.env.ACCEPT_PHASE === "1";
+
 async function main() {
   const DEPLOYED = loadDeployments();
   const contracts = DEPLOYED.contracts;
+  console.log(`Root-update phase: ${ACCEPT_PHASE ? "ACCEPT (timelock elapsed)" : "PROPOSE"}`);
 
   const signers = await ethers.getSigners();
   const deployer = signers[0];
@@ -104,19 +112,29 @@ async function main() {
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });
-  await test("CR: issuer updates active root", async () => {
+  await test("CR: issuer updates active root (timelocked)", async () => {
     const r = ethers.keccak256(ethers.toUtf8Bytes("test-root-1"));
-    await sendAndWait(credReg.connect(oracle).updateActiveRoot(r));
-    if ((await credReg.activeRoot()) !== r) throw new Error("root not updated");
+    if (ACCEPT_PHASE) {
+      await sendAndWait(credReg.connect(oracle).acceptActiveRoot());
+      if ((await credReg.activeRoot()) !== r) throw new Error("root not updated");
+    } else {
+      await sendAndWait(credReg.connect(oracle).proposeActiveRoot(r));
+      if ((await credReg.pendingActiveRoot()) !== r) throw new Error("root not proposed");
+    }
   });
-  await test("CR: issuer updates revoked secret root", async () => {
+  await test("CR: issuer updates revoked secret root (timelocked)", async () => {
     const r = ethers.keccak256(ethers.toUtf8Bytes("revoked-root-1"));
-    await sendAndWait(credReg.connect(oracle).updateRevokedSecretRoot(r));
-    if ((await credReg.revokedSecretRoot()) !== r) throw new Error("revoked root not updated");
+    if (ACCEPT_PHASE) {
+      await sendAndWait(credReg.connect(oracle).acceptRevokedSecretRoot());
+      if ((await credReg.revokedSecretRoot()) !== r) throw new Error("revoked root not updated");
+    } else {
+      await sendAndWait(credReg.connect(oracle).proposeRevokedSecretRoot(r));
+      if ((await credReg.pendingRevokedSecretRoot()) !== r) throw new Error("revoked root not proposed");
+    }
   });
   await test("CR: non-issuer cannot update root", async () => {
     try {
-      await sendAndWait(credReg.connect(client).updateActiveRoot(ethers.ZeroHash));
+      await sendAndWait(credReg.connect(client).proposeActiveRoot(ethers.ZeroHash));
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });
@@ -124,7 +142,7 @@ async function main() {
     await sendAndWait(credReg.pause());
     if (!(await credReg.paused())) throw new Error("pause failed");
     try {
-      await sendAndWait(credReg.connect(oracle).updateActiveRoot(ethers.keccak256(ethers.toUtf8Bytes("x"))));
+      await sendAndWait(credReg.connect(oracle).proposeActiveRoot(ethers.keccak256(ethers.toUtf8Bytes("x"))));
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
     await sendAndWait(credReg.unpause());
@@ -289,21 +307,30 @@ async function main() {
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(action));
     if ((await delMgr.getScopeAction(scopeHash)) !== action) throw new Error("scope not registered");
   });
-  await test("DM: delegator updates own root", async () => {
-    const scopeAction = "scope-root-" + Date.now();
+  await test("DM: delegator updates own root (timelocked)", async () => {
+    // Fixed scope name (not Date.now) so the ACCEPT_PHASE run targets the
+    // same scope the PROPOSE run proposed for. Registration is wrapped so a
+    // rerun does not fail on the already-registered scope.
+    const scopeAction = "scope-root-timelocked";
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
-    await sendAndWait(delMgr.registerScope(scopeAction));
+    try { await sendAndWait(delMgr.registerScope(scopeAction)); } catch {}
     const r = ethers.keccak256(ethers.toUtf8Bytes("deleg-root-1"));
-    await sendAndWait(delMgr.updateDelegationRoot(deployer.address, scopeHash, r, 0));
-    const rootInfo = await delMgr.getDelegationRoot(deployer.address, scopeHash);
-    if (rootInfo.root !== r) throw new Error("root mismatch");
+    if (ACCEPT_PHASE) {
+      await sendAndWait(delMgr.acceptDelegationRoot(deployer.address, scopeHash));
+      const rootInfo = await delMgr.getDelegationRoot(deployer.address, scopeHash);
+      if (rootInfo.root !== r) throw new Error("root mismatch");
+    } else {
+      await sendAndWait(delMgr.proposeDelegationRoot(deployer.address, scopeHash, r, 0));
+      const pending = await delMgr.pendingDelegationRoots(deployer.address, scopeHash);
+      if (pending.root !== r) throw new Error("root not proposed");
+    }
   });
   await test("DM: non-delegator cannot update OTHER's root", async () => {
     const scopeAction = "scope-auth-" + Date.now();
-    await sendAndWait(delMgr.registerScope(scopeAction));
+    try { await sendAndWait(delMgr.registerScope(scopeAction)); } catch {}
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(scopeAction));
     try {
-      await sendAndWait(delMgr.connect(client).updateDelegationRoot(deployer.address, scopeHash, ethers.ZeroHash, 0));
+      await sendAndWait(delMgr.connect(client).proposeDelegationRoot(deployer.address, scopeHash, ethers.ZeroHash, 0));
       throw new Error("should have reverted");
     } catch (e: any) { if (e.message?.includes("should have reverted")) throw e; }
   });

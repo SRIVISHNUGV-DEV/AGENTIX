@@ -166,7 +166,8 @@ export function AgentsPage() {
     setCreating(true); setError(null);
     try {
       const owner = await getAccount();
-      // Generate agent's own keypair (client-side, no server sees private key)
+      // Generate agent's own keypair (client-side; note the key IS sent to
+      // the local API server for bundler relay signing — see the key card)
       const agent = await generateAgentKey();
       if (!agent.address) throw new Error('Failed to generate agent key');
 
@@ -265,7 +266,7 @@ export function AgentsPage() {
           <div className="flex-1">
             <div className="text-xs font-medium mb-1">Agent Secret Key — Save this!</div>
             <div className="text-[10px] text-muted-foreground/80 mb-2">
-              This key is generated client-side and never sent to any server. The agent uses it to sign transactions.
+              This key is generated client-side. It IS sent to the local API server when you relay through the bundler (the server uses it transiently to sign and does not store caller-supplied keys); prefer the server-stored-key relay when the runtime already holds the session key. The agent uses it to sign transactions.
             </div>
             <div className="flex items-center gap-2 bg-background/50 rounded px-3 py-2">
               <code className="text-[10px] font-mono break-all flex-1">{showSecretKey}</code>
@@ -334,7 +335,7 @@ export function AgentsPage() {
                     <div className="flex-1">
                       <div className="text-sm font-medium mb-1">Deploy Agent Wallet</div>
                       <div className="text-[11px] text-muted-foreground/70 mb-3">
-                        Create an ERC-4337 smart wallet for {selectedHarness.name}. An agent keypair is generated client-side — the private key never leaves your machine.
+                        Create an ERC-4337 smart wallet for {selectedHarness.name}. An agent keypair is generated client-side — the private key never leaves your machine except to the local API server when relaying through the bundler (transient, not stored).
                       </div>
                       <Button onClick={setupAgent} disabled={creating || !isConnected}
                         icon={creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wallet className="w-3.5 h-3.5" />}>

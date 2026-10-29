@@ -3,6 +3,21 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 let serverProcess: any;
 const API = "http://localhost:3001";
 
+// R-5: sensitive GETs (/api/config, any /api/sessions*) now require the
+// per-run localhost token. The server writes it to AGENTIX_HOME at
+// startup; read it (with a short retry) once the server is up.
+async function readLocalToken(): Promise<string> {
+  const { readFileSync, existsSync } = await import("fs");
+  const { join } = await import("path");
+  const home = process.env.AGENTIX_HOME!;
+  const file = join(home, ".local-token");
+  for (let i = 0; i < 20; i++) {
+    if (existsSync(file)) return readFileSync(file, "utf-8").trim();
+    await new Promise((x) => setTimeout(x, 250));
+  }
+  throw new Error(`localhost token not found at ${file}`);
+}
+
 beforeAll(async () => {
   try {
     const res = await fetch(`${API}/api/health`);
@@ -87,15 +102,17 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
   });
 
   describe("G2: All Endpoints Respond", () => {
+    // Endpoints marked token: true are sensitive GETs that require the
+    // per-run localhost token (R-5); without it they 403 by design.
     const endpoints = [
       { method: "GET", path: "/api/health" },
       { method: "GET", path: "/api/stats" },
-      { method: "GET", path: "/api/config" },
+      { method: "GET", path: "/api/config", token: true },
       { method: "GET", path: "/api/organizations" },
       { method: "GET", path: "/api/organizations/requests" },
       { method: "GET", path: "/api/credentials" },
       { method: "GET", path: "/api/wallets" },
-      { method: "GET", path: "/api/sessions?wallet=0x0000000000000000000000000000000000000000" },
+      { method: "GET", path: "/api/sessions?wallet=0x0000000000000000000000000000000000000000", token: true },
       { method: "GET", path: "/api/proofs" },
       { method: "GET", path: "/api/actions" },
       { method: "GET", path: "/api/events?limit=5" },
@@ -110,11 +127,22 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
     for (const ep of endpoints) {
       it(`${ep.method} ${ep.path}`, async () => {
         await check(`${ep.method} ${ep.path}`, async () => {
-          const res = await fetch(`${API}${ep.path}`, { method: ep.method });
+          const headers: Record<string, string> = {};
+          if ((ep as any).token) headers["X-Agentix-Token"] = await readLocalToken();
+          const res = await fetch(`${API}${ep.path}`, { method: ep.method, headers });
           expect(res.ok).toBe(true);
         });
       });
     }
+
+    it("token-gated GETs reject callers without the token", async () => {
+      await check("Token gate (GET)", async () => {
+        for (const path of ["/api/config", "/api/sessions?wallet=0x0000000000000000000000000000000000000000"]) {
+          const res = await fetch(`${API}${path}`);
+          expect(res.status).toBe(403);
+        }
+      });
+    });
   });
 
   describe("G3: Core Services", () => {
@@ -222,10 +250,18 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
       });
     });
 
-    it("CORS headers present", async () => {
+    it("CORS reflects allowlisted origins, never a wildcard", async () => {
       await check("CORS", async () => {
-        const res = await fetch(`${API}/api/health`);
-        expect(res.headers.get("access-control-allow-origin")).toBe("*");
+        // An allowlisted dashboard origin is reflected.
+        const dash = await fetch(`${API}/api/health`, { headers: { Origin: "http://localhost:3000" } });
+        expect(dash.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+        // A non-browser request (no Origin) gets no CORS headers at all —
+        // the old unconditional `*` was the hole R-5 closed.
+        const plain = await fetch(`${API}/api/health`);
+        expect(plain.headers.get("access-control-allow-origin")).not.toBe("*");
+        // An evil origin is not reflected.
+        const evil = await fetch(`${API}/api/health`, { headers: { Origin: "https://evil.example" } });
+        expect(evil.headers.get("access-control-allow-origin")).not.toBe("https://evil.example");
       });
     });
   });

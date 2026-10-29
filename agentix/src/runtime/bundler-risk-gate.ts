@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { runSingle } from "../core/database";
 import { logger } from "../core/logger";
-import { checkPolicy } from "../core/owner-policy";
+import { checkPolicy, parseValueToWei, decodeTokenMove } from "../core/owner-policy";
 
 /**
  * bundler-risk-gate — enforcement layer for the ERC-4337 relay path.
@@ -26,7 +26,13 @@ export interface GateDecision {
   topDrivers?: string[];
 }
 
-/** Decode a wallet.execute(target,value,data) UserOp into a risk intent. */
+/**
+ * Decode a wallet.execute(target,value,data) UserOp into a risk intent.
+ * FAIL-CLOSED: an unparseable value throws, and the caller denies — the
+ * pre-fix fallback to 0n turned a malformed relay body into a "free" op.
+ * Token calldata is decoded (R-6) so the policy check sees the token move,
+ * not just the ETH value (which is 0 for a token transfer).
+ */
 function decodeExecute(userOp: { sender: string; target: string; value: string; calldata?: string }): {
   walletAddress: string;
   target: string;
@@ -35,13 +41,7 @@ function decodeExecute(userOp: { sender: string; target: string; value: string; 
   return {
     walletAddress: userOp.sender,
     target: userOp.target,
-    valueWei: (() => {
-      try {
-        return BigInt(userOp.value ?? "0");
-      } catch {
-        return 0n;
-      }
-    })(),
+    valueWei: parseValueToWei(userOp.value ?? "0"),
   };
 }
 
@@ -58,7 +58,15 @@ export async function assessBundlerOp(
   userOp: { sender: string; target: string; value: string; calldata?: string; sessionId?: string },
   opts: { ownerApprovalAttestation?: string; userOpHash?: string } = {}
 ): Promise<GateDecision> {
-  const { walletAddress, target, valueWei } = decodeExecute(userOp);
+  let decoded: ReturnType<typeof decodeExecute>;
+  try {
+    decoded = decodeExecute(userOp);
+  } catch (e: any) {
+    // Fail-closed on malformed value: do not relay an op we cannot price.
+    return { allowed: false, decision: "DENY", score: 100, reason: `Unparseable relay value: ${e.message}` };
+  }
+  const { walletAddress, target, valueWei } = decoded;
+  const tokenMove = decodeTokenMove(target, userOp.calldata);
 
   // 1. Resolve the session → wallet → org context so the risk engine has history.
   const session = userOp.sessionId
@@ -84,11 +92,16 @@ export async function assessBundlerOp(
 
   // 2. Fast owner-policy pre-check (per-tx / daily ceilings, allow/forbid lists).
   //    This mirrors the gateway's policy gate so both paths enforce the same limits.
+  //    FAIL-CLOSED: a policy-check exception denies — the pre-fix code logged
+  //    and continued to the risk engine, letting a policy-layer failure pass.
+  //    The calldata is passed through so token moves are policy-checked as
+  //    token moves (R-6), not as zero-value generic executes.
   try {
     const policyCheck = checkPolicy(walletAddress, "wallet_execute", {
       walletAddress,
       target,
       value: valueWei.toString(),
+      data: userOp.calldata || "0x",
     });
     if (!policyCheck.allowed) {
       return {
@@ -99,7 +112,8 @@ export async function assessBundlerOp(
       };
     }
   } catch (e: any) {
-    logger.warn("bundler-gate", `owner-policy check failed (continuing to risk engine): ${e.message}`);
+    logger.error("bundler-gate", `owner-policy check failed (denying): ${e.message}`);
+    return { allowed: false, decision: "DENY", score: 100, reason: `Owner policy check failed: ${e.message}` };
   }
 
   // 3. Run the modular risk engine (value + counterparty + behavioral + compliance …).
@@ -125,6 +139,13 @@ export async function assessBundlerOp(
           target,
           recipient: target,
           value: valueWei.toString(),
+          data: userOp.calldata || "0x",
+          // Token moves are visible to risk signals as token moves, not as
+          // zero-value executes (R-6). Amounts are token atomic units, NOT
+          // ETH — never summed into the ETH value above.
+          tokenTransfer: tokenMove
+            ? { kind: tokenMove.kind, token: tokenMove.token, to: tokenMove.to, amount: tokenMove.amount.toString() }
+            : undefined,
         },
         limits: {},
       } as any,
@@ -158,7 +179,7 @@ export async function assessBundlerOp(
 
   // REVIEW or CHALLENGE — require owner step-up.
   if (opts.ownerApprovalAttestation && opts.userOpHash) {
-    const ok = verifyOwnerAttestation(walletAddress, opts.userOpHash, opts.ownerApprovalAttestation);
+    const ok = verifyOwnerSignature(walletAddress, ethers.getBytes(opts.userOpHash), opts.ownerApprovalAttestation);
     if (ok) {
       return {
         allowed: true,
@@ -182,17 +203,21 @@ export async function assessBundlerOp(
 }
 
 /**
- * Verify that `attestation` is a valid EIP-191 signature over `userOpHash` by the
- * wallet's registered owner. Looks the owner up from the wallets table.
+ * Verify that `signature` is a valid EIP-191 signature over `message` by the
+ * wallet's registered owner (wallets table). Shared by the bundler step-up
+ * path (message = userOpHash bytes) and the MCP plan-approval path (message
+ * = a domain-separated plan-approval string) — one owner-attestation check,
+ * not one per surface. Callers MUST domain-separate their messages: a plan
+ * attestation must never verify as a bundler attestation or vice versa.
  */
-function verifyOwnerAttestation(walletAddress: string, userOpHash: string, attestation: string): boolean {
+export function verifyOwnerSignature(walletAddress: string, message: Uint8Array, signature: string): boolean {
   try {
     const row = runSingle<{ owner_address: string }>(
       "SELECT owner_address FROM wallets WHERE wallet_address = ?",
       walletAddress
     );
     if (!row?.owner_address) return false;
-    const recovered = ethers.verifyMessage(ethers.getBytes(userOpHash), attestation);
+    const recovered = ethers.verifyMessage(message, signature);
     return recovered.toLowerCase() === row.owner_address.toLowerCase();
   } catch {
     return false;

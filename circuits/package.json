@@ -4,8 +4,8 @@
   "private": true,
   "description": "Circom ZK circuits for credential verification",
   "scripts": {
-    "compile": "circom credential.circom --r1cs --wasm --sym --output build",
-    "test": "node test/circuit_test.js",
+    "compile": "circom credential_V1.circom --r1cs --wasm --sym --output build",
+    "test": "node test/credential.test.js",
     "setup": "bash setup.sh 2>/dev/null || echo 'Run manual setup: install circom and snarkjs'"
   },
   "dependencies": {

@@ -23,11 +23,20 @@ const contracts = deployData.contracts
 const provider = new ethers.JsonRpcProvider(RPC_URL)
 const signer = new ethers.Wallet(PRIVATE_KEY, provider)
 
+// Root changes are timelocked (2 days, C-5). By default this script
+// PROPOSES root changes; rerun with ACCEPT_PHASE=1 after the timelock
+// elapses to ACCEPT them.
+const ACCEPT_PHASE = process.env.ACCEPT_PHASE === "1"
+
 const registryABI = [
   "function activeRoot() view returns (bytes32)",
   "function revokedSecretRoot() view returns (bytes32)",
-  "function updateActiveRoot(bytes32) external",
-  "function updateRevokedSecretRoot(bytes32) external",
+  "function pendingActiveRoot() view returns (bytes32)",
+  "function pendingRevokedSecretRoot() view returns (bytes32)",
+  "function proposeActiveRoot(bytes32) external",
+  "function proposeRevokedSecretRoot(bytes32) external",
+  "function acceptActiveRoot() external",
+  "function acceptRevokedSecretRoot() external",
   "function markNullifierUsed(bytes32) external",
   "function isNullifierUsed(bytes32) view returns (bool)",
   "function issuers(address) view returns (bool)",
@@ -164,22 +173,28 @@ async function main() {
   const activeRootHex = ethers.toBeHex(activeRoot, 32)
   const revokedRootHex = ethers.toBeHex(revokedRoot, 32)
 
-  if (onChainActiveRoot !== activeRootHex) {
-    console.log("\nUpdating activeRoot on-chain...")
-    const tx1 = await registry.updateActiveRoot(activeRootHex)
+  if (ACCEPT_PHASE) {
+    console.log("\nAccepting pending roots on-chain (timelock elapsed)...")
+    const tx1 = await registry.acceptActiveRoot()
     const r1 = await tx1.wait()
-    console.log("  tx:", r1.hash, "block:", r1.blockNumber)
-  } else {
-    console.log("\nActive root already matches")
-  }
-
-  if (onChainRevokedRoot !== revokedRootHex) {
-    console.log("Updating revokedSecretRoot on-chain...")
-    const tx2 = await registry.updateRevokedSecretRoot(revokedRootHex)
+    console.log("  acceptActiveRoot tx:", r1.hash, "block:", r1.blockNumber)
+    const tx2 = await registry.acceptRevokedSecretRoot()
     const r2 = await tx2.wait()
-    console.log("  tx:", r2.hash, "block:", r2.blockNumber)
+    console.log("  acceptRevokedSecretRoot tx:", r2.hash, "block:", r2.blockNumber)
+  } else if (onChainActiveRoot !== activeRootHex || onChainRevokedRoot !== revokedRootHex) {
+    console.log("\nProposing root updates on-chain (rerun with ACCEPT_PHASE=1 after 2 days to activate)...")
+    if (onChainActiveRoot !== activeRootHex) {
+      const tx1 = await registry.proposeActiveRoot(activeRootHex)
+      const r1 = await tx1.wait()
+      console.log("  proposeActiveRoot tx:", r1.hash, "block:", r1.blockNumber)
+    }
+    if (onChainRevokedRoot !== revokedRootHex) {
+      const tx2 = await registry.proposeRevokedSecretRoot(revokedRootHex)
+      const r2 = await tx2.wait()
+      console.log("  proposeRevokedSecretRoot tx:", r2.hash, "block:", r2.blockNumber)
+    }
   } else {
-    console.log("Revoked root already matches")
+    console.log("\nActive and revoked roots already match")
   }
 
   // --- 8. Create wallet and submit session on-chain ---

@@ -24,15 +24,29 @@ const KNOWN_CONTRACTS: Record<string, { name: string; functions: string[] }> = {
   session_create: { name: 'SessionManager', functions: ['createSession'] },
   session_create_lightweight: { name: 'SessionManager', functions: ['createLightweightSession'] },
   session_revoke: { name: 'SessionManager', functions: ['revokeSession(bytes32,address)'] },
-  credential_issue: { name: 'CredentialRegistry', functions: ['updateActiveRoot'] },
-  credential_revoke: { name: 'CredentialRegistry', functions: ['updateRevokedSecretRoot'] },
+  credential_issue: { name: 'CredentialRegistry', functions: ['proposeActiveRoot'] },
+  credential_revoke: { name: 'CredentialRegistry', functions: ['proposeRevokedSecretRoot'] },
+  credential_update_root: { name: 'CredentialRegistry', functions: ['proposeActiveRoot'] },
+  credential_accept_root: { name: 'CredentialRegistry', functions: ['acceptActiveRoot'] },
+  credential_accept_revoked_root: { name: 'CredentialRegistry', functions: ['acceptRevokedSecretRoot'] },
+  credential_cancel_root: { name: 'CredentialRegistry', functions: ['cancelActiveRoot'] },
+  credential_cancel_revoked_root: { name: 'CredentialRegistry', functions: ['cancelRevokedSecretRoot'] },
   organization_register: { name: 'OrganizationRegistry', functions: ['registerOrganization'] },
   organization_deactivate: { name: 'OrganizationRegistry', functions: ['deactivateOrganization'] },
   organization_reactivate: { name: 'OrganizationRegistry', functions: ['reactivateOrganization'] },
   capability_register: { name: 'CapabilityRegistry', functions: ['registerCapability'] },
   capability_revoke: { name: 'CapabilityRegistry', functions: ['revokeCapability'] },
-  delegation_create: { name: 'DelegationManager', functions: ['updateDelegationRoot'] },
+  delegation_create: { name: 'DelegationManager', functions: ['proposeDelegationRoot'] },
+  delegation_accept_root: { name: 'DelegationManager', functions: ['acceptDelegationRoot'] },
+  delegation_cancel_root: { name: 'DelegationManager', functions: ['cancelDelegationRoot'] },
   delegation_revoke: { name: 'DelegationManager', functions: ['revokeDelegation'] },
+  // Anchor actions target per-organization instances, not a singleton
+  // proxy: the address comes from params (see resolve() below), never
+  // from config defaults.
+  anchor_accept_root: { name: 'OrganizationCredentialAnchor', functions: ['acceptRoot'] },
+  anchor_accept_revoked_root: { name: 'OrganizationCredentialAnchor', functions: ['acceptRevokedRoot'] },
+  anchor_cancel_root: { name: 'OrganizationCredentialAnchor', functions: ['cancelRoot'] },
+  anchor_cancel_revoked_root: { name: 'OrganizationCredentialAnchor', functions: ['cancelRevokedRoot'] },
   identity_link_credential: { name: 'AgentIdentity', functions: ['linkCredential'] },
   identity_update_metadata: { name: 'AgentIdentity', functions: ['updateMetadata'] },
   identity_deactivate: { name: 'AgentIdentity', functions: ['deactivate'] },
@@ -54,6 +68,11 @@ export class ContractResolver {
 
     const address =
       (contractAddresses && contractAddresses[mapping.name]) ||
+      // Anchor actions carry their per-instance address in params: there
+      // is no singleton anchor proxy in config to default to.
+      (mapping.name === 'OrganizationCredentialAnchor' && typeof intent.params?.anchorAddress === 'string'
+        ? (intent.params.anchorAddress as string)
+        : undefined) ||
       this._getDefaultAddress(mapping.name);
 
     if (!address) {
@@ -140,16 +159,28 @@ export class ContractResolver {
       'changeOwner': 'changeOwner(address)',
       'createSession': 'createSession(bytes32,address,uint256,uint256,uint64,uint128)',
       'createLightweightSession': 'createLightweightSession(bytes32,address,uint256,uint256,uint64,address[],bytes)',
-      'revokeSession': 'revokeSession(bytes32)',
-      'updateActiveRoot': 'updateActiveRoot(uint256)',
-      'updateRevokedSecretRoot': 'updateRevokedSecretRoot(uint256)',
+      'revokeSession': 'revokeSession(bytes32,address)',
+      'proposeActiveRoot': 'proposeActiveRoot(bytes32)',
+      'acceptActiveRoot': 'acceptActiveRoot()',
+      'cancelActiveRoot': 'cancelActiveRoot()',
+      'proposeRevokedSecretRoot': 'proposeRevokedSecretRoot(bytes32)',
+      'acceptRevokedSecretRoot': 'acceptRevokedSecretRoot()',
+      'cancelRevokedSecretRoot': 'cancelRevokedSecretRoot()',
+      'proposeRoot': 'proposeRoot(bytes32)',
+      'acceptRoot': 'acceptRoot()',
+      'cancelRoot': 'cancelRoot()',
+      'proposeRevokedRoot': 'proposeRevokedRoot(bytes32)',
+      'acceptRevokedRoot': 'acceptRevokedRoot()',
+      'cancelRevokedRoot': 'cancelRevokedRoot()',
       'registerOrganization': 'registerOrganization(bytes32,string,address)',
       'deactivateOrganization': 'deactivateOrganization(bytes32)',
       'reactivateOrganization': 'reactivateOrganization(bytes32)',
       'registerCapability': 'registerCapability(bytes32,bytes32)',
       'revokeCapability': 'revokeCapability(bytes32)',
-      'updateDelegationRoot': 'updateDelegationRoot(bytes32,bytes32,uint64)',
-      'revokeDelegation': 'revokeDelegation(bytes32)',
+      'proposeDelegationRoot': 'proposeDelegationRoot(address,bytes32,bytes32,uint64)',
+      'acceptDelegationRoot': 'acceptDelegationRoot(address,bytes32)',
+      'cancelDelegationRoot': 'cancelDelegationRoot(address,bytes32)',
+      'revokeDelegation': 'revokeDelegation(bytes32,address)',
       'linkCredential': 'linkCredential(uint256,uint256)',
       'updateMetadata': 'updateMetadata(uint256,bytes32)',
       'deactivate': 'deactivate(uint256)',

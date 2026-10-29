@@ -43,7 +43,14 @@ export async function initializeAgentix(rpcUrl?: string): Promise<DeployResult> 
     steps.push({ name: "Load contract addresses", status: "ERROR", message: e.message });
   }
 
-  if (config.rpcUrl) {
+  // Probe the network ONLY when the caller passed an explicit RPC URL.
+  // loadConfig() always fills in the default public URL, so gating on
+  // config.rpcUrl would make every plain init wait on a network probe
+  // (checkRpcConnection has no timeout) — plain init must stay offline-safe.
+  // This matters because `init` now invokes initializeAgentix (via wizard.ts):
+  // a plain init saves the config and skips the probe; `init --rpc <url>`
+  // still verifies the URL it was given.
+  if (rpcUrl) {
     try {
       const rpcResult = await checkRpcConnection();
       if (rpcResult.connected) {
@@ -55,7 +62,7 @@ export async function initializeAgentix(rpcUrl?: string): Promise<DeployResult> 
       steps.push({ name: "Verify RPC connectivity", status: "SKIP", message: e.message });
     }
   } else {
-    steps.push({ name: "Verify RPC connectivity", status: "SKIP", message: "No RPC URL configured" });
+    steps.push({ name: "Verify RPC connectivity", status: "SKIP", message: "No explicit RPC URL passed — connectivity check skipped" });
   }
 
   logger.info("deploy", "AgentIX initialized successfully");
@@ -78,7 +85,9 @@ export async function showDeploymentStatus(): Promise<DeployResult> {
 
   try {
     const db = getDatabase();
-    const tables = db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table'").get() as any;
+    // Count application tables only: sqlite_sequence is SQLite's internal
+    // auto-increment bookkeeping table, not an application table (34, not 35).
+    const tables = db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'").get() as any;
     steps.push({ name: "Database", status: "DONE", message: `${tables?.c || 0} tables` });
   } catch (e: any) {
     steps.push({ name: "Database", status: "ERROR", message: e.message });

@@ -5,7 +5,7 @@ import { logger } from "../core/logger";
 import { runExecute, runQueryCamel } from "../core/database";
 import { getEventBus } from "../../packages/core/eventbus";
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 
@@ -58,11 +58,19 @@ function loadOrCreateBundlerKey(): string {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   if (existsSync(BUNDLER_KEY_PATH)) {
+    // Tighten permissions on load too: keys created before this fix may
+    // sit at the default umask. Best-effort on non-POSIX platforms.
+    try {
+      chmodSync(BUNDLER_KEY_PATH, 0o600);
+    } catch {}
     return readFileSync(BUNDLER_KEY_PATH, "utf-8").trim();
   }
 
   const wallet = ethers.Wallet.createRandom();
-  writeFileSync(BUNDLER_KEY_PATH, wallet.privateKey, "utf-8");
+  writeFileSync(BUNDLER_KEY_PATH, wallet.privateKey, { mode: 0o600, encoding: "utf-8" });
+  try {
+    chmodSync(BUNDLER_KEY_PATH, 0o600);
+  } catch {}
   logger.info("bundler", `Generated bundler key: ${wallet.address}`);
   return wallet.privateKey;
 }

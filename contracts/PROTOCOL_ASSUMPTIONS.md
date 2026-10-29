@@ -1,9 +1,11 @@
 # AgentIX V1 — Protocol Assumptions Document
 
-**Date:** 2026-06-29
-**Auditor:** System-wide, contract-by-contract security audit
+**Date:** 2026-06-29 (assumptions review; status notes updated 2026-10-29)
+**Review:** Internal assumptions review — NOT an independent security audit.
+  These contracts are unaudited and testnet-only; nothing in this document
+  is a security certification.
 **Scope:** contracts/src/ (10 contracts)
-**Status:** V1 Frozen Protocol
+**Status:** V1 internal assumptions (not frozen, not certified)
 
 ---
 
@@ -32,8 +34,8 @@
 **Failure modes:**
 - Malicious issuer sets wrong root → all credential proofs fail
 - Malicious SessionManager burns unused nullifiers → credential DOS
-- Pause state does NOT block nullifiers → secure by design
-**Mainnet considerations:** Single-issuer model works fine; multi-issuer requires governance coordination
+- Pause state does NOT block nullifiers (deliberate DOS-prevention choice; unreviewed by any auditor)
+**Testnet-only note (not mainnet-ready):** Single-issuer model works fine; multi-issuer requires governance coordination
 **Known limitations:** No per-organization root support (uses OrganizationCredentialAnchor for that); no expiration on roots
 **V2 recommendation:** Add root versioning with migration window; add per-organization root lookups
 
@@ -54,7 +56,7 @@
 - `verifyProof` is pure computation; no side effects
 - Public signals (7 values) are correctly bound to proof
 **Failure modes:** Wrong verification key → all proofs fail/invalid proofs pass
-**Mainnet considerations:** Deployed as standalone (non-upgradeable) — if circuit changes, new verifier must be deployed
+**Testnet-only note (not mainnet-ready):** Deployed as standalone (non-upgradeable) — if circuit changes, new verifier must be deployed
 **Known limitations:** Fixed 7 public signals; cannot change without re-deployment; GPL-3.0 license
 **V2 recommendation:** Consider PLONK or Nova for more efficient verification; add circuit upgrade path
 
@@ -68,6 +70,8 @@
 - Create/validate/revoke standard sessions (ZK proof of credential ownership)
 - Create/validate/revoke lightweight sessions (owner ECDSA signature)
 - Enforce spend limits, transaction limits, target restrictions, expiry
+- Enforce the session target rules: denied protocol targets, plus the token-selector
+  allowlist rule (a token transfer from a session requires an allowlisted target)
 - Maintain wallet-to-sessions enumeration for pruning
 - Manage AgentWalletFactory reference with timelock
 
@@ -88,18 +92,33 @@
 - Standard session nullifier can only be consumed once (via CredentialRegistry)
 - `msg.sender == wallet` enforced for session creation
 - Wallet must have code AND be in factory registry
+- Token transfers are NOT free under a session: ERC-20 transfer/approve/transferFrom and
+  ERC-721 transferFrom/safeTransferFrom calldata from a session REQUIRES the target in the
+  session's allowlist; an empty allowlist DENIES token selectors outright. (Token transfers
+  carry ETH value 0 and would otherwise bypass maxValue/dailySpendLimit entirely. Standard
+  sessions set their allowlist via setSessionTargets; lightweight sessions at creation.)
+- Protocol targets are denied to sessions unconditionally: the bound wallet itself, the
+  SessionManager, the CredentialRegistry, the DelegationManager (once set via
+  setDelegationManager), and the EntryPoint (denied in AgentWallet, blocking the deposit
+  drain where a session calls EntryPoint.withdrawTo with value 0)
 
 **Failure modes:**
 - WalletFactory replacement during active sessions → old sessions still validate (by design, sessions are bound to wallet, not factory)
 - Pause blocks ALL validation → DOS against active sessions
+- Credential revocation does NOT terminate live sessions (C-4, documented residual, NOT a
+  bug fix): validateSession/validateLightweightSession never recheck credential standing, so
+  a session created before its credential was revoked keeps spending until its own expiry or
+  an explicit revokeSession/revokeLightweightSession call. The issuer has no path to kill a
+  session; only the session key or the wallet owner can. Mitigation: keep standard-session
+  expiries short. No phantom mapping is maintained — this is the documented behavior.
 - `proposeWalletFactory` with zero pending check prevents double-proposal
 - `proposeWalletFactory` event not emitted → V2 Recommendation
 - `acceptWalletFactory` event not emitted → V2 Recommendation
 - `pruneExpiredSessions` only callable by wallet itself (onlyWallet modifier) — important: the `onlyWallet` modifier checks `msg.sender` IS an AgentWallet, AND `wallet != msg.sender` in pruneExpiredSessions reverts with NotBoundWallet. This means ONLY the wallet's own contract can call prune on itself.
 
-**Mainnet considerations:** MAX_SESSIONS_PER_WALLET = 100 may be tight for high-frequency agents; SUPPORTED_CREDENTIAL_VERSION = 1 is hardcoded
+**Testnet-only note (not mainnet-ready):** MAX_SESSIONS_PER_WALLET = 100 may be tight for high-frequency agents; SUPPORTED_CREDENTIAL_VERSION = 1 is hardcoded
 
-**Issues found during audit:**
+**Issues found during internal review:**
 
 ### HIGH — Missing Events on WalletFactory Update
 `proposeWalletFactory()` and `acceptWalletFactory()` do NOT emit events. This is an observability gap — monitoring systems cannot detect changes to this critical dependency. **Recommendation:** Add `WalletFactoryProposed` and `WalletFactoryUpdated` events.
@@ -139,11 +158,11 @@ Both `onlyWallet` modifier AND explicit `wallet != msg.sender` check. Redundant 
 - Session-based execution requires valid session via SessionManager
 - Batch execution NOT allowed via sessions (only owner/EntryPoint direct)
 - MAX_BATCH_SIZE = 20
-- 24-hour timelock on SessionManager and EntryPoint changes
+- 2-day timelock on SessionManager and EntryPoint changes
 - Ownership transfer is 2FA (propose/accept)
 - Implementation contract CANNOT be initialized (constructor sets initialized=true)
 
-**Issues found during audit:**
+**Issues found during internal review:**
 
 ### HIGH — ERC1820 Registration Failure is Silently Ignored
 In `initialize()`, ERC1820 registration failure is assigned to variable but never checked:
@@ -192,10 +211,10 @@ When `missingAccountFunds > 0`, the wallet forwards ETH to `msg.sender` (the Ent
 - Wallet owner cannot be changed post-creation via factory
 - Existing wallets with different owners revert on collision
 - agentWallets registry tracks ALL factory-created wallets
-- 24-hour timelock on all state-changing admin operations
+- 2-day timelock on all state-changing admin operations
 - agentIdentity is optional (can be zero)
 
-**Issues found during audit:**
+**Issues found during internal review:**
 
 ### MEDIUM — Identity Registration Failure is Silently Ignored
 ```solidity
@@ -240,7 +259,7 @@ When a wallet already exists (code.length > 0) and owner matches, `walletCount` 
 - Deactivated identity blocks credential linking and metadata updates
 - Reactivation of already-active identity reverts
 
-**Issues found during audit:**
+**Issues found during internal review:**
 
 ### MEDIUM — Credential Linking Has No Versioning
 `linkCredential` simply stores the credential ID without any versioning or epoch. If credentials are re-issued, there's no way to detect staleness. The off-chain system must manage this.
@@ -274,7 +293,7 @@ Good practice. Timestamps provide an audit trail.
 - Only owner can register/deactivate/reactivate
 - Timelock on anchor upgrades (24 hours)
 
-**Issues found during audit:**
+**Issues found during internal review:**
 
 ### HIGH — Anchor Clone Uses `abi.encode(organizationId)` as Salt
 ```solidity
@@ -307,7 +326,7 @@ Reactivating an organization doesn't check if the credential anchor is still val
 - `updateRevokedRoot` reverts on zero
 - `incrementEpoch` is unbounded (no overflow on uint64 for practical purposes)
 
-**Issues found during audit:** None critical. Contract is minimal and well-scoped.
+**Issues found during internal review:** None critical. Contract is minimal and well-scoped.
 
 ---
 
@@ -397,7 +416,7 @@ Once a scope is registered, the human-readable name is permanent. If a typo occu
 10. **DelegationManager** — No dependencies
 
 ### Post-Deployment Wiring:
-- SessionManager needs `proposeWalletFactory(factory) + acceptWalletFactory()` (24h timelock)
+- SessionManager needs `proposeWalletFactory(factory) + acceptWalletFactory()` (2-day timelock)
 - CredentialRegistry needs `setSessionManager(sm, true)`
 - AgentWalletFactory needs `setAgentIdentity(identity)`
 

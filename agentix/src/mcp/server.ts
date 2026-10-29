@@ -97,7 +97,7 @@ const tools = [
   // SESSION (agent-relevant: list, validate, find-mine)
   // ═══════════════════════════════════════════════════════════════
   { name: "agentix_session_list",        description: "List sessions — filter by walletAddress OR sessionKey (agent's own key)", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, sessionKey: { type: "string" } } } },
-  { name: "agentix_session_validate",    description: "On-chain check: is a session valid for this signer+value?", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, signer: { type: "string" }, value: { type: "string" } }, required: ["sessionId", "signer"] } },
+  { name: "agentix_session_validate",    description: "On-chain check: is a session valid for this signer+value+target? Target is required: validation is per-call (the contract denies token selectors on non-allowlisted targets and denies protocol targets), so a target-less check cannot be answered honestly. Data defaults to 0x (no calldata).", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, signer: { type: "string" }, value: { type: "string" }, target: { type: "string" }, data: { type: "string" } }, required: ["sessionId", "signer", "target"] } },
   { name: "agentix_sessions_mine",       description: "Find all sessions where YOU are the session key — pass your agent address", inputSchema: { type: "object" as const, properties: { sessionKey: { type: "string" } }, required: ["sessionKey"] } },
   { name: "agentix_session_status",      description: "Get full session status: limits, remaining spend/tx, expiry, gas balance. Use this before submitting a UserOp.", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, walletAddress: { type: "string" } }, required: ["sessionId", "walletAddress"] } },
 
@@ -415,7 +415,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // On-chain session check
         const sm = new ethers.Contract(config.contracts.sessionManager, [
           "function getLightSession(bytes32) view returns (address,address,uint256,uint256,uint256,uint256,uint64,bool)",
-          "function validateLightweightSession(bytes32,address,uint256) view returns (bool)",
+          "function validateLightweightSession(bytes32,address,uint256,address,bytes) view returns (bool)",
           "function getSessionType(bytes32) view returns (uint8)",
         ], getProvider());
 
@@ -479,13 +479,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { getProvider } = await import("../core/provider");
         const config = loadConfig();
         const sm = new ethers.Contract(config.contracts.sessionManager, [
-          "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) view returns (bool)",
+          "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target, bytes data) view returns (bool)",
         ], getProvider());
         try {
+          // Target is required (see tool schema): the 5-arg validator
+          // denies zero/protocol targets and token selectors on
+          // non-allowlisted targets, so validating without the intended
+          // call target would answer a different question than asked.
+          if (!args?.target) {
+            result = { valid: false, error: "target is required: pass the contract address the session would call, and data (default 0x) for its calldata" };
+            break;
+          }
           const valueStr = String(args?.value || "0");
           const valueWei = valueStr.includes(".") ? ethers.parseEther(valueStr) : valueStr;
-          const valid = await sm.validateLightweightSession(args!.sessionId, args!.signer, valueWei);
-          result = { valid, sessionId: args!.sessionId, signer: args!.signer };
+          const valid = await sm.validateLightweightSession(args!.sessionId, args!.signer, valueWei, args!.target, args?.data || "0x");
+          result = { valid, sessionId: args!.sessionId, signer: args!.signer, target: args!.target };
         } catch (e: any) {
           result = { valid: false, error: e.reason || e.message };
         }
@@ -687,9 +695,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // ══════════════════════════════════════════════════════════
       case "agentix_bundler_send": {
         const { bundleUserOp, buildSessionUserOp } = await import("../runtime/bundler");
+        const { assessBundlerOp } = await import("../runtime/bundler-risk-gate");
         const { ethers } = await import("ethers");
 
         try {
+          // R-4: the SAME risk/policy gate as REST /api/bundler/send.
+          // The pre-fix MCP path submitted with no gate at all, even
+          // though the REST gate's header says it was added precisely
+          // because the relay "used to execute any session-signed op…
+          // bypassing the entire risk engine". A gate denial stops here,
+          // before any key is loaded or any op is built.
+          const gate = await assessBundlerOp(
+            {
+              sender: args!.sender as string,
+              target: args!.target as string,
+              value: (args!.value as string) || "0",
+              calldata: (args!.calldata as string) || "0x",
+              sessionId: args!.sessionId as string | undefined,
+            },
+            {
+              ownerApprovalAttestation: args!.ownerApprovalAttestation as string | undefined,
+              userOpHash: args!.userOpHash as string | undefined,
+            }
+          );
+          if (!gate.allowed) {
+            result = {
+              success: false,
+              blocked: true,
+              error: gate.reason,
+              risk: { decision: gate.decision, score: gate.score, category: gate.category, topDrivers: gate.topDrivers },
+            };
+            break;
+          }
+
           const iface = new ethers.Interface(["function execute(address target, uint256 value, bytes calldata data) external"]);
           const callData = iface.encodeFunctionData("execute", [args!.target, args!.value || "0", args!.calldata || "0x"]);
           // Prefer the runtime-held session key: load it from the encrypted keystore
@@ -806,8 +844,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       case "agentix_approve_plan": {
         const { getCompiler } = await import("../../packages/compiler");
-        const plan = getCompiler().approvePlan(args!.planId as string);
-        result = plan || { error: "Plan not found or not in APPROVAL_REQUIRED state" };
+        const plan = getCompiler().getPlan(args!.planId as string);
+        if (!plan) {
+          result = { error: "Plan not found" };
+          break;
+        }
+        // R-10: plan approval was an unauthenticated status flip — any MCP
+        // client could approve any held plan. Now it requires an owner
+        // attestation: an EIP-191 signature over the domain-separated
+        // message `agentix-plan-approve:<planId>` by the plan wallet's
+        // registered owner (same verifier as the bundler step-up path).
+        // No wallet on the plan, or no owner on record, fails closed.
+        // (The gateway's internal auto-approve for within-policy plans does
+        // not go through this handler and is unaffected.)
+        const { verifyOwnerSignature } = await import("../runtime/bundler-risk-gate");
+        const { ethers } = await import("ethers");
+        const planWallet = plan.intent.agent?.walletAddress || "";
+        const attestation = args!.ownerAttestation as string | undefined;
+        const ok = planWallet !== "" && !!attestation &&
+          verifyOwnerSignature(planWallet, ethers.toUtf8Bytes(`agentix-plan-approve:${args!.planId}`), attestation);
+        if (!ok) {
+          result = { error: "Plan approval requires a valid owner attestation (EIP-191 signature over `agentix-plan-approve:<planId>` by the plan wallet's registered owner)." };
+          break;
+        }
+        const approved = getCompiler().approvePlan(args!.planId as string);
+        result = approved || { error: "Plan not found or not in APPROVAL_REQUIRED state" };
         break;
       }
 
@@ -884,9 +945,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // ══════════════════════════════════════════════════════════
       case "agentix_bundler_submit": {
         const { submitUserOp, queueUserOp } = await import("../runtime/bundler-service");
+        const { assessBundlerOp } = await import("../runtime/bundler-risk-gate");
         const signedUserOp = args!.signedUserOp as any;
         const walletAddr = args!.walletAddress as string;
         const action = (args!.action as string) || 'unknown';
+
+        // R-4: assess the already-signed op before queueing/submitting.
+        // The pre-fix path queued and submitted with no gate. Undecodable
+        // calldata fails closed: an op whose effect cannot be assessed is
+        // not relayed.
+        try {
+          const { ethers } = await import("ethers");
+          const iface = new ethers.Interface(["function execute(address target, uint256 value, bytes calldata data) external"]);
+          let decoded: { target: string; value: string; calldata: string };
+          try {
+            const [t, v, d] = iface.decodeFunctionData("execute", signedUserOp.callData);
+            decoded = { target: t as string, value: (v as bigint).toString(), calldata: d as string };
+          } catch {
+            result = { success: false, error: "Bundler submit refused: signed UserOp calldata is not a decodable wallet.execute call." };
+            break;
+          }
+          const gate = await assessBundlerOp({
+            sender: signedUserOp.sender,
+            target: decoded.target,
+            value: decoded.value,
+            calldata: decoded.calldata,
+            sessionId: args!.sessionId as string | undefined,
+          });
+          if (!gate.allowed) {
+            result = {
+              success: false,
+              blocked: true,
+              error: gate.reason,
+              risk: { decision: gate.decision, score: gate.score, category: gate.category, topDrivers: gate.topDrivers },
+            };
+            break;
+          }
+        } catch (e: any) {
+          result = { success: false, error: `Bundler gate error: ${e.message}` };
+          break;
+        }
 
         // Compute userOpHash for tracking
         const { computeUserOpHash } = await import("../runtime/bundler");

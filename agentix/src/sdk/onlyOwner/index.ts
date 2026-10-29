@@ -102,23 +102,69 @@ export class OwnerModule {
     return info;
   }
 
-  async updateAnchorRoot(anchorAddress: string, newRoot: string, options?: TxOptions): Promise<TransactionResult> {
+  /**
+   * Propose a new anchor root. This does NOT update the root: it becomes
+   * effective only after the contract's 2-day timelock AND an
+   * acceptAnchorRoot() call. Never report a propose as "root updated".
+   */
+  async proposeAnchorRoot(anchorAddress: string, newRoot: string, options?: TxOptions): Promise<TransactionResult> {
     assertAddress(anchorAddress, 'anchor');
     assertNonZero(newRoot, 'newRoot');
     const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
     return this.tx.send(
-      () => anchor.updateRoot(newRoot),
-      { description: 'Update anchor root', ...options },
+      () => anchor.proposeRoot(newRoot),
+      { description: 'Propose anchor root (effective after 2-day timelock + accept)', ...options },
     );
   }
 
-  async updateAnchorRevokedRoot(anchorAddress: string, newRoot: string, options?: TxOptions): Promise<TransactionResult> {
+  /** Complete a pending anchor-root proposal after the 2-day timelock. Reverts before the delay (TimelockNotReady). */
+  async acceptAnchorRoot(anchorAddress: string, options?: TxOptions): Promise<TransactionResult> {
+    assertAddress(anchorAddress, 'anchor');
+    const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
+    return this.tx.send(
+      () => anchor.acceptRoot(),
+      { description: 'Accept pending anchor root', ...options },
+    );
+  }
+
+  /** Cancel a pending anchor-root proposal. */
+  async cancelAnchorRoot(anchorAddress: string, options?: TxOptions): Promise<TransactionResult> {
+    assertAddress(anchorAddress, 'anchor');
+    const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
+    return this.tx.send(
+      () => anchor.cancelRoot(),
+      { description: 'Cancel pending anchor root', ...options },
+    );
+  }
+
+  /** Propose a new anchor revoked root (same 2-day timelock + accept rule). */
+  async proposeAnchorRevokedRoot(anchorAddress: string, newRoot: string, options?: TxOptions): Promise<TransactionResult> {
     assertAddress(anchorAddress, 'anchor');
     assertNonZero(newRoot, 'newRoot');
     const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
     return this.tx.send(
-      () => anchor.updateRevokedRoot(newRoot),
-      { description: 'Update anchor revoked root', ...options },
+      () => anchor.proposeRevokedRoot(newRoot),
+      { description: 'Propose anchor revoked root (effective after 2-day timelock + accept)', ...options },
+    );
+  }
+
+  /** Complete a pending anchor revoked-root proposal after the 2-day timelock. */
+  async acceptAnchorRevokedRoot(anchorAddress: string, options?: TxOptions): Promise<TransactionResult> {
+    assertAddress(anchorAddress, 'anchor');
+    const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
+    return this.tx.send(
+      () => anchor.acceptRevokedRoot(),
+      { description: 'Accept pending anchor revoked root', ...options },
+    );
+  }
+
+  /** Cancel a pending anchor revoked-root proposal. */
+  async cancelAnchorRevokedRoot(anchorAddress: string, options?: TxOptions): Promise<TransactionResult> {
+    assertAddress(anchorAddress, 'anchor');
+    const anchor = this.contracts.send('OrganizationCredentialAnchor', anchorAddress);
+    return this.tx.send(
+      () => anchor.cancelRevokedRoot(),
+      { description: 'Cancel pending anchor revoked root', ...options },
     );
   }
 

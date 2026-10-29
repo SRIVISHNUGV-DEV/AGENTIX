@@ -263,13 +263,13 @@ contract Audit02_SessionManager is Test {
     function test_ValidateLightSession_NonWalletReverts() public {
         vm.prank(attacker);
         vm.expectRevert(NotAgentWallet.selector);
-        sm.validateLightweightSession(keccak256("x"), sessionKey1, 0, address(0xBEEF));
+        sm.validateLightweightSession(keccak256("x"), sessionKey1, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_NotFound() public {
         vm.prank(wallet1);
         vm.expectRevert(SessionNotFound.selector);
-        sm.validateLightweightSession(keccak256("nonexistent"), sessionKey1, 0, address(0xBEEF));
+        sm.validateLightweightSession(keccak256("nonexistent"), sessionKey1, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_NotBoundWallet() public {
@@ -277,7 +277,7 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet2);
         vm.expectRevert(NotBoundWallet.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_Expired() public {
@@ -286,7 +286,7 @@ contract Audit02_SessionManager is Test {
         vm.warp(block.timestamp + 2 hours);
         vm.prank(wallet1);
         vm.expectRevert(SessionExpired.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_Revoked() public {
@@ -296,7 +296,7 @@ contract Audit02_SessionManager is Test {
         sm.revokeLightweightSession(sid, wallet1);
         vm.prank(wallet1);
         vm.expectRevert(SessionIsRevoked.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_WrongSigner() public {
@@ -304,14 +304,14 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
         vm.expectRevert(InvalidSigner.selector);
-        sm.validateLightweightSession(sid, sessionKey2, 0, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey2, 0, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_Success() public {
         bytes32 sid = keccak256("valid");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.5 ether, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.5 ether, address(0xBEEF), "");
         assertTrue(ok);
         (,,,, uint256 dspend,,,) = sm.getLightSession(sid);
         assertEq(dspend, 0.5 ether);
@@ -321,22 +321,22 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("spend-limit");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.6 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.6 ether, address(0xBEEF), "");
         vm.prank(wallet1);
         vm.expectRevert(DailySpendLimitExceeded.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.5 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.5 ether, address(0xBEEF), "");
     }
 
     function test_ValidateLightSession_TxLimitExceeded() public {
         bytes32 sid = keccak256("tx-limit");
         _createLightSession(wallet1, sid, sessionKey1, 10 ether, 2, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xC0FFEE));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xC0FFEE), "");
         vm.prank(wallet1);
         vm.expectRevert(DailyTxLimitExceeded.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xDEAD));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xDEAD), "");
     }
 
     function test_ValidateLightSession_TargetRestriction() public {
@@ -346,9 +346,9 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), targets, PK_OWNER1);
         vm.prank(wallet1);
         vm.expectRevert(TargetNotAllowed.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xCAFE));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xCAFE), "");
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
         assertTrue(ok);
     }
 
@@ -359,7 +359,7 @@ contract Audit02_SessionManager is Test {
         sm.pause();
         vm.prank(wallet1);
         vm.expectRevert();
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
     }
 
     // ═══════════════════════════════════════════════
@@ -370,12 +370,12 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("daily");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 10, uint64(block.timestamp + 2 days), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF), "");
         (,,,, uint256 dspend,,,) = sm.getLightSession(sid);
         assertEq(dspend, 0.9 ether);
         vm.warp(block.timestamp + 1 days);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF), "");
         (,,,, dspend,,,) = sm.getLightSession(sid);
         assertEq(dspend, 0.9 ether);
     }
@@ -384,15 +384,15 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("dailytx");
         _createLightSession(wallet1, sid, sessionKey1, 10 ether, 2, uint64(block.timestamp + 2 days), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xC0FFEE));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xC0FFEE), "");
         vm.prank(wallet1);
         vm.expectRevert(DailyTxLimitExceeded.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xDEAD));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xDEAD), "");
         vm.warp(block.timestamp + 1 days);
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
         assertTrue(ok);
     }
 
@@ -482,9 +482,14 @@ contract Audit02_SessionManager is Test {
     function test_CreateSession_InvalidProof() public {
         verifier.setResult(false);
         vm.prank(owner);
-        registry.updateActiveRoot(bytes32(uint256(1)));
+        registry.proposeActiveRoot(bytes32(uint256(1)));
         vm.prank(owner);
-        registry.updateRevokedSecretRoot(bytes32(uint256(2)));
+        registry.proposeRevokedSecretRoot(bytes32(uint256(2)));
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(owner);
+        registry.acceptActiveRoot();
+        vm.prank(owner);
+        registry.acceptRevokedSecretRoot();
         uint256[7] memory pubSignals = [uint256(1), 2, 100, block.timestamp + 100, uint256(uint160(wallet1)), 1, uint256(keccak256("n"))];
         vm.prank(wallet1);
         vm.expectRevert(InvalidProof.selector);
@@ -508,9 +513,14 @@ contract Audit02_SessionManager is Test {
         registry.markNullifierUsed(nullifier);
 
         vm.prank(owner);
-        registry.updateActiveRoot(bytes32(uint256(1)));
+        registry.proposeActiveRoot(bytes32(uint256(1)));
         vm.prank(owner);
-        registry.updateRevokedSecretRoot(bytes32(uint256(2)));
+        registry.proposeRevokedSecretRoot(bytes32(uint256(2)));
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(owner);
+        registry.acceptActiveRoot();
+        vm.prank(owner);
+        registry.acceptRevokedSecretRoot();
 
         uint256[7] memory pubSignals = [uint256(1), 2, 100, block.timestamp + 100, uint256(uint160(wallet1)), 1, uint256(nullifier)];
         vm.prank(wallet1);
@@ -523,9 +533,14 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         verifier.setResult(true);
         vm.prank(owner);
-        registry.updateActiveRoot(bytes32(uint256(1)));
+        registry.proposeActiveRoot(bytes32(uint256(1)));
         vm.prank(owner);
-        registry.updateRevokedSecretRoot(bytes32(uint256(2)));
+        registry.proposeRevokedSecretRoot(bytes32(uint256(2)));
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(owner);
+        registry.acceptActiveRoot();
+        vm.prank(owner);
+        registry.acceptRevokedSecretRoot();
         uint256[7] memory pubSignals = [uint256(1), 2, 100, block.timestamp + 100, uint256(uint160(wallet1)), 1, uint256(keccak256("n-fresh"))];
         vm.prank(wallet1);
         vm.expectRevert(SessionAlreadyExists.selector);
@@ -608,7 +623,7 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sessionId, sessionKey1, spendValue, 10, expiry, new address[](0), PK_OWNER1);
 
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sessionId, sessionKey1, spendValue / 2, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sessionId, sessionKey1, spendValue / 2, address(0xBEEF), "");
         assertTrue(ok);
 
         vm.prank(vm.addr(PK_OWNER1));
@@ -616,7 +631,7 @@ contract Audit02_SessionManager is Test {
 
         vm.prank(wallet1);
         vm.expectRevert(SessionIsRevoked.selector);
-        sm.validateLightweightSession(sessionId, sessionKey1, 1, address(0xBEEF));
+        sm.validateLightweightSession(sessionId, sessionKey1, 1, address(0xBEEF), "");
     }
 
     function testFuzz_TargetMatch(bytes32 sessionId, uint160 targetAddr) public {
@@ -631,10 +646,10 @@ contract Audit02_SessionManager is Test {
 
         vm.prank(wallet1);
         vm.expectRevert(TargetNotAllowed.selector);
-        sm.validateLightweightSession(sessionId, sessionKey1, 0.01 ether, wrongTarget);
+        sm.validateLightweightSession(sessionId, sessionKey1, 0.01 ether, wrongTarget, "");
 
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sessionId, sessionKey1, 0.01 ether, target);
+        bool ok = sm.validateLightweightSession(sessionId, sessionKey1, 0.01 ether, target, "");
         assertTrue(ok);
     }
 
@@ -654,11 +669,11 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("expire-inv");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF), "");
         vm.warp(block.timestamp + 2 hours);
         vm.prank(wallet1);
         vm.expectRevert(SessionExpired.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
     }
 
     function test_Invariant_RevokedSessionNeverValidates() public {
@@ -669,7 +684,7 @@ contract Audit02_SessionManager is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.prank(wallet1);
             vm.expectRevert(SessionIsRevoked.selector);
-            sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+            sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
         }
     }
 
@@ -679,24 +694,24 @@ contract Audit02_SessionManager is Test {
 
         // Day 1: spend full
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF), "");
         vm.prank(wallet1);
         vm.expectRevert(DailySpendLimitExceeded.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.2 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.2 ether, address(0xBEEF), "");
 
         // Day 2: reset
         vm.warp(block.timestamp + 1 days);
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF), "");
         assertTrue(ok);
         vm.prank(wallet1);
         vm.expectRevert(DailySpendLimitExceeded.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.2 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.2 ether, address(0xBEEF), "");
 
         // Day 3: reset
         vm.warp(block.timestamp + 1 days);
         vm.prank(wallet1);
-        ok = sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF));
+        ok = sm.validateLightweightSession(sid, sessionKey1, 0.9 ether, address(0xBEEF), "");
         assertTrue(ok);
     }
 
@@ -719,7 +734,7 @@ contract Audit02_SessionManager is Test {
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet2);
         vm.expectRevert(NotBoundWallet.selector);
-        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF), "");
     }
 
     function test_Adversarial_ZeroTargetInAllowedList() public {
@@ -729,7 +744,7 @@ contract Audit02_SessionManager is Test {
         targets[1] = address(0xBEEF);
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), targets, PK_OWNER1);
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0), "");
         assertTrue(ok);
     }
 
@@ -759,20 +774,20 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("mid-session");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF), "");
 
         vm.prank(owner);
         sm.pause();
 
         vm.prank(wallet1);
         vm.expectRevert();
-        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF));
+        sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF), "");
 
         vm.prank(owner);
         sm.unpause();
 
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0.1 ether, address(0xBEEF), "");
         assertTrue(ok);
     }
 
@@ -780,7 +795,7 @@ contract Audit02_SessionManager is Test {
         bytes32 sid = keccak256("zero-value");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
         vm.prank(wallet1);
-        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF));
+        bool ok = sm.validateLightweightSession(sid, sessionKey1, 0, address(0xBEEF), "");
         assertTrue(ok);
         (,,,, uint256 dspend,,,) = sm.getLightSession(sid);
         assertEq(dspend, 0);

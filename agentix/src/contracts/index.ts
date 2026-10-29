@@ -5,6 +5,20 @@ import { getProvider, getSigner } from "../core/provider";
 import { getProxyGuard } from "../core/proxy-guard";
 import { logger } from "../core/logger";
 
+/**
+ * ABI source of truth for the RUNTIME: this directory (agentix/src/contracts/abis/).
+ * It is a vendored snapshot of contracts/abis/, which is itself generated from
+ * Hardhat artifacts by contracts/scripts/extract-abis.js. The two trees'
+ * 17 contract/interface ABI JSONs were verified byte-identical (only the
+ * MANIFEST.json files differ, and MANIFEST is stale in contracts/ and is
+ * never read by this loader — do not use it as an inventory).
+ *
+ * Why the runtime does NOT read contracts/abis/ directly: the shipped node
+ * entry point runs from agentix/dist/ (see package.json build:cli), where
+ * ../../contracts/abis does not exist, and the published bundle does not
+ * ship the contracts/ tree. Re-vendor this copy whenever contracts are
+ * recompiled; do not hand-edit ABIs here.
+ */
 const ABI_DIR = join(__dirname, "abis");
 
 function loadAbi(name: string): any[] {

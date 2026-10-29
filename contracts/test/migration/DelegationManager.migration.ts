@@ -22,7 +22,10 @@ describe("Migration — DelegationManager V1 → V2", function () {
     // Populate V1 state
     await delMgr.registerScope("test-scope");
     const scopeHash = ethers.keccak256(ethers.toUtf8Bytes("test-scope"));
-    await delMgr.updateDelegationRoot(owner.address, scopeHash, ethers.keccak256(ethers.toUtf8Bytes("root")), 0);
+    await delMgr.proposeDelegationRoot(owner.address, scopeHash, ethers.keccak256(ethers.toUtf8Bytes("root")), 0);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await delMgr.acceptDelegationRoot(owner.address, scopeHash);
   });
 
   it("Should preserve delegation state after upgrade", async function () {

@@ -31,7 +31,10 @@ describe("Migration — OrganizationRegistry V1 → V2", function () {
     // Set roots on anchors
     const anchor1Addr = await orgReg.getCredentialAnchor(orgId1);
     const anchor1 = await ethers.getContractAt("OrganizationCredentialAnchor", anchor1Addr);
-    await anchor1.connect(owner).updateRoot(ethers.keccak256(ethers.toUtf8Bytes("root-1")));
+    await anchor1.connect(owner).proposeRoot(ethers.keccak256(ethers.toUtf8Bytes("root-1")));
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await anchor1.connect(owner).acceptRoot();
   });
 
   it("Should preserve organizations after upgrade", async function () {
