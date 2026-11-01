@@ -60,10 +60,13 @@ describe("Fuzz — CapabilityRegistry", function () {
       await capReg.registerCapability(id, `action-${i}`, 0);
       capIds.push(id);
     }
+    // Registrar model: capabilities are registered by the owner (onlyOwner),
+    // so only the owner/registrar may write grant roots; grantRoots is keyed
+    // by the caller, hence the owner is the grantor here.
     for (let i = 0; i < 10; i++) {
       const root = randBytes32();
-      await capReg.connect(grantors[i]).updateGrantRoot(grantees[i].address, capIds[i], root);
-      expect(await capReg.grantRoots(grantors[i].address, grantees[i].address, capIds[i])).to.equal(root);
+      await capReg.updateGrantRoot(grantees[i].address, capIds[i], root);
+      expect(await capReg.grantRoots(owner.address, grantees[i].address, capIds[i])).to.equal(root);
     }
   });
 

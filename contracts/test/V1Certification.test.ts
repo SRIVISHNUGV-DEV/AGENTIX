@@ -4,14 +4,15 @@ import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 
 // ============================================================================
-// AGENTIX V1 CERTIFICATION TEST SUITE
+// AGENTIX V1 INTERNAL TEST SUITE (not a certification — no external auditor
+// has certified this code; contracts are unaudited and testnet-only)
 // ============================================================================
 // Scope: All 6 contracts — security, authority, lifecycle, concurrency,
 //         upgradeability, state integrity, edge cases, and exploit attempts.
 // ============================================================================
 
 describe("═══════════════════════════════════════════════════════", function () {
-  it("══════ AGENTIX V1 CERTIFICATION SUITE ══════", function () {});
+  it("══════ AGENTIX V1 INTERNAL TEST SUITE (not a certification) ══════", function () {});
 });
 
 // ─────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ describe("AgentWallet — Unit & Security", function () {
 
     // Update SessionManager's walletFactory reference via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(
@@ -296,125 +297,23 @@ describe("AgentWallet — Unit & Security", function () {
     });
   });
 
-  // ── Whitelist Management ──
-
-  describe("Whitelist Management", function () {
-    const EXECUTE_SEL = "0x00000000";
-
-    it("Should allow owner to whitelist", async function () {
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
-      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.true;
-    });
-
-    it("Should allow owner to remove from whitelist", async function () {
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, false);
-      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.false;
-    });
-
-    it("Should emit WhiteListUpdated", async function () {
-      await expect(
-        wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true)
-      )
-        .to.emit(wallet, "WhiteListUpdated")
-        .withArgs(alice.address, EXECUTE_SEL, true);
-    });
-
-    it("Should batch whitelist", async function () {
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          alice.address,
-          [EXECUTE_SEL],
-          [true]
-        );
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          bob.address,
-          [EXECUTE_SEL],
-          [true]
-        );
-      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.true;
-      expect(await wallet.isWhiteListed(bob.address, EXECUTE_SEL)).to.be.true;
-    });
-
-    it("Should batch remove from whitelist", async function () {
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          alice.address,
-          [EXECUTE_SEL],
-          [true]
-        );
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          bob.address,
-          [EXECUTE_SEL],
-          [true]
-        );
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          alice.address,
-          [EXECUTE_SEL],
-          [false]
-        );
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          bob.address,
-          [EXECUTE_SEL],
-          [false]
-        );
-      expect(await wallet.isWhiteListed(alice.address, EXECUTE_SEL)).to.be.false;
-      expect(await wallet.isWhiteListed(bob.address, EXECUTE_SEL)).to.be.false;
-    });
-
-    it("Should reject batch with mismatched lengths", async function () {
-      await expect(
-        wallet
-          .connect(owner)
-          .setWhiteListedSelectorBatch(alice.address, [EXECUTE_SEL], [true, false])
-      ).to.be.revertedWithCustomError(wallet, "LengthMismatchError");
-    });
-
-    it("Should prevent non-owner from whitelisting", async function () {
-      await expect(
-        wallet.connect(attacker).setWhiteListedSelector(attacker.address, EXECUTE_SEL, true)
-      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
-    });
-
-    it("Should prevent non-owner from batch whitelisting", async function () {
-      await expect(
-        wallet
-          .connect(attacker)
-          .setWhiteListedSelectorBatch(attacker.address, [EXECUTE_SEL], [true])
-      ).to.be.revertedWithCustomError(wallet, "NotOwnerError");
-    });
-
-    it("Should handle empty batch", async function () {
-      await wallet.connect(owner).setWhiteListedSelectorBatch(alice.address, [], []);
-    });
-  });
+  // NOTE (audit #7 cleanup): the "Whitelist Management" describe block that
+  // lived here was deleted — AgentWallet has no whitelist feature (no
+  // setWhiteListedSelector/setWhiteListedSelectorBatch/isWhiteListed
+  // functions, no SelectorNotWhitelistedError, no whitelist gate in
+  // execute()/executeBatch()). Deleted tests are restorable from git if the
+  // feature returns; execution tests below were rewritten to plain owner
+  // execution where their whitelist setup was incidental.
 
   // ── Execution ──
 
   describe("Execution", function () {
     const EXECUTE_SEL = "0x00000000";
 
-    it("Should execute on whitelisted target", async function () {
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
+    it("Should execute as owner", async function () {
       await expect(
         wallet.connect(owner).execute(alice.address, 0, "0x")
       ).to.emit(wallet, "ExecutionPerformed");
-    });
-
-    it("Should reject non-whitelisted target", async function () {
-      await expect(
-        wallet.connect(owner).execute(alice.address, 0, "0x")
-      ).to.be.revertedWithCustomError(wallet, "SelectorNotWhitelistedError");
     });
 
     it("Should execute with ETH value", async function () {
@@ -422,8 +321,6 @@ describe("AgentWallet — Unit & Security", function () {
         to: await wallet.getAddress(),
         value: ethers.parseEther("1.0"),
       });
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
-
       const balanceBefore = await ethers.provider.getBalance(alice.address);
       await wallet
         .connect(owner)
@@ -432,28 +329,7 @@ describe("AgentWallet — Unit & Security", function () {
       expect(balanceAfter - balanceBefore).to.equal(ethers.parseEther("0.5"));
     });
 
-    it("Should revert on failed external call", async function () {
-      const RevertFactory = await ethers.getContractFactory(
-        "RevertContract"
-      ).catch(() => null);
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
-    });
-
-    it("Should batch execute on whitelisted targets", async function () {
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          alice.address,
-          [EXECUTE_SEL],
-          [true]
-        );
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(
-          bob.address,
-          [EXECUTE_SEL],
-          [true]
-        );
+    it("Should batch execute as owner", async function () {
       await expect(
         wallet
           .connect(owner)
@@ -465,21 +341,6 @@ describe("AgentWallet — Unit & Security", function () {
       ).to.emit(wallet, "BatchExecutionPerformed");
     });
 
-    it("Should reject batch on non-whitelisted target", async function () {
-      await wallet
-        .connect(owner)
-        .setWhiteListedSelectorBatch(alice.address, [EXECUTE_SEL], [true]);
-      await expect(
-        wallet
-          .connect(owner)
-          .executeBatch(
-            [alice.address, bob.address],
-            [0, 0],
-            ["0x", "0x"]
-          )
-      ).to.be.revertedWithCustomError(wallet, "SelectorNotWhitelistedError");
-    });
-
     it("Should reject batch with mismatched arrays", async function () {
       await expect(
         wallet
@@ -489,14 +350,12 @@ describe("AgentWallet — Unit & Security", function () {
     });
 
     it("Should prevent non-owner from executing", async function () {
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
       await expect(
         wallet.connect(attacker).execute(alice.address, 0, "0x")
       ).to.be.revertedWithCustomError(wallet, "NotAuthorizedError");
     });
 
     it("Should prevent non-owner from batch executing", async function () {
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
       await expect(
         wallet
           .connect(attacker)
@@ -539,7 +398,7 @@ describe("AgentWallet — Unit & Security", function () {
     it("Should allow owner to propose and accept sessionManager", async function () {
       const newSM = alice.address;
       await wallet.connect(owner).proposeSessionManager(newSM);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(owner).acceptSessionManager();
       expect(await wallet.sessionManager()).to.equal(newSM);
@@ -560,7 +419,7 @@ describe("AgentWallet — Unit & Security", function () {
     it("Should allow owner to propose and accept entryPoint", async function () {
       const newEP = alice.address;
       await wallet.connect(owner).proposeEntryPoint(newEP);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(owner).acceptEntryPoint();
       expect(await wallet.entryPoint()).to.equal(newEP);
@@ -594,26 +453,6 @@ describe("AgentWallet — Unit & Security", function () {
   // ── Spend Value Extraction ──
 
   describe("Spend Value Extraction", function () {
-    it("Should extract value from execute selector", async function () {
-      const EXECUTE_SEL = "0x00000000";
-      await wallet.connect(owner).setWhiteListedSelector(alice.address, EXECUTE_SEL, true);
-
-      const data = wallet.interface.encodeFunctionData("execute", [
-        alice.address,
-        100,
-        "0x",
-      ]);
-
-      const encoded = wallet.interface.encodeFunctionData("execute", [
-        alice.address,
-        0,
-        data,
-      ]);
-
-      // The wallet should be able to parse spend value from callData
-      // This tests _extractSpendValue indirectly through execute
-    });
-
     it("Should revert on unsupported selector in UserOp validation", async function () {
       // This tests the _extractSpendValue revert for unsupported selectors
       // Would need EntryPoint mock to test fully
@@ -708,7 +547,7 @@ describe("AgentWalletFactory — Unit & Security", function () {
     );
 
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
   });
@@ -777,7 +616,7 @@ describe("AgentWalletFactory — Unit & Security", function () {
       const salt = ethers.keccak256(ethers.toUtf8Bytes("zero-owner"));
       await expect(
         factory["createWallet(address,bytes32)"](ethers.ZeroAddress, salt)
-      ).to.be.revertedWithCustomError(factory, "InvalidOwnerError");
+      ).to.be.revertedWithCustomError(factory, "FactoryInvalidOwnerError");
     });
 
     it("Should return existing wallet for same owner+salt", async function () {
@@ -830,7 +669,7 @@ describe("AgentWalletFactory — Unit & Security", function () {
     it("Should allow owner to update implementation via timelock", async function () {
       const newImpl = alice.address;
       await factory.connect(owner).proposeImplementation(newImpl);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await factory.connect(owner).acceptImplementation();
       expect(await factory.implementation()).to.equal(newImpl);
@@ -850,7 +689,7 @@ describe("AgentWalletFactory — Unit & Security", function () {
 
     it("Should allow owner to update sessionManager via timelock", async function () {
       await factory.connect(owner).proposeSessionManager(alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await factory.connect(owner).acceptSessionManager();
       expect(await factory.sessionManager()).to.equal(alice.address);
@@ -859,12 +698,12 @@ describe("AgentWalletFactory — Unit & Security", function () {
     it("Should reject zero-address sessionManager", async function () {
       await expect(
         factory.connect(owner).proposeSessionManager(ethers.ZeroAddress)
-      ).to.be.revertedWithCustomError(factory, "InvalidSessionManagerError");
+      ).to.be.revertedWithCustomError(factory, "FactoryInvalidSessionManagerError");
     });
 
     it("Should allow owner to update entryPoint via timelock", async function () {
       await factory.connect(owner).proposeEntryPoint(alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await factory.connect(owner).acceptEntryPoint();
       expect(await factory.entryPoint()).to.equal(alice.address);
@@ -873,7 +712,7 @@ describe("AgentWalletFactory — Unit & Security", function () {
     it("Should reject zero-address entryPoint", async function () {
       await expect(
         factory.connect(owner).proposeEntryPoint(ethers.ZeroAddress)
-      ).to.be.revertedWithCustomError(factory, "InvalidEntryPointError");
+      ).to.be.revertedWithCustomError(factory, "FactoryInvalidEntryPointError");
     });
   });
 
@@ -1033,7 +872,7 @@ describe("SessionManager — Unit & Security", function () {
     );
 
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
   });
@@ -1384,7 +1223,7 @@ describe("SessionManager — Unit & Security", function () {
       const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(
         p.sessionId,
         sessionKey.address,
-        1n
+        1n, alice.address, "0x"
       );
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
       expect(valid).to.be.true;
@@ -1410,7 +1249,7 @@ describe("SessionManager — Unit & Security", function () {
       await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
-      await sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 100n);
+      await sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 100n, alice.address, "0x");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
       const session = await sessionManager.sessions(p.sessionId);
       expect(session.valueUsed).to.equal(100n);
@@ -1442,11 +1281,11 @@ describe("SessionManager — Unit & Security", function () {
       await sessionManager.connect(walletSigner).validateSession(
         p.sessionId,
         sessionKey.address,
-        400n
+        400n, alice.address, "0x"
       );
 
       await expect(
-        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 200n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 200n, alice.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "LimitExceeded");
 
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
@@ -1475,7 +1314,7 @@ describe("SessionManager — Unit & Security", function () {
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
       await expect(
-        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 1n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 1n, alice.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
@@ -1501,7 +1340,7 @@ describe("SessionManager — Unit & Security", function () {
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
       await expect(
-        sessionManager.connect(walletSigner).validateSession(p.sessionId, attacker.address, 1n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, attacker.address, 1n, alice.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "InvalidSigner");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
@@ -1531,7 +1370,7 @@ describe("SessionManager — Unit & Security", function () {
       await expect(
         sessionManager
           .connect(attackerSigner)
-          .validateSession(p.sessionId, sessionKey.address, 1n)
+          .validateSession(p.sessionId, sessionKey.address, 1n, alice.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "NotAgentWallet");
 
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [
@@ -1672,7 +1511,7 @@ describe("SessionManager — Unit & Security", function () {
       await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
       const walletSigner = await ethers.getSigner(walletAddr);
       await expect(
-        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 1n)
+        sessionManager.connect(walletSigner).validateSession(p.sessionId, sessionKey.address, 1n, alice.address, "0x")
       ).to.be.revertedWithCustomError(sessionManager, "SessionIsRevoked");
       await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
     });
@@ -1744,7 +1583,7 @@ describe("SessionManager — Unit & Security", function () {
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
           [
             network.chainId,
             await sessionManager.getAddress(),
@@ -1754,6 +1593,7 @@ describe("SessionManager — Unit & Security", function () {
             DAILY_SPEND,
             DAILY_TX,
             expiry,
+            [],
           ]
         )
       );
@@ -1770,7 +1610,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -1794,8 +1634,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await attacker.signMessage(
@@ -1814,7 +1654,7 @@ describe("SessionManager — Unit & Security", function () {
             sessionKeyAddr,
             DAILY_SPEND,
             DAILY_TX,
-            expiry,
+            expiry, [],
             signature
           )
       ).to.be.revertedWithCustomError(sessionManager, "NotWalletOwner");
@@ -1833,8 +1673,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -1847,7 +1687,7 @@ describe("SessionManager — Unit & Security", function () {
             sessionKeyAddr,
             DAILY_SPEND,
             DAILY_TX,
-            expiry,
+            expiry, [],
             signature
           )
       ).to.be.revertedWithCustomError(sessionManager, "NotAgentWallet");
@@ -1862,8 +1702,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -1879,7 +1719,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -1888,7 +1728,7 @@ describe("SessionManager — Unit & Security", function () {
         .validateLightweightSession.staticCall(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.1")
+          ethers.parseEther("0.1"), alice.address, "0x"
         );
       expect(valid).to.be.true;
 
@@ -1907,8 +1747,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, lowLimit, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, lowLimit, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -1924,7 +1764,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           lowLimit,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -1933,7 +1773,7 @@ describe("SessionManager — Unit & Security", function () {
         .validateLightweightSession(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.3")
+          ethers.parseEther("0.3"), alice.address, "0x"
         );
 
       await expect(
@@ -1942,7 +1782,7 @@ describe("SessionManager — Unit & Security", function () {
           .validateLightweightSession(
             sessionId,
             sessionKeyAddr,
-            ethers.parseEther("0.3")
+            ethers.parseEther("0.3"), alice.address, "0x"
           )
       ).to.be.revertedWithCustomError(
         sessionManager,
@@ -1964,8 +1804,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, lowTxLimit, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, lowTxLimit, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -1981,7 +1821,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           lowTxLimit,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -1990,14 +1830,14 @@ describe("SessionManager — Unit & Security", function () {
         .validateLightweightSession(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.1")
+          ethers.parseEther("0.1"), alice.address, "0x"
         );
       await sessionManager
         .connect(walletSigner)
         .validateLightweightSession(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.1")
+          ethers.parseEther("0.1"), alice.address, "0x"
         );
 
       await expect(
@@ -2006,7 +1846,7 @@ describe("SessionManager — Unit & Security", function () {
           .validateLightweightSession(
             sessionId,
             sessionKeyAddr,
-            ethers.parseEther("0.1")
+            ethers.parseEther("0.1"), alice.address, "0x"
           )
       ).to.be.revertedWithCustomError(
         sessionManager,
@@ -2027,8 +1867,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -2044,7 +1884,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -2053,7 +1893,7 @@ describe("SessionManager — Unit & Security", function () {
         .validateLightweightSession(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.8")
+          ethers.parseEther("0.8"), alice.address, "0x"
         );
 
       await time.increase(24 * 60 * 60);
@@ -2063,7 +1903,7 @@ describe("SessionManager — Unit & Security", function () {
         .validateLightweightSession(
           sessionId,
           sessionKeyAddr,
-          ethers.parseEther("0.9")
+          ethers.parseEther("0.9"), alice.address, "0x"
         );
 
       const session = await sessionManager.getLightSession(sessionId);
@@ -2085,8 +1925,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, shortExpiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, shortExpiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -2102,7 +1942,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          shortExpiry,
+          shortExpiry, [],
           signature
         );
 
@@ -2114,7 +1954,7 @@ describe("SessionManager — Unit & Security", function () {
           .validateLightweightSession(
             sessionId,
             sessionKeyAddr,
-            ethers.parseEther("0.1")
+            ethers.parseEther("0.1"), alice.address, "0x"
           )
       ).to.be.revertedWithCustomError(sessionManager, "SessionExpired");
 
@@ -2132,8 +1972,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -2149,7 +1989,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -2174,8 +2014,8 @@ describe("SessionManager — Unit & Security", function () {
       const network = await ethers.provider.getNetwork();
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [network.chainId, await sessionManager.getAddress(), walletAddress, sessionId, sessionKeyAddr, DAILY_SPEND, DAILY_TX, expiry, []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -2191,7 +2031,7 @@ describe("SessionManager — Unit & Security", function () {
           sessionKeyAddr,
           DAILY_SPEND,
           DAILY_TX,
-          expiry,
+          expiry, [],
           signature
         );
 
@@ -2332,7 +2172,7 @@ describe("SessionManager — Unit & Security", function () {
   describe("Wallet Factory Timelock", function () {
     it("Should allow owner to propose and accept walletFactory", async function () {
       await sessionManager.connect(owner).proposeWalletFactory(alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [172800]);
       await ethers.provider.send("evm_mine", []);
       await sessionManager.connect(owner).acceptWalletFactory();
       expect(await sessionManager.walletFactory()).to.equal(alice.address);
@@ -2435,17 +2275,17 @@ describe("CredentialRegistry — Unit & Security", function () {
     });
 
     it("Should allow owner to set session manager", async function () {
-      await credentialRegistry.setSessionManager(sessionManager.address, true);
+      await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
       expect(
-        await credentialRegistry.sessionManagers(sessionManager.address)
+        await credentialRegistry.sessionManagers(await sessionManager.getAddress())
       ).to.be.true;
     });
 
     it("Should allow owner to remove session manager", async function () {
-      await credentialRegistry.setSessionManager(sessionManager.address, true);
-      await credentialRegistry.setSessionManager(sessionManager.address, false);
+      await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
+      await credentialRegistry.setSessionManager(await sessionManager.getAddress(), false);
       expect(
-        await credentialRegistry.sessionManagers(sessionManager.address)
+        await credentialRegistry.sessionManagers(await sessionManager.getAddress())
       ).to.be.false;
     });
 
@@ -2453,7 +2293,7 @@ describe("CredentialRegistry — Unit & Security", function () {
       await expect(
         credentialRegistry
           .connect(attacker)
-          .setSessionManager(sessionManager.address, true)
+          .setSessionManager(await sessionManager.getAddress(), true)
       ).to.be.reverted;
     });
   });
@@ -2461,27 +2301,33 @@ describe("CredentialRegistry — Unit & Security", function () {
   // ── Root Management ──
 
   describe("Root Management", function () {
-    it("Should allow issuer to update active root", async function () {
+    it("Should allow issuer to update active root (via 2-day timelock)", async function () {
       await credentialRegistry.addIssuer(issuer.address);
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("new-root"));
+      await credentialRegistry.connect(issuer).proposeActiveRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).acceptActiveRoot()
       )
         .to.emit(credentialRegistry, "ActiveRootUpdated")
         .withArgs(newRoot);
       expect(await credentialRegistry.activeRoot()).to.equal(newRoot);
     });
 
-    it("Should allow owner to update active root (is issuer)", async function () {
+    it("Should allow owner to update active root (is issuer, via 2-day timelock)", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("owner-root"));
-      await credentialRegistry.updateActiveRoot(newRoot);
+      await credentialRegistry.proposeActiveRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await credentialRegistry.acceptActiveRoot();
       expect(await credentialRegistry.activeRoot()).to.equal(newRoot);
     });
 
     it("Should prevent non-issuer from updating root", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("bad-root"));
       await expect(
-        credentialRegistry.connect(attacker).updateActiveRoot(newRoot)
+        credentialRegistry.connect(attacker).proposeActiveRoot(newRoot)
       ).to.be.revertedWithCustomError(credentialRegistry, "OnlyIssuer");
     });
 
@@ -2490,8 +2336,11 @@ describe("CredentialRegistry — Unit & Security", function () {
       const newRoot = ethers.keccak256(
         ethers.toUtf8Bytes("revoked-root")
       );
+      await credentialRegistry.connect(issuer).proposeRevokedSecretRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
       await expect(
-        credentialRegistry.connect(issuer).updateRevokedSecretRoot(newRoot)
+        credentialRegistry.connect(issuer).acceptRevokedSecretRoot()
       )
         .to.emit(credentialRegistry, "RevokedSecretRootUpdated")
         .withArgs(newRoot);
@@ -2501,7 +2350,7 @@ describe("CredentialRegistry — Unit & Security", function () {
     it("Should prevent non-issuer from updating revoked root", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("bad-root"));
       await expect(
-        credentialRegistry.connect(attacker).updateRevokedSecretRoot(newRoot)
+        credentialRegistry.connect(attacker).proposeRevokedSecretRoot(newRoot)
       ).to.be.revertedWithCustomError(credentialRegistry, "OnlyIssuer");
     });
 
@@ -2509,8 +2358,14 @@ describe("CredentialRegistry — Unit & Security", function () {
       await credentialRegistry.addIssuer(issuer.address);
       const root1 = ethers.keccak256(ethers.toUtf8Bytes("root-1"));
       const root2 = ethers.keccak256(ethers.toUtf8Bytes("root-2"));
-      await credentialRegistry.connect(issuer).updateActiveRoot(root1);
-      await credentialRegistry.connect(issuer).updateActiveRoot(root2);
+      await credentialRegistry.connect(issuer).proposeActiveRoot(root1);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await credentialRegistry.connect(issuer).acceptActiveRoot();
+      await credentialRegistry.connect(issuer).proposeActiveRoot(root2);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await credentialRegistry.connect(issuer).acceptActiveRoot();
       expect(await credentialRegistry.activeRoot()).to.equal(root2);
     });
   });
@@ -2519,7 +2374,7 @@ describe("CredentialRegistry — Unit & Security", function () {
 
   describe("Nullifier Protection", function () {
     it("Should mark nullifier as used", async function () {
-      await credentialRegistry.setSessionManager(sessionManager.address, true);
+      await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
       const nullifier = ethers.keccak256(
         ethers.toUtf8Bytes("test-nullifier")
       );
@@ -2532,7 +2387,7 @@ describe("CredentialRegistry — Unit & Security", function () {
     });
 
     it("Should prevent nullifier reuse", async function () {
-      await credentialRegistry.setSessionManager(sessionManager.address, true);
+      await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
       const nullifier = ethers.keccak256(
         ethers.toUtf8Bytes("test-nullifier")
       );
@@ -2573,12 +2428,15 @@ describe("CredentialRegistry — Unit & Security", function () {
       await credentialRegistry.pause();
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("root"));
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).proposeActiveRoot(newRoot)
       ).to.be.revertedWithCustomError(credentialRegistry, "EnforcedPause");
 
       await credentialRegistry.unpause();
+      await credentialRegistry.connect(issuer).proposeActiveRoot(newRoot);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
       await expect(
-        credentialRegistry.connect(issuer).updateActiveRoot(newRoot)
+        credentialRegistry.connect(issuer).acceptActiveRoot()
       ).to.emit(credentialRegistry, "ActiveRootUpdated");
     });
 
@@ -2848,29 +2706,38 @@ describe("CapabilityRegistry — Unit & Security", function () {
       await capabilityRegistry.registerCapability(grantCapId, "grant-root-action", expiresAt);
     });
 
-    it("Should allow grantor to update grant root", async function () {
+    // Registrar model: registerCapability is onlyOwner, so the registrar is the
+    // owner, and updateGrantRoot admits only the registrar or the owner.
+    // A non-owner "grantor" cannot write a grant root, and verifyCapability
+    // additionally requires registrar == grantor, so only owner-grants verify.
+    it("Should allow registrar to update grant root", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("grant-root"));
       await expect(
         capabilityRegistry
-          .connect(grantor)
+          .connect(owner)
           .updateGrantRoot(agent.address, grantCapId, newRoot)
       )
         .to.emit(capabilityRegistry, "GrantRootUpdated")
-        .withArgs(grantor.address, agent.address, grantCapId, newRoot);
+        .withArgs(owner.address, agent.address, grantCapId, newRoot);
 
       expect(
-        await capabilityRegistry.grantRoots(grantor.address, agent.address, grantCapId)
+        await capabilityRegistry.grantRoots(owner.address, agent.address, grantCapId)
       ).to.equal(newRoot);
     });
 
-    it("Should allow anyone to update their own grant root", async function () {
+    it("Should prevent non-registrar from updating grant root", async function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("any-root"));
-      await capabilityRegistry
-        .connect(attacker)
-        .updateGrantRoot(agent.address, grantCapId, newRoot);
+      await expect(
+        capabilityRegistry
+          .connect(attacker)
+          .updateGrantRoot(agent.address, grantCapId, newRoot)
+      ).to.be.revertedWithCustomError(
+        capabilityRegistry,
+        "NotAuthorizedForCapability"
+      );
       expect(
         await capabilityRegistry.grantRoots(attacker.address, agent.address, grantCapId)
-      ).to.equal(newRoot);
+      ).to.equal(ethers.ZeroHash);
     });
   });
 
@@ -3327,7 +3194,10 @@ describe("DelegationManager — Unit & Security", function () {
 
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(delegator.address, scopeHash, newRoot, expiresAt);
+        .proposeDelegationRoot(delegator.address, scopeHash, newRoot, expiresAt);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       const rootInfo = await delegationManager.getDelegationRoot(
         delegator.address,
@@ -3346,12 +3216,15 @@ describe("DelegationManager — Unit & Security", function () {
 
       await delegationManager
         .connect(rootUpdater)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           newRoot,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(rootUpdater).acceptDelegationRoot(delegator.address, scopeHash);
 
       const rootInfo = await delegationManager.getDelegationRoot(
         delegator.address,
@@ -3366,7 +3239,7 @@ describe("DelegationManager — Unit & Security", function () {
       await expect(
         delegationManager
           .connect(delegator)
-          .updateDelegationRoot(
+          .proposeDelegationRoot(
             delegator.address,
             scopeHash,
             ethers.ZeroHash,
@@ -3382,7 +3255,7 @@ describe("DelegationManager — Unit & Security", function () {
       await expect(
         delegationManager
           .connect(attacker)
-          .updateDelegationRoot(
+          .proposeDelegationRoot(
             delegator.address,
             scopeHash,
             ethers.ZeroHash,
@@ -3397,12 +3270,15 @@ describe("DelegationManager — Unit & Security", function () {
         const sh = ethers.keccak256(ethers.toUtf8Bytes(action));
         await delegationManager
           .connect(delegator)
-          .updateDelegationRoot(
+          .proposeDelegationRoot(
             delegator.address,
             sh,
             ethers.keccak256(ethers.toUtf8Bytes(`root-${i}`)),
             0
           );
+          await ethers.provider.send("evm_increaseTime", [172800]);
+          await ethers.provider.send("evm_mine", []);
+          await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, sh);
       }
 
       // 33rd scope should fail
@@ -3412,7 +3288,7 @@ describe("DelegationManager — Unit & Security", function () {
       await expect(
         delegationManager
           .connect(delegator)
-          .updateDelegationRoot(
+          .proposeDelegationRoot(
             delegator.address,
             overflowScope,
             ethers.keccak256(ethers.toUtf8Bytes("overflow-root")),
@@ -3436,7 +3312,7 @@ describe("DelegationManager — Unit & Security", function () {
         .connect(delegator)
         .revokeDelegation(leafHash, delegator.address);
 
-      expect(await delegationManager.isRevoked(leafHash)).to.be.true;
+      expect(await delegationManager.isRevoked(delegator.address, leafHash)).to.be.true;
     });
 
     it("Should allow admin to revoke delegation", async function () {
@@ -3447,7 +3323,7 @@ describe("DelegationManager — Unit & Security", function () {
         .connect(owner)
         .revokeDelegation(leafHash, delegator.address);
 
-      expect(await delegationManager.isRevoked(leafHash)).to.be.true;
+      expect(await delegationManager.isRevoked(delegator.address, leafHash)).to.be.true;
     });
 
     it("Should prevent double revocation", async function () {
@@ -3479,17 +3355,20 @@ describe("DelegationManager — Unit & Security", function () {
       const newRoot = ethers.keccak256(ethers.toUtf8Bytes("verify-root"));
       const expiresAt =
         BigInt((await ethers.provider.getBlock("latest"))!.timestamp) +
-        86400n;
+        86400n * 30n;
 
       // Set root
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           newRoot,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       // Create leaf
       const delegationLeaf = ethers.keccak256(
@@ -3502,12 +3381,15 @@ describe("DelegationManager — Unit & Security", function () {
       // Set root to the leaf hash (single-element tree)
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           delegationLeaf,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       const valid = await delegationManager
         .connect(delegate)
@@ -3535,12 +3417,15 @@ describe("DelegationManager — Unit & Security", function () {
         BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 1n;
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           newRoot,
           shortExpiry
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       await time.increase(10);
 
@@ -3577,12 +3462,15 @@ describe("DelegationManager — Unit & Security", function () {
 
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           newRoot,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       // Revoke the delegator
       await delegationManager.emergencyRevokeAll(delegator.address);
@@ -3624,12 +3512,15 @@ describe("DelegationManager — Unit & Security", function () {
 
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           delegationLeaf,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       // Revoke the delegation
       await delegationManager
@@ -3669,12 +3560,15 @@ describe("DelegationManager — Unit & Security", function () {
 
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           delegationLeaf,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       const valid = await delegationManager
         .connect(delegate)
@@ -3699,7 +3593,7 @@ describe("DelegationManager — Unit & Security", function () {
       );
       const expiresAt =
         BigInt((await ethers.provider.getBlock("latest"))!.timestamp) +
-        86400n;
+        86400n * 30n;
 
       // Hop 1: delegator -> delegate
       const leaf1 = ethers.keccak256(
@@ -3710,12 +3604,15 @@ describe("DelegationManager — Unit & Security", function () {
       );
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           leaf1,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       // Hop 2: delegate -> attacker (delegate becomes delegator)
       const leaf2 = ethers.keccak256(
@@ -3726,12 +3623,15 @@ describe("DelegationManager — Unit & Security", function () {
       );
       await delegationManager
         .connect(delegate)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegate.address,
           scopeHash,
           leaf2,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegate).acceptDelegationRoot(delegate.address, scopeHash);
 
       const valid = await delegationManager
         .connect(attacker)
@@ -3819,12 +3719,15 @@ describe("DelegationManager — Unit & Security", function () {
       );
       await delegationManager
         .connect(delegator)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           delegator.address,
           scopeHash,
           leaf1,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(delegator).acceptDelegationRoot(delegator.address, scopeHash);
 
       // Hop 2: attacker (NOT delegate) -> attacker (broken chain)
       const leaf2 = ethers.keccak256(
@@ -3835,12 +3738,15 @@ describe("DelegationManager — Unit & Security", function () {
       );
       await delegationManager
         .connect(attacker)
-        .updateDelegationRoot(
+        .proposeDelegationRoot(
           attacker.address,
           scopeHash,
           leaf2,
           expiresAt
         );
+        await ethers.provider.send("evm_increaseTime", [172800]);
+        await ethers.provider.send("evm_mine", []);
+        await delegationManager.connect(attacker).acceptDelegationRoot(attacker.address, scopeHash);
 
       const valid = await delegationManager
         .connect(attacker)
@@ -3962,7 +3868,7 @@ describe("Cross-Contract Integration", function () {
     );
 
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(
@@ -4062,7 +3968,7 @@ describe("Cross-Contract Integration", function () {
     const valid = await sessionManager.connect(walletSigner).validateSession.staticCall(
       sessionId,
       sessionKey.address,
-      100n
+      100n, sessionKey.address, "0x"
     );
     expect(valid).to.be.true;
 
@@ -4073,7 +3979,7 @@ describe("Cross-Contract Integration", function () {
 
     // Should fail after revocation
     await expect(
-      sessionManager.connect(walletSigner).validateSession(sessionId, sessionKey.address, 1n)
+      sessionManager.connect(walletSigner).validateSession(sessionId, sessionKey.address, 1n, sessionKey.address, "0x")
     ).to.be.revertedWithCustomError(sessionManager, "SessionIsRevoked");
     await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
   });
@@ -4118,7 +4024,7 @@ describe("Cross-Contract Integration", function () {
       ethers.toUtf8Bytes("integration-scope")
     );
     const expiresAt =
-      BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n;
+      BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 86400n * 30n;
 
     const leaf = ethers.keccak256(
       ethers.AbiCoder.defaultAbiCoder().encode(
@@ -4129,7 +4035,10 @@ describe("Cross-Contract Integration", function () {
 
     await delegationManager
       .connect(owner)
-      .updateDelegationRoot(owner.address, scopeHash, leaf, expiresAt);
+      .proposeDelegationRoot(owner.address, scopeHash, leaf, expiresAt);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await delegationManager.connect(owner).acceptDelegationRoot(owner.address, scopeHash);
 
     const valid = await delegationManager
       .connect(agent)

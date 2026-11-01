@@ -158,7 +158,7 @@ commitment = Poseidon(agentId, orgId, budgetLimit, wallet, expiry, version, secr
 - \`secret\`: Random 32-byte secret (known only to the agent)
 
 ### Merkle Tree
-Commitments are inserted into a depth-20 Poseidon Merkle tree (1,048,576 slots). The root is published on-chain via \`CredentialRegistry.updateActiveRoot()\`.
+Commitments are inserted into a depth-20 Poseidon Merkle tree (1,048,576 slots). The root is published on-chain in two steps: \`CredentialRegistry.proposeActiveRoot()\`, then \`acceptActiveRoot()\` after the 2-day timelock.
 
 ### ZK Proof Flow
 1. Agent generates a Groth16 proof proving:
@@ -223,10 +223,10 @@ The \`DelegationManager\` contract enables scope-based delegation — allowing o
 - **Grant Root**: A Merkle root containing authorized delegation leaves
 
 ### Key Functions
-- \`updateDelegationRoot(scopeHash, newRoot, expiresAt)\`: Publish a new delegation Merkle root
-- \`verifyDelegation(leaf, proof, delegator, scopeHash)\`: Verify a delegation proof on-chain
-- \`revokeDelegation(leafHash)\`: Revoke a specific delegation leaf
-- \`revokeDelegator(delegator)\`: Revoke all delegations from a delegator
+- \`proposeDelegationRoot(delegator, scopeHash, newRoot, expiresAt)\`: Propose a new delegation Merkle root (effective after the 2-day timelock + \`acceptDelegationRoot(delegator, scopeHash)\`)
+- \`verifyDelegation(leaf, proof, delegator, scopeHash, expiresAt, maxDepth)\`: Verify a delegation proof on-chain
+- \`revokeDelegation(leafHash, delegator)\`: Revoke a specific delegation leaf (namespaced per delegator)
+- \`emergencyRevokeAll(delegator)\`: Revoke all delegations from a delegator
 
 ## Capability System
 

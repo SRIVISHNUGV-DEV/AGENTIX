@@ -65,7 +65,7 @@ The dashboard discovers the API port automatically — no manual wiring.
 │  └──────────┘  └──────────┘  └──────────┘  └──────────────┘    │
 │       │              │              │              │              │
 │  ┌────┴──────────────┴──────────────┴──────────────┴──────────┐ │
-│  │  Compiler Gateway (single write path)                      │ │
+│  │  Compiler Gateway (gateway-gated intent path)              │ │
 │  │  Policy → Risk → Compile → Execute                         │ │
 │  └────────────────────────────┬───────────────────────────────┘ │
 │                               │                                  │
@@ -95,7 +95,7 @@ The dashboard discovers the API port automatically — no manual wiring.
 agentix/
 ├── src/
 │   ├── index.ts                  # CLI entry (Commander.js)
-│   ├── compiler-gateway.ts       # Single write path for all operations
+│   ├── compiler-gateway.ts       # Gated intent path (normalise → policy → risk → compile → execute)
 │   ├── core/
 │   │   ├── database.ts           # SQLite (better-sqlite3, WAL mode)
 │   │   ├── config.ts             # Configuration management
@@ -104,7 +104,7 @@ agentix/
 │   │   ├── zk-prover.ts          # Groth16 proof generation
 │   │   ├── event-indexer.ts      # On-chain event indexing
 │   │   └── owner-policy.ts       # Spending policy enforcement
-│   ├── tools/                    # 15 tool modules
+│   ├── tools/                    # 22 tool modules
 │   ├── trees/                    # Merkle tree implementations
 │   ├── mcp/server.ts             # MCP server (69 tools)
 │   ├── runtime/server.ts         # HTTP API (40+ routes)
@@ -131,6 +131,8 @@ agentix/
 ```bash
 agentix init                          # Initialize runtime
 agentix setup                         # One-command setup (init + RPC + health)
+agentix connect                       # Connect to the network
+agentix health                        # Quick health check
 agentix doctor                        # Health checks
 agentix diagnostics                   # Full system diagnostics
 agentix config [get|set|show|reset]   # Configuration
@@ -147,7 +149,9 @@ agentix contracts                     # List contract addresses
 agentix rpc                           # Test RPC connectivity
 agentix fund                          # Fiat on-ramp options
 agentix protocol [topic]              # Protocol documentation
+agentix wizard                        # Guided setup wizard
 agentix compile <intent-file>         # Compile intent to execution plan
+agentix execute-plan <plan-id>        # Execute an approved plan
 agentix plans                         # List execution plans
 agentix plan <plan-id>                # Show plan details
 agentix agent [create|wallet|session] # Quick agent setup
@@ -182,12 +186,12 @@ The MCP server speaks the [Model Context Protocol](https://modelcontextprotocol.
 | Keygen | 1 | Generate agent key pair |
 | Onboarding | 2 | Status, fund options |
 | Compiler | 5 | Parse intent, compile, get plan, list plans, approve plan |
-| Policy | 5 | Get, check, set, capability envelope |
-| Dashboard-Only | 8 | Blocked operations (session create/revoke, config set, etc.) |
+| Policy | 3 | Get, check, capability envelope — the 4th policy tool, `policy_set`, is counted under Dashboard-Only, not here, so the categories sum to the 69 distinct tools with no double-count |
+| Dashboard-Only | 8 | Blocked operations (session create/revoke, config set, etc., including `policy_set`) |
 
 ### Dashboard-Only Gate
 
-These tools are blocked for AI agents and require the owner's wallet:
+These tools are blocked for AI agents at the MCP layer and require the owner. The MCP name check is not the whole enforcement: state-changing REST calls additionally require a per-run localhost token, policy changes additionally require an owner signature verified against the wallet's registered owner, and plan approval over MCP additionally requires an owner attestation signature. `session_prune` and `wallet_whitelist` have no live REST equivalent.
 
 - `agentix_session_create` — Requires owner signature
 - `agentix_session_revoke` — Requires owner signature
@@ -221,7 +225,8 @@ These tools are blocked for AI agents and require the owner's wallet:
 - `GET /api/credentials/oracle` — Oracle state
 - `GET /api/credentials/next-agent-id` — Next agent ID
 - `GET /api/credentials/orgs` — Org dropdown
-- `POST /api/credentials/update-root` — Update root
+- `POST /api/credentials/update-root` — Propose root (effective only after the 2-day timelock + accept-root)
+- `POST /api/credentials/accept-root` — Accept a pending root proposal (after the timelock)
 
 ### Wallets
 - `GET /api/wallets` — List wallets
@@ -399,18 +404,20 @@ These tools are blocked for AI agents and require the owner's wallet:
 
 ## Smart Contracts (Base Sepolia)
 
+Addresses below are copied from [`contracts/deployments/baseSepolia-84532.json`](../contracts/deployments/baseSepolia-84532.json), which is the canonical record — if any other document in this repo shows a different address, that file wins. **Live-health warning:** both the old config-default set and this deployment set have contracts deployed on Base Sepolia, and all 12 proxy addresses in both sets read an all-zero ERC1967 implementation slot — do not run a real-contract demo against either set. Live on-chain flows need a fresh verified deployment first.
+
 | Contract | Proxy | Purpose |
 |----------|-------|---------|
-| Groth16Verifier | `0x7bA15966B895BEb00B291a73Aa672918D1E27cf9` | ZK proof verification |
-| CredentialRegistry | `0x3b738E79053eD2993A9c061Dd2A4AA85A9962378` | Credential Merkle roots |
-| SessionManager | `0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf` | ZK + lightweight sessions |
-| AgentWalletFactory | `0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88` | Deterministic wallet deploy |
-| AgentWallet (impl) | `0x206630bC8C366b94d4F73382f9F1742795F49de2` | ERC-4337 smart account |
-| CapabilityRegistry | `0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d` | Capability definitions |
-| DelegationManager | `0x2F7e35D096b43A002964bB6e343494188ca51D11` | Trust delegation chains |
-| OrganizationRegistry | `0x982EAcfF15e6C326F534eB671B009546bae3D13a` | Organization registry |
-| OrgCredentialAnchor | `0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F` | Org credential anchor |
-| AgentIdentity | `0x5eb3688D61187550400A940D43461e7984Ca405c` | Agent identity |
+| Groth16Verifier | `0x3056bB17323228d1829D2f6A2a96Af8e079095c2` | ZK proof verification |
+| CredentialRegistry | `0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E` | Credential Merkle roots |
+| SessionManager | `0x9b7B7d631098f046eaFb4637DC859eBA51e238C0` | ZK + lightweight sessions |
+| AgentWalletFactory | `0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1` | Deterministic wallet deploy |
+| AgentWallet (impl) | `0x6C826A49aD8447FD94d61f515013ea93066e94C5` | ERC-4337 smart account |
+| CapabilityRegistry | `0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A` | Capability definitions |
+| DelegationManager | `0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5` | Trust delegation chains |
+| OrganizationRegistry | `0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443` | Organization registry |
+| OrgCredentialAnchor | `0x491aD666EFb0E79Ce8406a10914033eEdB6165b6` | Org credential anchor |
+| AgentIdentity | `0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71` | Agent identity |
 | EntryPoint | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` | ERC-4337 EntryPoint |
 
 ---
@@ -460,16 +467,16 @@ Configuration is stored at `~/.agentix/config/agentix.config.json`:
   "rpcFallbackUrl": "https://base-sepolia-rpc.publicnode.com",
   "networkName": "baseSepolia",
   "contracts": {
-    "groth16Verifier": "0x7bA15966B895BEb00B291a73Aa672918D1E27cf9",
-    "credentialRegistry": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
-    "sessionManager": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
-    "agentWalletFactory": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
-    "agentWalletImplementation": "0x206630bC8C366b94d4F73382f9F1742795F49de2",
-    "capabilityRegistry": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
-    "delegationManager": "0x2F7e35D096b43A002964bB6e343494188ca51D11",
-    "organizationRegistry": "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
-    "organizationCredentialAnchor": "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
-    "agentIdentity": "0x5eb3688D61187550400A940D43461e7984Ca405c",
+    "groth16Verifier": "0x3056bB17323228d1829D2f6A2a96Af8e079095c2",
+    "credentialRegistry": "0xF1C30a96aa97faB2A29B2E8Cdc05fc321AA7511E",
+    "sessionManager": "0x9b7B7d631098f046eaFb4637DC859eBA51e238C0",
+    "agentWalletFactory": "0x6A4C643f59952CfBfEcEdaf182B3C98D778df2c1",
+    "agentWalletImplementation": "0x6C826A49aD8447FD94d61f515013ea93066e94C5",
+    "capabilityRegistry": "0x90D4d0D35709D4e29765F5132DaD0E85Fc07aD6A",
+    "delegationManager": "0x6Ee3cdeB9c1a1aE83CF0bb0E469B98736Cb07CB5",
+    "organizationRegistry": "0xdF3e6819fC65966d0D43A3768Aaa40fd50B59443",
+    "organizationCredentialAnchor": "0x491aD666EFb0E79Ce8406a10914033eEdB6165b6",
+    "agentIdentity": "0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71",
     "entryPoint": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
   },
   "database": {

@@ -187,8 +187,15 @@ export async function sendDeposit(
   });
 }
 
-export async function sendUpdateRoot(root: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
+// Posts to /api/credentials/update-root, which now PROPOSES the root:
+// the root changes only after the 2-day timelock + accept-root. Callers
+// must not present this as "root updated".
+export async function sendProposeRoot(root: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
   return postJSON<any>("/api/credentials/update-root", { root });
+}
+
+export async function sendAcceptRoot(): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  return postJSON<any>("/api/credentials/accept-root", {});
 }
 
 export async function sendEntryPointDeposit(

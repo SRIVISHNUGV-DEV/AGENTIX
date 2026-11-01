@@ -52,7 +52,7 @@ template TruncateToNBits(bits) {
 }
 
 /* ============================================================
-   CREDENTIAL CIRCUIT (Production Version)
+   CREDENTIAL CIRCUIT (testnet-only, unaudited — not a production version)
    ============================================================ */
 
 template CredentialCircuit(depth) {

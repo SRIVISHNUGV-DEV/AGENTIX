@@ -159,7 +159,9 @@ async function checkDatabase(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
     const db = getDatabase();
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
+    // Application tables only: exclude sqlite_sequence, SQLite's internal
+    // auto-increment bookkeeping table (34 application tables, not 35).
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'").all() as any[];
     items.push({ label: "Database", status: "OK", value: `${tables.length} tables` });
 
     const sizePath = loadConfig().database.path;
@@ -175,7 +177,12 @@ async function checkDatabase(): Promise<DiagnosticSection> {
 
 async function checkDirectories(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
-  const dirs = ["config", "contracts", "organizations", "trees", "credentials", "sessions", "wallets", "proofs", "capabilities", "delegations", "logs", "db", "tools", "cache", "backups"];
+  // Must match ensureDirectories() in core/config.ts exactly (16 dirs).
+  // The previously unchecked 16th directory was "keys" — the session
+  // keystore's home, created lazily by session-keystore.ts and never
+  // checked by doctor, which is why doctor reported 15/15 while the
+  // runtime owned a 16th directory.
+  const dirs = ["config", "contracts", "organizations", "trees", "credentials", "sessions", "wallets", "proofs", "capabilities", "delegations", "logs", "db", "tools", "cache", "backups", "keys"];
   let ok = 0;
   let missing = 0;
   for (const d of dirs) {
@@ -349,12 +356,18 @@ export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = 
   });
 
   await runStep("Configure network", async () => {
-    if (rpcUrl) {
-      const { saveConfig } = await import("../core/config");
-      saveConfig({ rpcUrl });
-      return `RPC configured: ${rpcUrl}`;
-    }
-    return null;
+    // Previously saveConfig ran ONLY when --rpc was passed, so a plain init
+    // never wrote config/agentix.config.json and doctor (checkRuntime) then
+    // reported "Not initialized" after a successful init — with a repair hint
+    // ("Run: agentix init") that could never fix it. Fix: invoke the
+    // previously dead initializeAgentix path (tools/deployment.ts), which
+    // unconditionally persists the config (defaults merged) before doing
+    // anything else. Its RPC probe is skipped for plain init (see
+    // deployment.ts), so this stays offline-safe.
+    const { initializeAgentix } = await import("./deployment");
+    const result = await initializeAgentix(rpcUrl);
+    if (!result.success) throw new Error(result.error || "Configuration save failed");
+    return rpcUrl ? `RPC configured: ${rpcUrl}` : "Configuration saved (default network)";
   });
 
   await runStep("Detect AI harnesses", async () => {

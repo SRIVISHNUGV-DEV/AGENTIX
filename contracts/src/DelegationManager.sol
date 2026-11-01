@@ -21,9 +21,17 @@ error ScopeLimitExceeded();
 ///         prove inclusion on-chain. Supports single-hop, multi-hop chains, scope-restricted
 ///         delegations, and time-bounded roots.
 /// @dev Upgradeable (UUPS). Uses OZ MerkleProof, AccessControl, and EnumerableSet.
+///      ROOT CHANGES ARE TIMELOCKED (2 days): a delegator (or root updater) proposes, may
+///      cancel while pending, and only after the delay may accept. There is NO instant root
+///      update anymore — updateDelegationRoot was replaced by propose/accept/cancel
+///      (breaking change). Revocation stays instant (kill-switch, never timelocked).
 contract DelegationManager is Initializable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable {
+    error NoPendingRoot();
+    error PendingRootActive();
+    error TimelockNotReady();
     bytes32 public constant ROOT_UPDATER_ROLE = keccak256("ROOT_UPDATER");
     uint8 public constant MAX_DELEGATION_DEPTH = 10; // Protocol limit — do not increase without migration
+    uint256 public constant TIMELOCK_DELAY = 2 days;
 
     // ──────────────────────────────────────────────
     //  Structs
@@ -35,11 +43,20 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
         uint64 createdAt;
     }
 
+    struct PendingDelegationRoot {
+        bytes32 root;
+        uint64 expiresAt;
+        uint256 activationTime;
+        bool exists;
+    }
+
     // ──────────────────────────────────────────────
     //  Events
     // ──────────────────────────────────────────────
 
     event DelegationRootUpdated(address indexed delegator, bytes32 indexed scopeHash, bytes32 newRoot, uint64 expiresAt);
+    event DelegationRootProposed(address indexed delegator, bytes32 indexed scopeHash, bytes32 newRoot, uint64 expiresAt, uint256 activationTime);
+    event DelegationRootUpdateCancelled(address indexed delegator, bytes32 indexed scopeHash);
     event DelegationRevoked(bytes32 indexed delegationLeafHash, address indexed delegator);
     event DelegatorRevoked(address indexed delegator);
     event DelegatorReAuthorized(address indexed delegator);
@@ -50,7 +67,11 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     // ──────────────────────────────────────────────
 
     mapping(address => mapping(bytes32 => DelegationRoot)) public delegationRoots;
-    mapping(bytes32 => bool) public revokedDelegations;
+    /// @notice Pending root proposals awaiting the timelock, per delegator and scope.
+    mapping(address => mapping(bytes32 => PendingDelegationRoot)) public pendingDelegationRoots;
+    /// @notice Revoked leaves, namespaced per delegator. A revocation recorded under
+    ///         attacker A's namespace never affects delegator B's verification.
+    mapping(address => mapping(bytes32 => bool)) public revokedDelegations;
     mapping(address => bool) public revokedDelegators;
     mapping(bytes32 => string) public scopeActions;
 
@@ -103,7 +124,8 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     }
 
     /// @notice Emergency: revokes ALL delegation leaves for a delegator.
-    function emergencyRevokeAll(address delegator) external onlyRole(DEFAULT_ADMIN_ROLE) whenNotPaused {
+    /// @dev No pause guard: revocation is a kill-switch and must work while paused.
+    function emergencyRevokeAll(address delegator) external onlyRole(DEFAULT_ADMIN_ROLE) {
         revokedDelegators[delegator] = true;
         emit DelegatorRevoked(delegator);
     }
@@ -129,8 +151,10 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     //  Delegation Root Management
     // ──────────────────────────────────────────────
 
-    /// @notice Updates the Merkle root for a delegator under a specific scope.
-    function updateDelegationRoot(
+    /// @notice Proposes a new Merkle root for a delegator under a specific scope.
+    ///         The proposal activates only after the 2-day timelock (see acceptDelegationRoot).
+    ///         A pending proposal must be accepted or cancelled before a new one is proposed.
+    function proposeDelegationRoot(
         address delegator,
         bytes32 scopeHash,
         bytes32 newRoot,
@@ -140,29 +164,82 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
         if (msg.sender != delegator && !hasRole(ROOT_UPDATER_ROLE, msg.sender)) {
             revert AccessControlUnauthorizedAccount(msg.sender, ROOT_UPDATER_ROLE);
         }
+        if (pendingDelegationRoots[delegator][scopeHash].exists) revert PendingRootActive();
 
+        // Scope-limit check at propose time (rechecked at accept: two pending new scopes
+        // proposed while under the limit could jointly exceed it by accept time).
         bool isNewScope = delegationRoots[delegator][scopeHash].root == bytes32(0) && newRoot != bytes32(0);
+        if (isNewScope) {
+            if (EnumerableSet.length(_delegatorScopes[delegator]) >= 32) revert ScopeLimitExceeded();
+        }
+
+        pendingDelegationRoots[delegator][scopeHash] = PendingDelegationRoot({
+            root: newRoot,
+            expiresAt: expiresAt,
+            activationTime: block.timestamp + TIMELOCK_DELAY,
+            exists: true
+        });
+
+        emit DelegationRootProposed(delegator, scopeHash, newRoot, expiresAt, block.timestamp + TIMELOCK_DELAY);
+    }
+
+    /// @notice Activates a pending delegation root after the 2-day timelock.
+    function acceptDelegationRoot(address delegator, bytes32 scopeHash) external whenNotPaused {
+        if (msg.sender != delegator && !hasRole(ROOT_UPDATER_ROLE, msg.sender)) {
+            revert AccessControlUnauthorizedAccount(msg.sender, ROOT_UPDATER_ROLE);
+        }
+        PendingDelegationRoot memory p = pendingDelegationRoots[delegator][scopeHash];
+        if (!p.exists) revert NoPendingRoot();
+        if (block.timestamp < p.activationTime) revert TimelockNotReady();
+        if (revokedDelegators[delegator]) revert DelegatorHasBeenRevoked();
+
+        bool isNewScope = delegationRoots[delegator][scopeHash].root == bytes32(0) && p.root != bytes32(0);
         if (isNewScope) {
             if (EnumerableSet.length(_delegatorScopes[delegator]) >= 32) revert ScopeLimitExceeded();
             EnumerableSet.add(_delegatorScopes[delegator], scopeHash);
         }
 
         delegationRoots[delegator][scopeHash] = DelegationRoot({
-            root: newRoot,
-            expiresAt: expiresAt,
+            root: p.root,
+            expiresAt: p.expiresAt,
             createdAt: uint64(block.timestamp)
         });
+        delete pendingDelegationRoots[delegator][scopeHash];
 
-        emit DelegationRootUpdated(delegator, scopeHash, newRoot, expiresAt);
+        emit DelegationRootUpdated(delegator, scopeHash, p.root, p.expiresAt);
     }
 
-    /// @notice Revokes a single delegation leaf.
-    function revokeDelegation(bytes32 delegationLeafHash, address delegator) external whenNotPaused {
-        if (msg.sender != delegator && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+    /// @notice Cancels a pending delegation root proposal. Delegator, root updater, or
+    ///         admin; no pause guard (cancellation is a defensive action).
+    function cancelDelegationRoot(address delegator, bytes32 scopeHash) external {
+        if (msg.sender != delegator &&
+            !hasRole(ROOT_UPDATER_ROLE, msg.sender) &&
+            !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
             revert AccessControlUnauthorizedAccount(msg.sender, DEFAULT_ADMIN_ROLE);
         }
-        if (revokedDelegations[delegationLeafHash]) revert AlreadyRevokedDelegation();
-        revokedDelegations[delegationLeafHash] = true;
+        if (!pendingDelegationRoots[delegator][scopeHash].exists) revert NoPendingRoot();
+        delete pendingDelegationRoots[delegator][scopeHash];
+        emit DelegationRootUpdateCancelled(delegator, scopeHash);
+    }
+
+    /// @notice Revokes a single delegation leaf within the delegator's own namespace.
+    /// @dev Revocations are keyed PER DELEGATOR (revokedDelegations[delegator][leaf]) and
+    ///      only the delegator, a ROOT_UPDATER_ROLE holder (who manages that delegator's
+    ///      tree), or the admin may write to that delegator's namespace. A self-registered
+    ///      attacker can therefore only poison their OWN namespace — cross-delegator
+    ///      griefing is impossible by construction, without requiring the caller to present
+    ///      the leaf preimage or a Merkle proof (which would break emergency revocation).
+    ///      No pause guard: revocation is a kill-switch and must work while paused.
+    ///      There is deliberately no un-revoke path: a revoked leaf stays revoked; the
+    ///      delegator publishes fresh roots instead.
+    function revokeDelegation(bytes32 delegationLeafHash, address delegator) external {
+        if (msg.sender != delegator &&
+            !hasRole(ROOT_UPDATER_ROLE, msg.sender) &&
+            !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            revert AccessControlUnauthorizedAccount(msg.sender, DEFAULT_ADMIN_ROLE);
+        }
+        if (revokedDelegations[delegator][delegationLeafHash]) revert AlreadyRevokedDelegation();
+        revokedDelegations[delegator][delegationLeafHash] = true;
         emit DelegationRevoked(delegationLeafHash, delegator);
     }
 
@@ -196,6 +273,16 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     //  Multi-Hop Chain Verification
     // ──────────────────────────────────────────────
 
+    /// @notice Verifies a multi-hop delegation chain.
+    /// @dev Scope rule (fail closed): ALL hops must carry the SAME scopeHash. Scopes are
+    ///      opaque hashes, so "subset" is not computable on-chain — equality is the only
+    ///      enforceable non-widening rule. A chain like A→B for `read`, B→C for
+    ///      `transfer_assets` is NOT a valid chain: no consumer may read the last hop's
+    ///      scope as inherited root authority. Depth rule: each hop's currentDepth (its
+    ///      1-based position) must be ≤ that hop's caller-supplied maxDepth, and the chain
+    ///      length is capped at MAX_DELEGATION_DEPTH (10). maxDepth is NOT bound in any
+    ///      leaf or root — a caller-supplied maxDepth larger than the chain is merely
+    ///      permissive, never widening, because hop continuity + per-hop proofs still hold.
     function verifyDelegationChain(
         bytes32[] calldata delegationLeaves,
         bytes32[][] calldata merkleProofs,
@@ -222,6 +309,9 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
                 return false;
             }
             if (i > 0 && delegators[i] != delegates[i - 1]) return false;
+            // Scope transitivity: every hop must carry the root hop's scope. A chain
+            // that widens scope mid-chain proves nothing about root authority.
+            if (i > 0 && scopeHashes[i] != scopeHashes[0]) return false;
         }
         return true;
     }
@@ -235,8 +325,8 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
         return (r.root, r.expiresAt, r.createdAt);
     }
 
-    function isRevoked(bytes32 leafHash) external view returns (bool) {
-        return revokedDelegations[leafHash];
+    function isRevoked(address delegator, bytes32 leafHash) external view returns (bool) {
+        return revokedDelegations[delegator][leafHash];
     }
 
     function getScopeAction(bytes32 scopeHash) external view returns (string memory) {
@@ -266,7 +356,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
         DelegationRoot storage rootInfo = delegationRoots[delegator][scopeHash];
         if (rootInfo.root == bytes32(0)) return false;
         if (rootInfo.expiresAt != 0 && rootInfo.expiresAt < block.timestamp) return false;
-        if (revokedDelegations[delegationLeaf]) return false;
+        if (revokedDelegations[delegator][delegationLeaf]) return false;
         if (expiresAt != 0 && expiresAt < block.timestamp) return false;
         if (currentDepth > maxDepth) return false;
 
@@ -282,5 +372,5 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
 
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

@@ -8,10 +8,38 @@
 // dashboard at a remote/non-default API host.
 export const API = process.env.NEXT_PUBLIC_API_URL || "";
 
+// Local API token (R-5): the per-run X-Agentix-Token the API server
+// requires on state-changing routes (and sensitive GETs). The owner
+// pastes it once in Settings; it lives in dashboard-origin localStorage
+// (readable only by scripts on this origin) and is sent as a header on
+// every API call. Without it, state-changing dashboard actions get a 403
+// telling the owner where to find the token.
+const LOCAL_TOKEN_KEY = "agentix_local_token";
+
+export function getLocalToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(LOCAL_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setLocalToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) localStorage.setItem(LOCAL_TOKEN_KEY, token);
+    else localStorage.removeItem(LOCAL_TOKEN_KEY);
+  } catch {}
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getLocalToken();
+  if (token) headers["X-Agentix-Token"] = token;
   const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { ...headers, ...((options?.headers as Record<string, string>) || {}) },
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

@@ -192,12 +192,48 @@ export function encodeEntryPointDeposit(walletAddress: string, amountEth: string
   };
 }
 
-export function encodeRootUpdate(root: string): EncodedTx {
+/**
+ * Encode a credential-root PROPOSAL. This does NOT update the root: the
+ * proposal becomes effective only after the contract's 2-day timelock AND
+ * an acceptActiveRoot() call. Callers must never describe this as a root
+ * update — see encodeRootAccept() for the completing step.
+ */
+export function encodeRootProposal(root: string): EncodedTx {
   const config = loadConfig();
   const guard = getProxyGuard();
   const abi = getAbiByName("CredentialRegistry");
   const iface = new ethers.Interface(abi);
-  const data = iface.encodeFunctionData("updateActiveRoot", [root]);
+  const data = iface.encodeFunctionData("proposeActiveRoot", [root]);
+  return {
+    to: guard.getProxyAddress("CredentialRegistry"),
+    data,
+    value: "0x0",
+    chainId: config.chainId,
+  };
+}
+
+/** Encode the accept step for a pending credential-root proposal (reverts before the 2-day timelock). */
+export function encodeRootAccept(): EncodedTx {
+  const config = loadConfig();
+  const guard = getProxyGuard();
+  const abi = getAbiByName("CredentialRegistry");
+  const iface = new ethers.Interface(abi);
+  const data = iface.encodeFunctionData("acceptActiveRoot", []);
+  return {
+    to: guard.getProxyAddress("CredentialRegistry"),
+    data,
+    value: "0x0",
+    chainId: config.chainId,
+  };
+}
+
+/** Encode the cancel step for a pending credential-root proposal. */
+export function encodeRootCancel(): EncodedTx {
+  const config = loadConfig();
+  const guard = getProxyGuard();
+  const abi = getAbiByName("CredentialRegistry");
+  const iface = new ethers.Interface(abi);
+  const data = iface.encodeFunctionData("cancelActiveRoot", []);
   return {
     to: guard.getProxyAddress("CredentialRegistry"),
     data,
@@ -351,15 +387,103 @@ export function encodeStandardSession(params: StandardSessionParams): EncodedSta
   };
 }
 
+/**
+ * Encode a wallet.execute() wrapping SessionManager.setSessionTargets().
+ *
+ * WHY THIS EXISTS (C-1 runtime half): standard sessions have no allowlist
+ * parameter at creation, and token selectors (ERC-20 transfer/approve/
+ * transferFrom, ERC-721 transferFrom/safeTransferFrom) are DENIED on-chain
+ * unless the token contract is in the session's allowlist — an empty
+ * allowlist denies token moves. So a standard session intended for token
+ * payments MUST send this transaction (from the wallet owner) after the
+ * session creation confirms, before any token payment is attempted.
+ * This returns an EncodedTx for the owner to sign/relay; it sends nothing
+ * itself. The sessionId here must be the session created by the
+ * corresponding encodeStandardSession() call.
+ */
+export function encodeSetSessionTargets(
+  walletAddress: string,
+  sessionId: string,
+  targets: string[]
+): EncodedTx {
+  const config = loadConfig();
+  const smAbi = getAbiByName("SessionManager");
+  const smIface = new ethers.Interface(smAbi);
+  const sessionCalldata = smIface.encodeFunctionData("setSessionTargets", [
+    sessionId,
+    targets,
+  ]);
+
+  const walletAbi = getAbiByName("AgentWallet");
+  const walletIface = new ethers.Interface(walletAbi);
+  const executeCalldata = walletIface.encodeFunctionData("execute", [
+    config.contracts.sessionManager,
+    0,
+    sessionCalldata,
+  ]);
+
+  return {
+    to: walletAddress,
+    data: executeCalldata,
+    value: "0x0",
+    chainId: config.chainId,
+  };
+}
+
 // ── Write Operations (on-chain transactions) ──────────────────────
 
-export async function sendRootUpdate(root: string): Promise<{ txHash: string; blockNumber: number }> {
+/**
+ * Propose a credential-root update. Returns the proposal tx — the root
+ * itself does NOT change until the 2-day timelock passes AND
+ * sendRootAccept() succeeds. Callers must report "proposed", never "updated".
+ */
+export async function sendRootProposal(root: string): Promise<{ txHash: string; blockNumber: number }> {
   return withRetry(async () => {
     const credReg = getContract("CredentialRegistry", true);
-    const tx = await credReg.updateActiveRoot(root);
+    const tx = await credReg.proposeActiveRoot(root);
     const receipt = await tx.wait();
     return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
-  }, "sendRootUpdate");
+  }, "sendRootProposal");
+}
+
+/** Complete a pending credential-root proposal after the 2-day timelock. Reverts before the delay (TimelockNotReady). */
+export async function sendRootAccept(): Promise<{ txHash: string; blockNumber: number }> {
+  return withRetry(async () => {
+    const credReg = getContract("CredentialRegistry", true);
+    const tx = await credReg.acceptActiveRoot();
+    const receipt = await tx.wait();
+    return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
+  }, "sendRootAccept");
+}
+
+/** Cancel a pending credential-root proposal. */
+export async function sendRootCancel(): Promise<{ txHash: string; blockNumber: number }> {
+  return withRetry(async () => {
+    const credReg = getContract("CredentialRegistry", true);
+    const tx = await credReg.cancelActiveRoot();
+    const receipt = await tx.wait();
+    return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
+  }, "sendRootCancel");
+}
+
+/** Complete a pending revoked-secret-root proposal after the 2-day timelock. */
+export async function sendRevokedRootAccept(): Promise<{ txHash: string; blockNumber: number }> {
+  return withRetry(async () => {
+    const credReg = getContract("CredentialRegistry", true);
+    const tx = await credReg.acceptRevokedSecretRoot();
+    const receipt = await tx.wait();
+    return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
+  }, "sendRevokedRootAccept");
+}
+
+/** Cancel a pending revoked-secret-root proposal. */
+export async function sendRevokedRootCancel(): Promise<{ txHash: string; blockNumber: number }> {
+  return withRetry(async () => {
+    const credReg = getContract("CredentialRegistry", true);
+    const tx = await credReg.cancelRevokedSecretRoot();
+    const receipt = await tx.wait();
+    return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
+  }, "sendRevokedRootCancel");
 }
 
 export async function isIssuer(address: string): Promise<boolean> {

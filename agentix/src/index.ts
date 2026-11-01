@@ -36,6 +36,7 @@ import {
   revokeSession,
   getSession,
   listWalletSessions,
+  setSessionTargets,
 } from "./tools/session";
 import {
   generateLocalProof,
@@ -53,6 +54,8 @@ import {
 import {
   createDelegation,
   revokeDelegation,
+  acceptDelegation,
+  cancelDelegation,
   getDelegation,
   listDelegations,
 } from "./tools/delegation";
@@ -405,7 +408,7 @@ program
 program
   .command("cred")
   .description("Manage credentials")
-  .argument("[action]", "issue, revoke, get, list")
+  .argument("[action]", "issue, revoke, get, list, accept-root, accept-revoked-root, cancel-root, cancel-revoked-root")
   .option("--org <id>", "Organization ID")
   .option("--agent <id>", "Agent ID")
   .option("--permissions <bits>", "Permission bitmask", "1")
@@ -449,6 +452,24 @@ program
       } else if (action === "get") {
         const result = await getCredential(opts.org, parseInt(opts.agent, 10));
         printResult(result, "Credential Details");
+      } else if (action === "accept-root") {
+        // Executable accept: completes the pending root proposal, but
+        // only after the 2-day timelock (earlier attempts revert).
+        const { sendRootAccept } = await import("./blockchain/adapter");
+        const result = await sendRootAccept();
+        printResult({ success: true, ...result }, "Accept Credential Root");
+      } else if (action === "accept-revoked-root") {
+        const { sendRevokedRootAccept } = await import("./blockchain/adapter");
+        const result = await sendRevokedRootAccept();
+        printResult({ success: true, ...result }, "Accept Credential Revoked Root");
+      } else if (action === "cancel-root") {
+        const { sendRootCancel } = await import("./blockchain/adapter");
+        const result = await sendRootCancel();
+        printResult({ success: true, ...result }, "Cancel Credential Root Proposal");
+      } else if (action === "cancel-revoked-root") {
+        const { sendRevokedRootCancel } = await import("./blockchain/adapter");
+        const result = await sendRevokedRootCancel();
+        printResult({ success: true, ...result }, "Cancel Credential Revoked Root Proposal");
       } else if (action === "list") {
         const results = await listCredentials(opts.org);
         log(`\n  ${C.bold}Credentials for Org ${opts.org}${C.reset}\n`);
@@ -467,15 +488,18 @@ program
 program
   .command("session")
   .description("Manage sessions")
-  .argument("[action]", "create, validate, revoke, get, list")
+  .argument("[action]", "create, validate, revoke, get, list, set-targets")
   .option("--wallet <address>", "Wallet address")
   .option("--session-key <address>", "Session key address")
-  .option("--session-id <id>", "Session ID (for validate, revoke, get)")
+  .option("--session-id <id>", "Session ID (for validate, revoke, get, set-targets)")
   .option("--daily-spend <wei>", "Daily spend limit", "1000000000000000000")
   .option("--daily-tx <count>", "Daily transaction limit", "100")
   .option("--expiry <seconds>", "Session expiry (seconds)", "3600")
   .option("--signer <address>", "Signer address (for validate)")
   .option("--value <eth>", "Value to validate (for validate)")
+  .option("--target <address>", "Target contract the session would call (required for validate)")
+  .option("--data <hex>", "Calldata for the validated call (for validate, default 0x)")
+  .option("--targets <csv>", "Comma-separated token contract addresses for set-targets")
   .action(async (action, opts) => {
     try {
       const gateway = getCompilerGateway();
@@ -499,8 +523,14 @@ program
         }
       } else if (action === "validate") {
         if (!opts["session-id"]) { err("--session-id is required"); return; }
-        const result = await validateSession(opts["session-id"], opts.signer, opts.value);
+        if (!opts.target) { err("--target is required: validation is per-call (the contract denies token selectors on non-allowlisted targets)"); return; }
+        const result = await validateSession(opts["session-id"], opts.signer, opts.value, opts.target, opts.data || "0x");
         printResult(result, "Validate Session");
+      } else if (action === "set-targets") {
+        if (!opts["session-id"] || !opts.wallet || !opts.targets) { err("--session-id, --wallet, and --targets are required"); return; }
+        const targets = opts.targets.split(",").map((t: string) => t.trim()).filter(Boolean);
+        const result = await setSessionTargets(opts.wallet, opts["session-id"], targets);
+        printResult(result, "Set Session Targets");
       } else if (action === "revoke") {
         if (!opts["session-id"]) { err("--session-id is required"); return; }
         // Route through compiler gateway
@@ -665,7 +695,7 @@ program
 program
   .command("delegation")
   .description("Manage delegations")
-  .argument("[action]", "create, revoke, get, list")
+  .argument("[action]", "create, revoke, get, list, accept, cancel")
   .option("--org <id>", "Organization ID")
   .option("--delegator <address>", "Delegator address")
   .option("--delegatee <address>", "Delegatee address")
@@ -683,6 +713,14 @@ program
         if (!opts.id) { err("--id is required"); return; }
         const result = await revokeDelegation(opts.id);
         printResult(result, "Revoke Delegation");
+      } else if (action === "accept") {
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await acceptDelegation(opts.id);
+        printResult(result, "Accept Delegation");
+      } else if (action === "cancel") {
+        if (!opts.id) { err("--id is required"); return; }
+        const result = await cancelDelegation(opts.id);
+        printResult(result, "Cancel Delegation");
       } else if (action === "get") {
         if (!opts.id) { err("--id is required"); return; }
         const result = await getDelegation(opts.id);
@@ -1012,6 +1050,7 @@ program
   .option("--daily-tx <count>", "Daily transaction limit", "100")
   .option("--expiry <seconds>", "Session expiry (seconds)", "86400")
   .option("--target <address>", "Target address (for whitelist/execute)")
+  .option("--targets <csv>", "Comma-separated token contract addresses to allowlist at session creation (for session create)")
   .option("--selector <bytes4>", "Function selector (for whitelist)")
   .option("--value <eth>", "ETH value (for execute)")
   .option("--data <hex>", "Calldata (for execute)")
@@ -1031,8 +1070,8 @@ program
         if (result.success) {
           log();
           info("Next steps:");
-          log(`  agentix agent whitelist --wallet ${result.walletAddress} --target <contract> --selector <selector>`);
-          log(`  agentix agent session --wallet ${result.walletAddress} --session-key <key>`);
+          log(`  agentix agent session --wallet ${result.walletAddress} --session-key <key> --targets <token-contract,comma-separated>`);
+          log(`  (Token payments need their token contract in the session allowlist — see --targets. There is no wallet whitelist: AgentWallet has no whitelist function.)`);
         }
       } else if (action === "wallet") {
         if (opts.wallet) {
@@ -1049,15 +1088,17 @@ program
         }
       } else if (action === "session") {
         if (opts["session-id"] && opts.signer) {
-          const result = await quickValidateSession(opts["session-id"], opts.signer, opts.value || "0");
+          if (!opts.target) { err("--target is required: validation is per-call (the contract denies token selectors on non-allowlisted targets)"); return; }
+          const result = await quickValidateSession(opts["session-id"], opts.signer, opts.value || "0", opts.target, opts.data || "0x");
           printResult(result, "Validate Session");
         } else if (opts["session-id"] && opts.wallet) {
           const result = await quickRevokeSession(opts["session-id"], opts.wallet);
           printResult(result, "Revoke Session");
         } else if (opts.wallet && opts["session-key"]) {
+          const targets = opts.targets ? opts.targets.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
           const result = await quickCreateSession(
             opts.wallet, opts["session-key"], opts["daily-spend"],
-            parseInt(opts["daily-tx"], 10), parseInt(opts.expiry, 10)
+            parseInt(opts["daily-tx"], 10), parseInt(opts.expiry, 10), targets
           );
           printResult(result, "Create Lightweight Session");
         } else if (opts.wallet) {

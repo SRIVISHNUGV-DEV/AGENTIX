@@ -124,7 +124,9 @@ async function checkProxyStatus(): Promise<HealthCheck> {
 async function checkDatabase(): Promise<HealthCheck> {
   try {
     const db = getDatabase();
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    // Application tables only: sqlite_sequence is SQLite's internal
+    // auto-increment bookkeeping table, not an application table (34, not 35).
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'").all();
 
     const counts: Record<string, number> = {};
     for (const t of tables as any[]) {

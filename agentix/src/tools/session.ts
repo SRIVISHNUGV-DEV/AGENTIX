@@ -20,7 +20,13 @@ export async function createLightweightSession(
   sessionKey: string,
   dailySpendLimit: string,
   dailyTxLimit: number,
-  expiry: number
+  expiry: number,
+  // C-1 rule: token selectors (ERC-20 transfer/approve/transferFrom,
+  // ERC-721 transferFrom/safeTransferFrom) are DENIED on-chain unless the
+  // token contract is in the session's allowlist. An empty allowlist still
+  // allows NON-token targets, but it does NOT mean "no restriction" for
+  // tokens. Pass the token contracts this session must pay with here.
+  allowedTargets: string[] = []
 ): Promise<SessionResult> {
   try {
     const signer = getSigner();
@@ -50,7 +56,7 @@ export async function createLightweightSession(
       BigInt(dailySpendLimit),
       BigInt(dailyTxLimit),
       BigInt(expiry),
-      [], // allowedTargets — empty means no target restriction
+      allowedTargets,
       ownerSig
     );
     const receipt = await tx.wait();
@@ -84,25 +90,87 @@ export async function createLightweightSession(
   }
 }
 
+/**
+ * Validate a lightweight session for a SPECIFIC intended call.
+ * target is required and data defaults to "0x": the 5-arg on-chain
+ * validator denies zero/protocol targets and token selectors on
+ * non-allowlisted targets, so a target-less check would answer a different
+ * question than the caller asked. There is no neutral target — passing a
+ * dummy would change validation semantics — so a missing target is an
+ * explicit error, not a defaulted call.
+ */
 export async function validateSession(
   sessionId: string,
   signerAddress: string,
-  value: string
+  value: string,
+  target?: string,
+  data: string = "0x"
 ): Promise<SessionResult> {
   try {
+    if (!target) {
+      return {
+        success: false,
+        sessionId,
+        error: "target is required: pass the contract address the session would call, and data (default 0x) for its calldata",
+      };
+    }
     const sessionMgr = getContract("SessionManager");
     const isValid = await sessionMgr.validateLightweightSession(
       sessionId,
       signerAddress,
-      BigInt(ethers.parseEther(value))
+      BigInt(ethers.parseEther(value)),
+      target,
+      data
     );
 
     return {
       success: isValid,
       sessionId,
-      details: { valid: isValid, value },
+      details: { valid: isValid, value, target, data },
     };
   } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Read a session's target allowlist (works for standard and lightweight
+ * sessions — both share the sessionTargets mapping on-chain).
+ * Empty array = no allowlist set = token selectors DENIED on-chain.
+ */
+export async function getSessionTargets(sessionId: string): Promise<string[]> {
+  const sessionMgr = getReadonlyContract("SessionManager");
+  const targets = await sessionMgr.getSessionTargets(sessionId);
+  return [...(targets as string[])];
+}
+
+/**
+ * Set a STANDARD session's target allowlist. Only the bound wallet may
+ * call this on-chain (msg.sender == wallet), so this sends
+ * wallet.execute(sessionManager, 0, setSessionTargets(...)) from the
+ * runtime signer — which must be the wallet owner in the local setup.
+ * Standard sessions have no allowlist parameter at creation, so this is
+ * the required follow-up for any standard session intended for token
+ * payments: without it, every token transfer reverts on-chain.
+ * (Lightweight sessions take allowedTargets at creation instead.)
+ */
+export async function setSessionTargets(
+  walletAddress: string,
+  sessionId: string,
+  targets: string[]
+): Promise<SessionResult> {
+  try {
+    const { loadConfig } = await import("../core/config");
+    const config = loadConfig();
+    const wallet = getWalletContract(walletAddress);
+    const sessionMgr = getContract("SessionManager");
+    const inner = sessionMgr.interface.encodeFunctionData("setSessionTargets", [sessionId, targets]);
+    const tx = await wallet.execute(config.contracts.sessionManager, 0, inner);
+    const receipt = await tx.wait();
+    logger.info("session", `Session targets set for ${sessionId.slice(0, 20)}...: ${targets.join(",")}`);
+    return { success: true, sessionId, wallet: walletAddress, txHash: receipt.hash, details: { targets } };
+  } catch (e: any) {
+    logger.error("session", `Failed to set session targets: ${e.message}`);
     return { success: false, error: e.message };
   }
 }

@@ -113,17 +113,6 @@
         "circomlibjs": "^0.1.7",
       },
     },
-    "packages/indexer": {
-      "name": "@agentix/indexer",
-      "version": "1.0.0",
-      "dependencies": {
-        "@agentix/constants": "1.0.0",
-        "@agentix/database": "1.0.0",
-        "@agentix/eventbus": "1.0.0",
-        "@agentix/types": "1.0.0",
-        "ethers": "^6.16.0",
-      },
-    },
     "packages/merkle-tree": {
       "name": "@agentix/merkle-tree",
       "version": "1.0.0",
@@ -244,8 +233,6 @@
     "@agentix/eventbus": ["@agentix/eventbus@workspace:packages/core/eventbus"],
 
     "@agentix/harness-adapter": ["@agentix/harness-adapter@workspace:packages/core/harness-adapter"],
-
-    "@agentix/indexer": ["@agentix/indexer@workspace:packages/indexer"],
 
     "@agentix/merkle-tree": ["@agentix/merkle-tree@workspace:packages/merkle-tree"],
 

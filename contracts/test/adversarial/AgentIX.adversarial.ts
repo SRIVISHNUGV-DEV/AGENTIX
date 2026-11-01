@@ -52,8 +52,14 @@ describe("Adversarial Tests — AgentIX", function () {
     testAnchor = await ethers.getContractAt("OrganizationCredentialAnchor", anchorAddr);
     const root = ethers.keccak256(ethers.toUtf8Bytes("adv-root"));
     const revokedRoot = ethers.keccak256(ethers.toUtf8Bytes("adv-revoked"));
-    await testAnchor.connect(owner).updateRoot(root);
-    await testAnchor.connect(owner).updateRevokedRoot(revokedRoot);
+    await testAnchor.connect(owner).proposeRoot(root);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await testAnchor.connect(owner).acceptRoot();
+    await testAnchor.connect(owner).proposeRevokedRoot(revokedRoot);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await testAnchor.connect(owner).acceptRevokedRoot();
 
     const WalletImpl = await ethers.getContractFactory("AgentWallet");
     const walletImpl = await WalletImpl.deploy();
@@ -103,7 +109,7 @@ describe("Adversarial Tests — AgentIX", function () {
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
     // Activate factory via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
@@ -156,8 +162,8 @@ describe("Adversarial Tests — AgentIX", function () {
 
       const messageHash = ethers.keccak256(
         ethers.AbiCoder.defaultAbiCoder().encode(
-          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64"],
-          [chainId, await sessionManager.getAddress(), walletAddr, sessionId, signers[0].address, ethers.parseEther("1.0"), 10, BigInt(expiry)]
+          ["uint256", "address", "address", "bytes32", "address", "uint256", "uint256", "uint64", "address[]"],
+          [chainId, await sessionManager.getAddress(), walletAddr, sessionId, signers[0].address, ethers.parseEther("1.0"), 10, BigInt(expiry), []]
         )
       );
       const signature = await owner.signMessage(ethers.getBytes(messageHash));
@@ -167,13 +173,13 @@ describe("Adversarial Tests — AgentIX", function () {
       await ethers.provider.send("hardhat_setBalance", [walletAddr, "0x56BC75E2D63100000"]);
 
       await sessionManager.connect(walletSigner).createLightweightSession(
-        sessionId, signers[0].address, ethers.parseEther("1.0"), 10, expiry, signature
+        sessionId, signers[0].address, ethers.parseEther("1.0"), 10, expiry, [], signature
       );
 
       // Replay attempt — same ID should revert
       await expect(
         sessionManager.connect(walletSigner).createLightweightSession(
-          sessionId, signers[1].address, ethers.parseEther("1.0"), 10, expiry, signature
+          sessionId, signers[1].address, ethers.parseEther("1.0"), 10, expiry, [], signature
         )
       ).to.be.reverted;
 
@@ -186,7 +192,7 @@ describe("Adversarial Tests — AgentIX", function () {
       const scopeHash = ethers.keccak256(ethers.toUtf8Bytes("admin-scope"));
       // Attacker tries to update root for owner — should fail (not delegator, not ROOT_UPDATER)
       await expect(
-        delMgr.connect(attacker).updateDelegationRoot(owner.address, scopeHash, randBytes32(), 0)
+        delMgr.connect(attacker).proposeDelegationRoot(owner.address, scopeHash, randBytes32(), 0)
       ).to.be.reverted;
     });
 
@@ -194,7 +200,7 @@ describe("Adversarial Tests — AgentIX", function () {
       await delMgr.emergencyRevokeAll(attacker.address);
       const scopeHash = ethers.keccak256(ethers.toUtf8Bytes("revoked-scope"));
       await expect(
-        delMgr.connect(owner).updateDelegationRoot(attacker.address, scopeHash, randBytes32(), 0)
+        delMgr.connect(owner).proposeDelegationRoot(attacker.address, scopeHash, randBytes32(), 0)
       ).to.be.reverted;
     });
   });
@@ -210,12 +216,18 @@ describe("Adversarial Tests — AgentIX", function () {
       const anchorAAddr = await orgReg.getCredentialAnchor(orgA);
       const anchorA = await ethers.getContractAt("OrganizationCredentialAnchor", anchorAAddr);
       const rootA = ethers.keccak256(ethers.toUtf8Bytes("root-A"));
-      await anchorA.connect(owner).updateRoot(rootA);
+      await anchorA.connect(owner).proposeRoot(rootA);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+      await anchorA.connect(owner).acceptRoot();
 
       const anchorBAddr = await orgReg.getCredentialAnchor(orgB);
       const anchorB = await ethers.getContractAt("OrganizationCredentialAnchor", anchorBAddr);
       const rootB = ethers.keccak256(ethers.toUtf8Bytes("root-B"));
-      await anchorB.connect(owner).updateRoot(rootB);
+      await anchorB.connect(owner).proposeRoot(rootB);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+      await anchorB.connect(owner).acceptRoot();
 
       // Verify roots are different
       expect(await anchorA.currentRoot()).to.not.equal(await anchorB.currentRoot());
@@ -227,12 +239,6 @@ describe("Adversarial Tests — AgentIX", function () {
       await expect(sessionManager.connect(attacker).pause()).to.be.reverted;
       await expect(capReg.connect(attacker).pause()).to.be.reverted;
       await expect(orgReg.connect(attacker).pause()).to.be.reverted;
-    });
-
-    it("BLOCKED: attacker cannot modify wallet whitelist", async function () {
-      await expect(
-        wallet.connect(attacker).setWhiteListedSelector(attacker.address, "0x12345678", true)
-      ).to.be.reverted;
     });
 
     it("BLOCKED: attacker cannot change wallet owner", async function () {
@@ -249,7 +255,7 @@ describe("Adversarial Tests — AgentIX", function () {
       await expect(
         sessionManager.createLightweightSession(
           sessionId, ethers.ZeroAddress, ethers.parseEther("1.0"), 10,
-          BigInt(Math.floor(Date.now() / 1000) + 3600), "0x"
+          BigInt(Math.floor(Date.now() / 1000) + 3600), [], "0x"
         )
       ).to.be.reverted;
     });
@@ -259,7 +265,7 @@ describe("Adversarial Tests — AgentIX", function () {
       await expect(
         sessionManager.createLightweightSession(
           sessionId, signers[0].address, ethers.parseEther("1.0"), 10,
-          BigInt(Math.floor(Date.now() / 1000) - 1), "0x"
+          BigInt(Math.floor(Date.now() / 1000) - 1), [], "0x"
         )
       ).to.be.reverted;
     });

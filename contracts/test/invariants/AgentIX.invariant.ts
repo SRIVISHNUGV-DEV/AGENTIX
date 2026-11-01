@@ -51,8 +51,14 @@ describe("Invariant Tests — AgentIX System", function () {
     testAnchor = await ethers.getContractAt("OrganizationCredentialAnchor", anchorAddr);
     const root = ethers.keccak256(ethers.toUtf8Bytes("inv-root"));
     const revokedRoot = ethers.keccak256(ethers.toUtf8Bytes("inv-revoked"));
-    await testAnchor.connect(owner).updateRoot(root);
-    await testAnchor.connect(owner).updateRevokedRoot(revokedRoot);
+    await testAnchor.connect(owner).proposeRoot(root);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await testAnchor.connect(owner).acceptRoot();
+    await testAnchor.connect(owner).proposeRevokedRoot(revokedRoot);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+    await testAnchor.connect(owner).acceptRevokedRoot();
 
     const WalletImpl = await ethers.getContractFactory("AgentWallet");
     const walletImpl = await WalletImpl.deploy();
@@ -102,7 +108,7 @@ describe("Invariant Tests — AgentIX System", function () {
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
     // Activate factory via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [172800]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
@@ -211,7 +217,10 @@ describe("Invariant Tests — AgentIX System", function () {
     it("INVARIANT: scope count never exceeds 32 per delegator", async function () {
       for (let i = 0; i < 32; i++) {
         const scopeHash = ethers.keccak256(ethers.toUtf8Bytes(`scope-${i}`));
-        await delMgr.updateDelegationRoot(owner.address, scopeHash, randBytes32(), 0);
+        await delMgr.proposeDelegationRoot(owner.address, scopeHash, randBytes32(), 0);
+        await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+        await delMgr.acceptDelegationRoot(owner.address, scopeHash);
       }
       const count = await delMgr.getDelegatorScopeCount(owner.address);
       expect(count).to.equal(32);
@@ -232,14 +241,6 @@ describe("Invariant Tests — AgentIX System", function () {
       }
     });
 
-    it("INVARIANT: whitelist is deterministic", async function () {
-      const target = signers[5].address;
-      const selector = "0x12345678";
-      await wallet.setWhiteListedSelector(target, selector, true);
-      expect(await wallet.whiteListedSelectors(target, selector)).to.be.true;
-      await wallet.setWhiteListedSelector(target, selector, false);
-      expect(await wallet.whiteListedSelectors(target, selector)).to.be.false;
-    });
   });
 
   describe("OrganizationRegistry Invariants", function () {
@@ -267,8 +268,11 @@ describe("Invariant Tests — AgentIX System", function () {
 
     it("INVARIANT: duplicate roots cannot exist within same state", async function () {
       const root = ethers.keccak256(ethers.toUtf8Bytes("unique-root"));
-      await testAnchor.connect(owner).updateRoot(root);
-      await expect(testAnchor.connect(owner).updateRoot(root)).to.be.reverted;
+      await testAnchor.connect(owner).proposeRoot(root);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+    await ethers.provider.send("evm_mine", []);
+      await testAnchor.connect(owner).acceptRoot();
+      await expect(testAnchor.connect(owner).proposeRoot(root)).to.be.reverted;
     });
   });
 });

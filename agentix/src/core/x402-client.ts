@@ -67,6 +67,29 @@ const USDC_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
 ];
 
+/**
+ * C-1 pre-flight helper (pure, tested): is `token` in the session's
+ * on-chain target allowlist? Returns null when allowed, otherwise an
+ * explicit error naming the fix. Token selectors are DENIED on-chain
+ * unless the token contract is allowlisted — an empty allowlist denies
+ * every token move — so a payment session that does not allowlist its
+ * payment token is broken, and the failure must say so BEFORE a doomed
+ * UserOp is built. The owner fixes it with setSessionTargets (standard
+ * sessions, wallet-signed) or by recreating the lightweight session with
+ * allowedTargets including the token.
+ */
+export function checkTokenAllowlisted(targets: readonly string[], token: string): string | null {
+  const want = token.toLowerCase();
+  if (targets.some((t) => t.toLowerCase() === want)) return null;
+  return (
+    `x402 payment session does not allowlist the payment token ${token} ` +
+    `(session targets: ${targets.length ? targets.join(", ") : "none"}). ` +
+    `Since the C-1 fix, token transfers revert on-chain unless the token contract is in the session allowlist. ` +
+    `Fix: the wallet owner must call setSessionTargets(sessionId, [..., ${token}]) for a standard session, ` +
+    `or recreate the lightweight session with allowedTargets including ${token}.`
+  );
+}
+
 // AgentWallet execute ABI
 const WALLET_EXECUTE_ABI = [
   "function execute(address target, uint256 value, bytes calldata data) external",
@@ -83,6 +106,14 @@ export function getPaymentPolicy(): X402Policy {
   if (row) {
     try { return JSON.parse(row.value); } catch {}
   }
+  // DEFAULT POLICY — a documented choice, not an accident (R-7). These
+  // defaults are deliberately permissive for a local dev runtime and are
+  // NOT silently tightened by the auth fixes: autoApprove: true, $0.10
+  // auto-approve threshold (100000 atomic units), $10/day daily limit
+  // (10000000 atomic units), allowedDomains: [] meaning ALL domains, and
+  // an empty agentWalletAddress/sessionKey until configured. Tighten them
+  // explicitly via POST /api/x402/policy (token-gated) if you want a
+  // stricter posture; do not assume the defaults are restrictive.
   return {
     maxPaymentPerRequest: "1000000",   // $1.00
     dailyLimit: "10000000",            // $10.00
@@ -93,6 +124,20 @@ export function getPaymentPolicy(): X402Policy {
     agentWalletAddress: "",
     sessionKey: "",
   };
+}
+
+/**
+ * Public view of the payment policy (R-7). Identical to getPaymentPolicy
+ * except the session private key is NEVER included — callers learn only
+ * whether a key is stored. The stored policy itself is unchanged, and the
+ * key at rest remains plaintext in the config table (bounded session key,
+ * not an owner key; writes are token-gated and the key is never returned
+ * — see the report's residual limitations).
+ */
+export function getPublicPaymentPolicy(): Omit<X402Policy, "sessionKey"> & { sessionKeyPresent: boolean } {
+  const policy = getPaymentPolicy();
+  const { sessionKey, ...rest } = policy;
+  return { ...rest, sessionKeyPresent: !!sessionKey };
 }
 
 export function savePaymentPolicy(policy: X402Policy): void {
@@ -339,6 +384,24 @@ async function executePaymentViaBundler(
     walletAddress
   );
   const sessionId = sessionRow?.session_id || ethers.hexlify(ethers.randomBytes(32));
+
+  // ── C-1 pre-flight: fail explicitly, not on-chain-opaque ──────────
+  // Only when a real session was found (the random-id fallback below keeps
+  // its existing behavior and fails on-chain with a session error).
+  // If the allowlist read itself fails (no RPC, session not on-chain),
+  // warn and proceed: the on-chain validator will deny a non-allowlisted
+  // payment with a revert, which is explicit, not silent.
+  if (sessionRow) {
+    try {
+      const { getAbiByName } = await import("../contracts");
+      const sm = new ethers.Contract(config.contracts.sessionManager, getAbiByName("SessionManager"), provider);
+      const targets: string[] = await sm.getSessionTargets(sessionId);
+      const allowErr = checkTokenAllowlisted(targets, usdcAddress);
+      if (allowErr) return { success: false, error: allowErr };
+    } catch (e: any) {
+      logger.warn("x402", `Session allowlist pre-flight unreadable, proceeding: ${e.message}`);
+    }
+  }
 
   let userOp;
   try {

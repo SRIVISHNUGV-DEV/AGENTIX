@@ -52,19 +52,45 @@ Wallet: {wallet}
 Risk: {riskCategory} (score: {riskScore})`,
   },
   credential_issue: {
-    plain: 'Issue credential to agent {agentId} in organization {orgId}',
-    detailed: `Action: Issue Credential
+    plain: 'Issue credential to agent {agentId} in organization {orgId} — root proposed on-chain (effective after the 2-day timelock + accept)',
+    detailed: `Action: Issue Credential (propose root)
 Organization: {orgId}
 Agent: {agentId}
 Permissions: {permissions}
 Expiry: {expiry}
+On-chain step: proposeActiveRoot — the root changes only after the 2-day timelock AND an accept (credential_accept_root).
 Risk: {riskCategory} (score: {riskScore})`,
   },
   credential_revoke: {
-    plain: 'Revoke credential of agent {agentId}',
-    detailed: `Action: Revoke Credential
+    plain: 'Revoke credential of agent {agentId} — revoked root proposed on-chain (effective after the 2-day timelock + accept)',
+    detailed: `Action: Revoke Credential (propose revoked root)
 Agent: {agentId}
 Organization: {orgId}
+On-chain step: proposeRevokedSecretRoot — the revoked root changes only after the 2-day timelock AND an accept (credential_accept_revoked_root).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  credential_accept_root: {
+    plain: 'Accept the pending credential root proposal (must be past the 2-day timelock)',
+    detailed: `Action: Accept Credential Root
+On-chain step: acceptActiveRoot — completes the pending proposal. Reverts before the timelock (TimelockNotReady).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  credential_accept_revoked_root: {
+    plain: 'Accept the pending credential revoked-root proposal (must be past the 2-day timelock)',
+    detailed: `Action: Accept Credential Revoked Root
+On-chain step: acceptRevokedSecretRoot — completes the pending proposal. Reverts before the timelock (TimelockNotReady).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  credential_cancel_root: {
+    plain: 'Cancel the pending credential root proposal',
+    detailed: `Action: Cancel Credential Root Proposal
+On-chain step: cancelActiveRoot.
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  credential_cancel_revoked_root: {
+    plain: 'Cancel the pending credential revoked-root proposal',
+    detailed: `Action: Cancel Credential Revoked Root Proposal
+On-chain step: cancelRevokedSecretRoot.
 Risk: {riskCategory} (score: {riskScore})`,
   },
   organization_register: {
@@ -81,13 +107,58 @@ Action: {action}
 Risk: {riskCategory} (score: {riskScore})`,
   },
   delegation_create: {
-    plain: 'Create delegation from {delegator} to {delegatee} for scope "{scope}"',
-    detailed: `Action: Create Delegation
+    plain: 'Create delegation from {delegator} to {delegatee} for scope "{scope}" — root proposed on-chain (effective after the 2-day timelock + accept)',
+    detailed: `Action: Create Delegation (propose root)
 From: {delegator}
 To: {delegatee}
 Scope: {scope}
 Max Value: {maxValue} ETH
 Expiry: {expiry}
+On-chain step: proposeDelegationRoot — the root changes only after the 2-day timelock AND an accept (delegation_accept_root).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  delegation_accept_root: {
+    plain: 'Accept the pending delegation root proposal for {delegator} (must be past the 2-day timelock)',
+    detailed: `Action: Accept Delegation Root
+Delegator: {delegator}
+Scope hash: {scopeHash}
+On-chain step: acceptDelegationRoot — completes the pending proposal. Reverts before the timelock (TimelockNotReady).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  delegation_cancel_root: {
+    plain: 'Cancel the pending delegation root proposal for {delegator}',
+    detailed: `Action: Cancel Delegation Root Proposal
+Delegator: {delegator}
+Scope hash: {scopeHash}
+On-chain step: cancelDelegationRoot.
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  anchor_accept_root: {
+    plain: 'Accept the pending organization anchor root proposal (must be past the 2-day timelock)',
+    detailed: `Action: Accept Anchor Root
+Anchor: {anchorAddress}
+On-chain step: acceptRoot — completes the pending proposal. Reverts before the timelock (TimelockNotReady).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  anchor_accept_revoked_root: {
+    plain: 'Accept the pending organization anchor revoked-root proposal (must be past the 2-day timelock)',
+    detailed: `Action: Accept Anchor Revoked Root
+Anchor: {anchorAddress}
+On-chain step: acceptRevokedRoot — completes the pending proposal. Reverts before the timelock (TimelockNotReady).
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  anchor_cancel_root: {
+    plain: 'Cancel the pending organization anchor root proposal',
+    detailed: `Action: Cancel Anchor Root Proposal
+Anchor: {anchorAddress}
+On-chain step: cancelRoot.
+Risk: {riskCategory} (score: {riskScore})`,
+  },
+  anchor_cancel_revoked_root: {
+    plain: 'Cancel the pending organization anchor revoked-root proposal',
+    detailed: `Action: Cancel Anchor Revoked Root Proposal
+Anchor: {anchorAddress}
+On-chain step: cancelRevokedRoot.
 Risk: {riskCategory} (score: {riskScore})`,
   },
 };

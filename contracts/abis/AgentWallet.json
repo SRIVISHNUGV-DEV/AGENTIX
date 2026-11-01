@@ -128,6 +128,11 @@
   },
   {
     "inputs": [],
+    "name": "SessionTargetDenied",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "SessionValidationFailedError",
     "type": "error"
   },

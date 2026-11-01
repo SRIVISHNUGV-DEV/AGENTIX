@@ -99,16 +99,24 @@ export class AgentIX {
     return this.wallet.changeOwner(wallet, newOwner);
   }
 
-  async issueCredential(newRoot: string) {
-    return this.credentials.updateActiveRoot(newRoot);
+  /** Propose a new credential root (effective after the 2-day timelock + accept — NOT an instant update). */
+  async proposeCredentialRoot(newRoot: string) {
+    return this.credentials.proposeActiveRoot(newRoot);
   }
 
-  async revokeCredential(newRevokedRoot: string) {
-    return this.credentials.updateRevokedSecretRoot(newRevokedRoot);
+  /** Accept a pending credential root after the 2-day timelock. */
+  async acceptCredentialRoot() {
+    return this.credentials.acceptActiveRoot();
   }
 
-  async rotateCredentialRoot(newRoot: string) {
-    return this.credentials.updateActiveRoot(newRoot);
+  /** Propose a new revoked-secret root (effective after the 2-day timelock + accept). */
+  async proposeRevokedCredentialRoot(newRevokedRoot: string) {
+    return this.credentials.proposeRevokedSecretRoot(newRevokedRoot);
+  }
+
+  /** Accept a pending revoked-secret root after the 2-day timelock. */
+  async acceptRevokedCredentialRoot() {
+    return this.credentials.acceptRevokedSecretRoot();
   }
 
   async verifyCredential(nullifier: string): Promise<boolean> {

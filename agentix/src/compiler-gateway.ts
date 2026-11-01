@@ -3,7 +3,8 @@ import { loadConfig } from './core/config';
 import { logger } from './core/logger';
 import { getEventBus } from '../packages/core/eventbus';
 import { runExecute } from './core/database';
-import { checkPolicy, getOwnerPolicy, type PolicyCheck } from './core/owner-policy';
+import { checkPolicy, getOwnerPolicy, parseValueToWei, type PolicyCheck } from './core/owner-policy';
+import { normalizeAction } from '../packages/compiler/pipeline/stage-1-intent-parser';
 
 export interface GatewayResult {
   success: boolean;
@@ -50,6 +51,40 @@ const OWNER_ONLY_ACTIONS = new Set([
   'capability_register',
 ]);
 
+// Authority writes with no wallet scope (R-2). Delegation roots and
+// credential roots are not wallet-scoped — their encoder params carry no
+// walletAddress — so a wallet-keyed policy check can never cover them.
+// They are NOT auto-executed: they return requiresApproval like
+// owner-only actions, and only an owner decision (dashboard approval,
+// token-gated REST approve) lets them run. This is the fail-closed middle
+// path between "silently skip policy" (the bug) and "hard-deny and delete
+// the CLI credential/delegation flows" (the alternative, rejected because
+// owner-mediated execution of these actions is legitimate).
+// Since the C-5 timelock fix, root WRITES are two-step: the *_create /
+// *_issue / *_update_root actions PROPOSE (no immediate on-chain effect)
+// and the *_accept_root actions COMPLETE a proposal after the 2-day
+// timelock. Both halves are authority-gated here. NOTE: approving a plan
+// only marks it APPROVED — no path in this codebase executes an approved
+// plan on-chain (CLI/REST execute-plan flip status only). The executable
+// propose/accept surface is the SDK, the CLI, and the REST root routes;
+// the gateway actions exist so plans compile with correct encodings.
+const AUTHORITY_ONLY_ACTIONS = new Set([
+  'delegation_create',
+  'delegation_accept_root',
+  'delegation_cancel_root',
+  'credential_issue',
+  'credential_revoke',
+  'credential_update_root',
+  'credential_accept_root',
+  'credential_accept_revoked_root',
+  'credential_cancel_root',
+  'credential_cancel_revoked_root',
+  'anchor_accept_root',
+  'anchor_accept_revoked_root',
+  'anchor_cancel_root',
+  'anchor_cancel_revoked_root',
+]);
+
 export class CompilerGateway {
   private compiler: Compiler;
 
@@ -77,39 +112,71 @@ export class CompilerGateway {
         return { success: false, errors: ['Invalid params: expected an object'], durationMs: Date.now() - start };
       }
 
-      // 1. Read-only actions: skip policy check, just return info
-      if (AGENT_FREE_ACTIONS.has(action)) {
+      // 1. NORMALISE FIRST (R-1). Every gate below runs on the canonical
+      // action name. The pre-fix code gated on the raw spelling while the
+      // compiler executed the normalised one, so `new_capability` (alias
+      // for the owner-only `capability_register`) and case variants
+      // (`WALLET_CREATE`) sailed past the owner-only check. The original
+      // spelling is still passed to the compiler (which normalises
+      // internally) and recorded in the action log; only the GATES use
+      // the normalised name.
+      const normalized = normalizeAction(action);
+
+      // 2. Read-only actions: skip policy check, just return info
+      if (AGENT_FREE_ACTIONS.has(normalized)) {
         return { success: true, durationMs: Date.now() - start };
       }
 
-      // 2. Owner-only actions: always require approval
-      if (OWNER_ONLY_ACTIONS.has(action)) {
+      // 3. Owner-only actions: always require approval
+      if (OWNER_ONLY_ACTIONS.has(normalized)) {
         return {
           success: false,
           requiresApproval: true,
-          explanation: `Action "${action}" requires owner approval. Use the dashboard to sign.`,
+          explanation: `Action "${normalized}" requires owner approval. Use the dashboard to sign.`,
           durationMs: Date.now() - start,
         };
       }
 
-      // 3. Check owner policy
-      const walletAddress = (params.walletAddress || context?.walletAddress || '') as string;
-      if (walletAddress) {
-        const policyCheck = checkPolicy(walletAddress, action, params);
-
-        if (!policyCheck.allowed) {
-          logger.info("gateway", `Policy blocked ${action}: ${policyCheck.reason}`);
-          return {
-            success: false,
-            requiresApproval: true,
-            explanation: policyCheck.reason,
-            policyCheck,
-            durationMs: Date.now() - start,
-          };
-        }
+      // 4. Authority writes with no wallet scope: require approval, never
+      // auto-execute (R-2). A missing walletAddress must not silently
+      // convert "policy-checked" into "no policy check".
+      if (AUTHORITY_ONLY_ACTIONS.has(normalized)) {
+        return {
+          success: false,
+          requiresApproval: true,
+          explanation: `Action "${normalized}" is an authority write (delegation/credential root) and requires owner approval. Use the dashboard to sign.`,
+          durationMs: Date.now() - start,
+        };
       }
 
-      // 4. Get contract addresses from config
+      // 5. Check owner policy, on the normalised action, unconditionally
+      // for non-free actions (R-2). The wallet scope comes from params
+      // ONLY — never from a caller-supplied context object (the REST
+      // /api/execute handler used to pass body.context straight through,
+      // letting a requester choose which wallet's policy applied). A
+      // state-changing action with no walletAddress is DENIED, not
+      // policy-skipped: there is no wallet whose policy could approve it.
+      const walletAddress = (params.walletAddress || '') as string;
+      if (!walletAddress) {
+        return {
+          success: false,
+          errors: [`Action "${normalized}" requires a walletAddress: no owner policy can be checked without a wallet scope.`],
+          durationMs: Date.now() - start,
+        };
+      }
+      const policyCheck = checkPolicy(walletAddress, normalized, params);
+      if (!policyCheck.allowed) {
+        logger.info("gateway", `Policy blocked ${normalized}: ${policyCheck.reason}`);
+        return {
+          success: false,
+          requiresApproval: true,
+          explanation: policyCheck.reason,
+          policyCheck,
+          durationMs: Date.now() - start,
+        };
+      }
+
+      // 6. Get contract addresses from config
       const config = loadConfig();
       const contractAddresses: Record<string, string> = {
         AgentWalletFactory: config.contracts.agentWalletFactory,
@@ -122,7 +189,7 @@ export class CompilerGateway {
         AgentIdentity: config.contracts.agentIdentity,
       };
 
-      // 5. Compile through the 10-stage pipeline
+      // 7. Compile through the 10-stage pipeline
       const result = await this.compiler.compileIntent(
         action, params, source, context, contractAddresses
       );
@@ -130,7 +197,7 @@ export class CompilerGateway {
       const durationMs = Date.now() - start;
 
       if (result.errors.length > 0) {
-        logger.warn("gateway", `Compilation failed for ${action}: ${result.errors.join('; ')}`);
+        logger.warn("gateway", `Compilation failed for ${normalized}: ${result.errors.join('; ')}`);
         return {
           success: false,
           errors: result.errors,
@@ -142,12 +209,12 @@ export class CompilerGateway {
 
       const plan = result.plan;
 
-      // 6. Log the intent
-      this._logAction(action, params, plan, 'compiled');
+      // 8. Log the intent (tool = normalised name; raw spelling in metadata)
+      this._logAction(normalized, params, plan, 'compiled', undefined, action);
 
-      // 7. Check risk — if requires approval, return plan for human review
+      // 9. Check risk — if requires approval, return plan for human review
       if (plan.risk.requiresApproval) {
-        logger.info("gateway", `Action ${action} requires approval (risk: ${plan.risk.category}, score: ${plan.risk.score})`);
+        logger.info("gateway", `Action ${normalized} requires approval (risk: ${plan.risk.category}, score: ${plan.risk.score})`);
         return {
           success: false,
           requiresApproval: true,
@@ -159,22 +226,22 @@ export class CompilerGateway {
         };
       }
 
-      // 8. Auto-approve within-policy plans
+      // 10. Auto-approve within-policy plans
       this.compiler.approvePlan(plan.planId);
       this.compiler.executePlan(plan.planId);
 
-      // 9. Execute the transaction on-chain
+      // 11. Execute the transaction on-chain
       const txResult = await this._executePlanOnChain(plan);
 
-      // 10. Update plan status
+      // 12. Update plan status
       if (txResult.success) {
         this.compiler.completePlan(plan.planId, txResult.txHash!);
-        this._logAction(action, params, plan, 'completed', txResult.txHash);
-        logger.info("gateway", `Action ${action} completed: ${txResult.txHash}`);
+        this._logAction(normalized, params, plan, 'completed', txResult.txHash, action);
+        logger.info("gateway", `Action ${normalized} completed: ${txResult.txHash}`);
       } else {
         this.compiler.failPlan(plan.planId, txResult.errors?.join('; ') || 'Execution failed');
-        this._logAction(action, params, plan, 'failed');
-        logger.warn("gateway", `Action ${action} failed: ${txResult.errors?.join('; ')}`);
+        this._logAction(normalized, params, plan, 'failed', undefined, action);
+        logger.warn("gateway", `Action ${normalized} failed: ${txResult.errors?.join('; ')}`);
       }
 
       return {
@@ -227,8 +294,8 @@ export class CompilerGateway {
         perTxLimit: policy?.perTxLimit || 'none',
       },
       session: sessionId ? { id: sessionId, type: "lightweight" } : null,
-      allowed: policy?.allowedActions || ['wallet.execute'],
-      forbidden: policy?.forbiddenActions || ['changeOwner', 'upgradeImplementation'],
+      allowed: policy?.allowedActions || ['wallet_execute'],
+      forbidden: policy?.forbiddenActions || ['wallet_transfer_ownership', 'wallet_withdraw'],
       network: config.networkName,
       chainId: config.chainId,
       hasPolicy: !!policy,
@@ -252,7 +319,23 @@ export class CompilerGateway {
   }
 
   private async _executePlanOnChain(plan: ExecutionPlan): Promise<GatewayResult> {
-    const action = plan.intent.normalizedAction || plan.intent.action;
+    // R-1 defense in depth: re-check the normalised name HERE, at the last
+    // code before the signer sends. A plan built outside executeIntent
+    // (e.g. via /api/compile) carries whatever normalizedAction its builder
+    // set; if either the raw action or the plan's normalised action is an
+    // owner-only or authority action, refuse — approval-gated actions must
+    // never auto-execute through this path. Encoding still uses the plan's
+    // normalised action (the pipeline's mapping), not our re-normalisation,
+    // so existing flows (e.g. session_create, which has no encoder entry
+    // under its raw name) are untouched.
+    const rawNormalized = normalizeAction(plan.intent.action);
+    const action = plan.intent.normalizedAction || rawNormalized;
+    if (
+      OWNER_ONLY_ACTIONS.has(rawNormalized) || OWNER_ONLY_ACTIONS.has(normalizeAction(action)) ||
+      AUTHORITY_ONLY_ACTIONS.has(rawNormalized) || AUTHORITY_ONLY_ACTIONS.has(normalizeAction(action))
+    ) {
+      return { success: false, errors: [`Action "${action}" requires owner approval and cannot auto-execute`] };
+    }
     const params = plan.intent.params || {};
 
     // Encode the action into address-validated, ABI-encoded calldata. This is the
@@ -305,21 +388,33 @@ export class CompilerGateway {
     params: Record<string, unknown>,
     plan: ExecutionPlan,
     status: string,
-    txHash?: string
+    txHash?: string,
+    rawAction?: string
   ): void {
     try {
       // NOTE: the agent_actions table has `metadata` (not `details`) and a
       // dedicated `tx_hash` column. The value moved is stored inside metadata as
       // `value` so both the owner-policy daily-limit query and the risk engine's
-      // behavioral-history builder can read it back.
+      // behavioral-history builder can read it back. It is stored WEI-NORMALISED
+      // (parseValueToWei): the daily-limit query sums it as an integer, so a
+      // raw decimal ("0.1") would silently sum as 0. Values that fail parsing
+      // cannot reach here through the gateway (policy denies them first); the
+      // raw string is kept as a fallback so the row still records the attempt.
+      let valueWei: string;
+      try {
+        valueWei = parseValueToWei((params.value as string) || '0').toString();
+      } catch {
+        valueWei = String((params.value as string) || '0');
+      }
       const metadata = JSON.stringify({
         planId: plan.planId,
-        value: (params.value as string) || '0',
+        value: valueWei,
         target: (params.target || params.recipient || params.delegatee || '') as string,
         riskScore: plan.risk.score,
         riskCategory: plan.risk.category,
         decision: plan.risk.decision,
         txHash,
+        rawAction: rawAction && rawAction !== action ? rawAction : undefined,
       });
       runExecute(
         `INSERT INTO agent_actions (wallet_address, session_id, tool, intent, risk_level, tx_hash, success, metadata, timestamp)

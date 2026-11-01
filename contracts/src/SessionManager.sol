@@ -74,8 +74,28 @@ interface IAgentWalletFactory {
 /// @dev Upgradeable (UUPS). Standard sessions require a Groth16 ZK proof verifying credential ownership
 ///      via the CredentialRegistry. Lightweight sessions use ECDSA owner signatures for simpler auth.
 ///      All authorization policy (targets, budgets, limits) lives here — the wallet only executes.
+///      SESSION TARGET RULES (fail closed, enforced in validateSession/validateLightweightSession):
+///      - Denied targets, unconditionally: the bound wallet itself, this SessionManager,
+///        the CredentialRegistry, and the DelegationManager (once set via setDelegationManager).
+///        The EntryPoint is denied as a session target in AgentWallet._validateUserOperation.
+///      - Allowlist: standard sessions gain one via setSessionTargets (bound wallet only);
+///        lightweight sessions set one at creation. A non-empty allowlist restricts ALL calls.
+///      - Token selectors (ERC-20 transfer/approve/transferFrom, ERC-721 transferFrom/
+///        safeTransferFrom) ALWAYS require an allowlisted target. An empty allowlist DENIES
+///        token selectors outright — this is what makes the session spend limit real for
+///        tokens, since token transfers carry ETH value 0 and would otherwise bypass maxValue.
+///      - Credential revocation does NOT kill live sessions (see validateSession NatSpec):
+///        sessions end by expiry or explicit revoke only.
 contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, UUPSUpgradeable, OwnableUpgradeable {
     using ECDSA for bytes32;
+
+    // Token selectors that move value without ETH `value`. Any session call whose inner
+    // calldata starts with one of these is a token transfer and requires an allowlisted target.
+    bytes4 private constant ERC20_TRANSFER_SELECTOR = 0xa9059cbb;
+    bytes4 private constant ERC20_APPROVE_SELECTOR = 0x095ea7b3;
+    bytes4 private constant ERC20_TRANSFER_FROM_SELECTOR = 0x23b872dd;
+    bytes4 private constant ERC721_SAFE_TRANSFER_FROM_SELECTOR = 0x42842e0e;
+    bytes4 private constant ERC721_SAFE_TRANSFER_FROM_DATA_SELECTOR = 0xb88d4fde;
 
     event SessionCreated(bytes32 indexed sessionId, address indexed wallet, address indexed sessionKey, uint64 expiry, uint128 maxValue, bytes32 nullifier);
     event SessionUsed(bytes32 indexed sessionId, uint256 value, uint256 totalUsed);
@@ -86,6 +106,8 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     event DailyLimitsReset(bytes32 indexed sessionId, uint64 newDay);
     event WalletFactoryProposed(address indexed previous, address indexed next, uint256 activationTime);
     event WalletFactoryUpdated(address indexed oldFactory, address indexed newFactory);
+
+    event SessionTargetsUpdated(bytes32 indexed sessionId, address[] targets);
 
     /// @notice Standard session with a cumulative max-value limit.
     struct Session {
@@ -114,7 +136,10 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     mapping(bytes32 => Session) public sessions;
     /// @notice Lightweight sessions keyed by session ID.
     mapping(bytes32 => LightweightSession) public lightSessions;
-    /// @notice Allowed targets for lightweight sessions. Empty array = any target allowed.
+    /// @notice Allowed targets for standard and lightweight sessions.
+    ///         Empty array = any NON-TOKEN target allowed; token selectors always
+    ///         require an allowlisted target (see _checkTarget). Standard sessions
+    ///         set this via setSessionTargets; lightweight sessions at creation.
     mapping(bytes32 => address[]) public sessionTargets;
     /// @notice Maps each wallet to its list of session IDs for enumeration/pruning.
     mapping(address => bytes32[]) public walletSessions;
@@ -126,6 +151,12 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     IVerifier public verifier;
     ICredentialRegistry public registry;
     IAgentWalletFactory public walletFactory;
+
+    /// @notice DelegationManager address denied as a session target once set.
+    ///         address(0) (unset) means that one denial is inactive; the
+    ///         DelegationManager's own delegator-or-role check still blocks
+    ///         session-key writes. Set it on deploy or after an upgrade.
+    address public delegationManager;
 
     address public pendingWalletFactory;
     uint256 public walletFactoryActivationTime;
@@ -169,6 +200,14 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         emit WalletFactoryUpdated(address(0), walletFactory_);
     }
 
+    /// @notice Sets the DelegationManager address denied as a session target.
+    ///         Only the owner. Call once after deploy, or after an upgrade that
+    ///         introduces this field, to activate the DelegationManager denial.
+    /// @param delegationManager_ The DelegationManager contract address (address(0) clears it).
+    function setDelegationManager(address delegationManager_) external onlyOwner {
+        delegationManager = delegationManager_;
+    }
+
     /// @notice Pauses session creation and validation.
     function pause() external onlyOwner {
         _pause();
@@ -179,7 +218,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         _unpause();
     }
 
-    /// @notice Proposes a new AgentWalletFactory with a 24-hour timelock.
+    /// @notice Proposes a new AgentWalletFactory with a 2-day timelock.
     /// @param walletFactory_ The proposed new AgentWalletFactory address.
     function proposeWalletFactory(address walletFactory_) external onlyOwner {
         if (walletFactory_ == address(0)) revert InvalidSessionManager();
@@ -260,17 +299,86 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         emit SessionCreated(sessionId, wallet, sessionKey, expiry, maxValue, nullifier);
     }
 
+    /// @notice Sets the allowed-target allowlist for a STANDARD session.
+    /// @dev Only the bound wallet may call (mirrors createSession's msg.sender == wallet
+    ///      gate — in practice the wallet owner drives this through the wallet).
+    ///      No pause guard: an owner must be able to TIGHTEN targets during an incident
+    ///      without unpausing (validation does not run while paused, so a change here
+    ///      cannot be exploited mid-pause). Empty list clears the allowlist, which
+    ///      re-allows non-token targets but still DENIES token selectors.
+    /// @param sessionId The standard session to restrict.
+    /// @param targets Array of contract addresses this session may call (max 32, no zero addresses).
+    function setSessionTargets(bytes32 sessionId, address[] calldata targets) external {
+        Session storage s = sessions[sessionId];
+        if (s.sessionKey == address(0)) revert SessionNotFound();
+        if (msg.sender != s.wallet) revert NotBoundWallet();
+        if (targets.length > MAX_ALLOWED_TARGETS) revert TooManyTargets();
+        for (uint256 i = 0; i < targets.length; i++) {
+            if (targets[i] == address(0)) revert TargetNotAllowed();
+        }
+        sessionTargets[sessionId] = targets;
+        emit SessionTargetsUpdated(sessionId, targets);
+    }
+
+    /// @dev True if `selector` moves tokens without ETH value (ERC-20 transfer/approve/
+    ///      transferFrom, ERC-721 transferFrom/safeTransferFrom, both overloads).
+    function _isTokenSelector(bytes4 selector) internal pure returns (bool) {
+        return selector == ERC20_TRANSFER_SELECTOR ||
+            selector == ERC20_APPROVE_SELECTOR ||
+            selector == ERC20_TRANSFER_FROM_SELECTOR ||
+            selector == ERC721_SAFE_TRANSFER_FROM_SELECTOR ||
+            selector == ERC721_SAFE_TRANSFER_FROM_DATA_SELECTOR;
+    }
+
+    /// @dev True only if the session has a non-empty allowlist containing `target`.
+    ///      An empty allowlist returns false — this is what makes token selectors
+    ///      deny-by-default.
+    function _isAllowlisted(bytes32 sessionId, address target) internal view returns (bool) {
+        address[] storage allowed = sessionTargets[sessionId];
+        for (uint256 i = 0; i < allowed.length; i++) {
+            if (allowed[i] == target) return true;
+        }
+        return false;
+    }
+
+    /// @dev Enforces the session target rules (fail closed). Called by both validators.
+    ///      - Denied unconditionally: zero address, the bound wallet itself (msg.sender),
+    ///        this SessionManager, the CredentialRegistry, and the DelegationManager (if set).
+    ///      - Token selectors: require an allowlisted target (empty allowlist = deny).
+    ///      - Other calls: a non-empty allowlist restricts; an empty allowlist allows.
+    function _checkTarget(bytes32 sessionId, address target, bytes calldata data) internal view {
+        if (target == address(0)) revert TargetNotAllowed();
+        if (target == msg.sender) revert TargetNotAllowed();
+        if (target == address(this)) revert TargetNotAllowed();
+        if (target == address(registry)) revert TargetNotAllowed();
+        if (delegationManager != address(0) && target == delegationManager) revert TargetNotAllowed();
+        if (data.length >= 4 && _isTokenSelector(bytes4(data[:4]))) {
+            if (!_isAllowlisted(sessionId, target)) revert TargetNotAllowed();
+        } else {
+            address[] storage allowed = sessionTargets[sessionId];
+            if (allowed.length > 0 && !_isAllowlisted(sessionId, target)) revert TargetNotAllowed();
+        }
+    }
+
     /// @notice Validates a standard session for a transaction. Called by the AgentWallet before execution.
     /// @param sessionId The session to validate.
     /// @param signer The address that signed the transaction.
-    /// @param value The value being spent in this transaction.
+    /// @param value The ETH value being spent in this transaction.
     /// @param target The target contract being called.
+    /// @param data The inner calldata of the wallet execute() call (used for the token-selector rule).
     /// @return True if the session is valid and the spend limit is not exceeded.
+    /// @dev NOTE (C-4, documented residual): credential revocation does NOT kill live sessions.
+    ///      validateSession never consults the CredentialRegistry's revoked root — a session
+    ///      created before its credential was revoked keeps spending until its own expiry or
+    ///      an explicit revokeSession call. Issuers cannot terminate sessions; only the
+    ///      session key or the wallet owner can. Mitigation: keep standard-session expiries
+    ///      short. No phantom mapping is maintained; this is the documented behavior.
     function validateSession(
         bytes32 sessionId,
         address signer,
         uint256 value,
-        address target
+        address target,
+        bytes calldata data
     ) external onlyWallet whenNotPaused returns (bool) {
         Session storage s = sessions[sessionId];
 
@@ -278,7 +386,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (s.revoked) revert SessionIsRevoked();
         if (block.timestamp > s.expiry) revert SessionExpired();
         if (s.sessionKey != signer) revert InvalidSigner();
-        if (target == address(0)) revert TargetNotAllowed();
+        _checkTarget(sessionId, target, data);
 
         uint256 newValue = s.valueUsed + value;
         if (newValue > s.maxValue) revert LimitExceeded();
@@ -290,13 +398,18 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     }
 
     /// @notice Revokes a standard session. Callable by the session key or the wallet owner.
+    /// @dev The `wallet` parameter MUST equal the session's bound wallet — it is not
+    ///      trusted as a lookup key (previously any factory-wallet owner could revoke
+    ///      anyone's session by passing their own wallet). No pause guard: revocation
+    ///      is a kill-switch and must work while paused.
     /// @param sessionId The session to revoke.
-    /// @param wallet The AgentWallet the session belongs to.
-    function revokeSession(bytes32 sessionId, address wallet) external whenNotPaused {
+    /// @param wallet The AgentWallet the session belongs to (must equal s.wallet).
+    function revokeSession(bytes32 sessionId, address wallet) external {
         Session storage s = sessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
-        if (msg.sender != s.sessionKey && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+        if (wallet != s.wallet) revert NotAuthorizedToRevoke();
+        if (msg.sender != s.sessionKey && IAgentWallet(s.wallet).owner() != msg.sender) {
             revert NotAuthorizedToRevoke();
         }
         s.revoked = true;
@@ -374,14 +487,18 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     /// @notice Validates a lightweight session for a transaction. Called by the AgentWallet.
     /// @param sessionId The session to validate.
     /// @param signer The address that signed the transaction.
-    /// @param value The value being spent in this transaction.
+    /// @param value The ETH value being spent in this transaction.
     /// @param target The target contract being called.
+    /// @param data The inner calldata of the wallet execute() call (used for the token-selector rule).
     /// @return True if the session is valid, daily limits are not exceeded, and target is allowed.
+    /// @dev Token selectors require an allowlisted target even when the session was created
+    ///      with an empty allowlist (which otherwise allows any non-token target). See _checkTarget.
     function validateLightweightSession(
         bytes32 sessionId,
         address signer,
         uint256 value,
-        address target
+        address target,
+        bytes calldata data
     ) external onlyWallet whenNotPaused returns (bool) {
         LightweightSession storage s = lightSessions[sessionId];
 
@@ -391,17 +508,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (block.timestamp > s.expiry) revert SessionExpired();
         if (s.sessionKey != signer) revert InvalidSigner();
 
-        address[] storage allowed = sessionTargets[sessionId];
-        if (allowed.length > 0) {
-            bool found = false;
-            for (uint256 i = 0; i < allowed.length; i++) {
-                if (allowed[i] == target) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) revert TargetNotAllowed();
-        }
+        _checkTarget(sessionId, target, data);
 
         _checkAndResetDaily(sessionId, s);
 
@@ -417,14 +524,17 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     }
 
     /// @notice Revokes a lightweight session. Callable by the session key or wallet owner.
+    /// @dev The `wallet` parameter MUST equal the session's bound wallet (see revokeSession).
+    ///      No pause guard: revocation is a kill-switch and must work while paused.
     /// @param sessionId The session to revoke.
-    /// @param wallet The AgentWallet the session belongs to.
-    function revokeLightweightSession(bytes32 sessionId, address wallet) external whenNotPaused {
+    /// @param wallet The AgentWallet the session belongs to (must equal s.wallet).
+    function revokeLightweightSession(bytes32 sessionId, address wallet) external {
         LightweightSession storage s = lightSessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
 
-        if (s.sessionKey != msg.sender && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+        if (wallet != s.wallet) revert NotAuthorizedToRevoke();
+        if (s.sessionKey != msg.sender && IAgentWallet(s.wallet).owner() != msg.sender) {
             revert NotAuthorizedToRevoke();
         }
 
@@ -499,5 +609,5 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

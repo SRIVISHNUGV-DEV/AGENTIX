@@ -17,8 +17,6 @@ const WALLET_ABI = [
   "function owner() view returns (address)",
   "function sessionManager() view returns (address)",
   "function entryPoint() view returns (address)",
-  "function whiteListedSelectors(address, bytes4) view returns (bool)",
-  "function setWhiteListedSelector(address party, bytes4 selector, bool status)",
   "function execute(address target, uint256 value, bytes data)",
   "function executeBatch(address[] targets, uint256[] values, bytes[] data)",
   "function addDeposit() payable",
@@ -30,7 +28,7 @@ const WALLET_ABI = [
 
 const SESSION_ABI = [
   "function createLightweightSession(bytes32 sessionId, address sessionKey, uint256 dailySpendLimit, uint256 dailyTxLimit, uint64 expiry, address[] allowedTargets, bytes ownerSignature)",
-  "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) view returns (bool)",
+  "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target, bytes data) view returns (bool)",
   "function revokeLightweightSession(bytes32 sessionId, address wallet)",
   "function getLightSession(bytes32 sessionId) view returns (address, address, uint256, uint256, uint256, uint256, uint64, bool)",
   "function getSessionType(bytes32 sessionId) view returns (uint8)",
@@ -38,11 +36,13 @@ const SESSION_ABI = [
 ];
 
 const DELEGATION_ABI = [
-  "function updateDelegationRoot(address delegator, bytes32 scopeHash, bytes32 newRoot, uint64 expiresAt)",
+  "function proposeDelegationRoot(address delegator, bytes32 scopeHash, bytes32 newRoot, uint64 expiresAt)",
+  "function acceptDelegationRoot(address delegator, bytes32 scopeHash)",
+  "function cancelDelegationRoot(address delegator, bytes32 scopeHash)",
   "function revokeDelegation(bytes32 delegationLeafHash, address delegator)",
   "function verifyDelegation(bytes32 delegationLeaf, bytes32[] merkleProof, address delegator, bytes32 scopeHash, uint64 expiresAt, uint8 maxDepth) view returns (bool)",
   "function getDelegationRoot(address delegator, bytes32 scopeHash) view returns (bytes32 root, uint64 expiresAt, uint64 createdAt)",
-  "function isRevoked(bytes32 leafHash) view returns (bool)",
+  "function isRevoked(address delegator, bytes32 leafHash) view returns (bool)",
   "function registerScope(string action)",
 ];
 
@@ -109,7 +109,12 @@ export async function quickCreateSession(
   sessionKey: string,
   dailySpendLimit: string,
   dailyTxLimit: number,
-  expirySeconds: number
+  expirySeconds: number,
+  // C-1 rule: token selectors are DENIED on-chain unless the token
+  // contract is in the session's allowlist. Pass token contracts this
+  // session must pay with here; an empty allowlist still allows
+  // non-token targets but denies every token move.
+  allowedTargets: string[] = []
 ): Promise<any> {
   const config = loadConfig();
   const guard = getProxyGuard();
@@ -136,7 +141,7 @@ export async function quickCreateSession(
   const signature = await ownerSigner.signMessage(ethers.getBytes(messageHash));
 
   const tx = await sessionMgr.createLightweightSession(
-    sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry, [], signature
+    sessionId, sessionKey, dailySpendLimit, dailyTxLimit, expiry, allowedTargets, signature
   );
   const receipt = await tx.wait();
 
@@ -159,13 +164,23 @@ export async function quickCreateSession(
   };
 }
 
-export async function quickValidateSession(sessionId: string, signer: string, value: string): Promise<any> {
+export async function quickValidateSession(
+  sessionId: string, signer: string, value: string,
+  // Target is required: the 5-arg validator denies zero/protocol targets
+  // and token selectors on non-allowlisted targets, so a target-less
+  // check would answer a different question. No dummy target is passed.
+  target?: string, data: string = "0x"
+): Promise<any> {
   const guard = getProxyGuard();
   const provider = getProvider();
   const sessionMgr = new ethers.Contract(guard.getProxyAddress("sessionManager"), SESSION_ABI, provider);
 
+  if (!target) {
+    return { success: false, valid: false, error: "target is required: pass the contract address the session would call, and data (default 0x) for its calldata" };
+  }
+
   try {
-    const valid = await sessionMgr.validateLightweightSession(sessionId, signer, value);
+    const valid = await sessionMgr.validateLightweightSession(sessionId, signer, value, target, data);
     return { success: true, valid };
   } catch (e: any) {
     return { success: false, valid: false, error: e.reason || e.message };
@@ -191,17 +206,20 @@ export function quickListSessions(walletAddress: string): any[] {
 }
 
 // ── Whitelist ──────────────────────────────────────────────────────────
-
+// AgentWallet has NO whitelist feature: neither setWhiteListedSelector
+// nor setWhiteListedParty exists on the contract (verified against the
+// fresh ABI), and the contract test suite's whitelist tests were deleted
+// for exactly that reason. This helper therefore fails explicitly instead
+// of calling a nonexistent function and surfacing a confusing revert.
+// Authorization is handled by SessionManager (session allowlists).
 export async function quickWhitelist(walletAddress: string, target: string, selector: string): Promise<any> {
-  const guard = getProxyGuard();
-  const signer = getSigner();
-  const wallet = new ethers.Contract(walletAddress, WALLET_ABI, signer);
-
-  const selectorBytes = selector.startsWith("0x") ? selector : ethers.id(selector).slice(0, 10);
-  const tx = await wallet.setWhiteListedSelector(target, selectorBytes, true);
-  const receipt = await tx.wait();
-
-  return { success: true, walletAddress, target, selector: selectorBytes, txHash: receipt.hash };
+  return {
+    success: false,
+    walletAddress,
+    target,
+    selector,
+    error: "AgentWallet does not support whitelisting: no setWhiteListedSelector function exists on the contract. Authorization is handled by SessionManager session allowlists (setSessionTargets / allowedTargets at creation).",
+  };
 }
 
 // ── Execute ────────────────────────────────────────────────────────────
@@ -240,12 +258,16 @@ export async function quickCreateDelegation(
   );
 
   const zeroProof: string[] = [];
-  const tx = await delegationMgr.updateDelegationRoot(delegatorAddress, scopeHash, leaf, expiry);
+  // PROPOSE, not update: since the C-5 timelock fix, a delegation root
+  // changes only after the 2-day timelock AND an acceptDelegationRoot()
+  // call. This function reports "proposed" and leaves the delegation
+  // inactive until accepted — never "created" as active.
+  const tx = await delegationMgr.proposeDelegationRoot(delegatorAddress, scopeHash, leaf, expiry);
   const receipt = await tx.wait();
 
   const delegationId = `del_${generateId()}`;
   runExecute(
-    "INSERT OR REPLACE INTO delegations (delegation_id, organization_id, delegator, delegatee, scope, max_value, expiry, active, created_at) VALUES (?, '', ?, ?, ?, '0', ?, 1, ?)",
+    "INSERT OR REPLACE INTO delegations (delegation_id, organization_id, delegator, delegatee, scope, max_value, expiry, active, created_at) VALUES (?, '', ?, ?, ?, '0', ?, 0, ?)",
     delegationId, delegatorAddress, delegateeAddress, scope, expiry, Math.floor(Date.now() / 1000)
   );
 
@@ -253,6 +275,8 @@ export async function quickCreateDelegation(
 
   return {
     success: true,
+    status: "proposed",
+    message: "Delegation root proposed on-chain. It becomes effective only after the 2-day timelock AND an acceptDelegationRoot(delegator, scopeHash) call.",
     delegator: delegatorAddress,
     delegatee: delegateeAddress,
     scope,

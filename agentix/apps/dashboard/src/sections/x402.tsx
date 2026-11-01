@@ -223,7 +223,7 @@ export function X402Page() {
                 <label className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Session Key (Private Key for Signing UserOps)</label>
                 <Input type="password" value={policy.sessionKey || ''} placeholder="0x... (session key private key)"
                   onChange={e => setPolicy({ ...policy, sessionKey: e.target.value })} />
-                <p className="text-[10px] text-muted-foreground/40 mt-1">The session key authorized on this wallet. Signs UserOperations for the bundler.</p>
+                <p className="text-[10px] text-muted-foreground/40 mt-1">The session key authorized on this wallet. Signs UserOperations for the bundler. {policy.sessionKeyPresent && !policy.sessionKey ? 'A key is already stored on the server (never shown) — leave blank to keep it, or enter a new key to replace it.' : 'The server never returns the stored key; saving with a blank field keeps the existing key.'}</p>
               </div>
               <div>
                 <label className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Max Per Request</label>

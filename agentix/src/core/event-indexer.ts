@@ -5,7 +5,15 @@ import { getAbiByName } from "../contracts";
 import { runQuery, runSingle, runExecute } from "./database";
 import { logger } from "./logger";
 
-const BLOCK_CHUNK = 2000;
+/**
+ * Public Base Sepolia RPCs cap eth_getLogs at a 200-block range
+ * (-32614 "eth_getLogs is limited to a 200 range"). Chunks must therefore be
+ * AT or UNDER 200 blocks — the previous 2000-block chunks could never
+ * complete a first-run scan on the default RPC, and the old single-halving
+ * retry failed again at 1000 blocks. Ranges that a stricter RPC still
+ * rejects are split further by queryLogsWithSplitRetry, down to 1 block.
+ */
+const BLOCK_CHUNK = 200;
 const POLL_INTERVAL_MS = 30_000;
 // Never scan before this block — prevents scanning 43M+ blocks on first run.
 // Contracts deployed ~2026-07-01 on Base Sepolia. Bump when redeploying.
@@ -101,16 +109,16 @@ function storeEvent(params: {
   logIndex: number;
   args: Record<string, any>;
   timestamp: number;
-}): void {
+}): boolean {
   try {
     // Check for duplicate by tx_hash + log_index
     const existing = runSingle<{ id: number }>(
       "SELECT id FROM indexed_events WHERE tx_hash = ? AND log_index = ?",
       params.txHash, params.logIndex
     );
-    if (existing) return;
+    if (existing) return false;
 
-    runExecute(
+    const result = runExecute(
       // OR IGNORE: (tx_hash, log_index) is UNIQUE, so re-polling an overlapping
          // block range is a no-op instead of raising a constraint error that gets
          // swallowed as a noisy "Store event failed" warning on every duplicate.
@@ -126,14 +134,104 @@ function storeEvent(params: {
       JSON.stringify(params.args),
       params.timestamp
     );
+    return result.changes > 0;
   } catch (e: any) {
     logger.warn("event-indexer", `Store event failed: ${e.message}`);
+    return false;
   }
 }
 
-async function indexContract(contract: ContractEntry, fromBlock: number, toBlock: number): Promise<number> {
+/** True when an eth_getLogs failure is a range cap (splitting can help),
+ * as opposed to any other RPC/chain error (splitting cannot). Covers the
+ * observed public-RPC form (-32614 "eth_getLogs is limited to a 200 range")
+ * and generic "too large"/"limit" wordings. */
+function isRangeLimitError(e: any): boolean {
+  const codes = [e?.code, e?.error?.code];
+  if (codes.includes(-32614) || codes.includes("-32614")) return true;
+  const messages = [e?.message, e?.error?.message].filter(Boolean).join(" ");
+  return /limit|too large|range/i.test(messages);
+}
+
+export interface LogProvider {
+  getLogs(filter: { address: string; topics: any[]; fromBlock: number; toBlock: number }): Promise<any[]>;
+  getBlock(blockNumber: number): Promise<{ timestamp: number } | null>;
+}
+
+/**
+ * Fetch one range, splitting it in half on range-cap errors until it
+ * succeeds or reaches a single block. A single-block range that still fails
+ * throws: the caller must then STOP and surface the error, never skip past
+ * the failed range (a skipped range is lost event history, silently).
+ * Non-range errors throw immediately — retrying them by splitting is futile.
+ */
+export async function queryLogsWithSplitRetry(
+  provider: LogProvider,
+  address: string,
+  topics: any[],
+  fromBlock: number,
+  toBlock: number
+): Promise<any[]> {
+  try {
+    return await provider.getLogs({ address, topics: [topics], fromBlock, toBlock });
+  } catch (e: any) {
+    if (!isRangeLimitError(e)) throw e;
+    if (fromBlock >= toBlock) throw e;
+    const mid = Math.floor((fromBlock + toBlock) / 2);
+    const left = await queryLogsWithSplitRetry(provider, address, topics, fromBlock, mid);
+    const right = await queryLogsWithSplitRetry(provider, address, topics, mid + 1, toBlock);
+    return [...left, ...right];
+  }
+}
+
+/** Parse + store one batch of logs. Returns the number of events stored
+ * (duplicates and unparsable logs are not counted). */
+async function processLogs(contract: ContractEntry, logs: any[], provider: LogProvider): Promise<number> {
+  let stored = 0;
+  for (const log of logs) {
+    try {
+      const parsed = contract.iface.parseLog({ topics: log.topics as string[], data: log.data });
+      if (!parsed) continue;
+
+      const args: Record<string, any> = {};
+      parsed.args.forEach((val: any, key: any) => {
+        if (typeof key === "string") args[key] = typeof val === "bigint" ? val.toString() : val;
+      });
+
+      // Get block timestamp
+      let timestamp = Math.floor(Date.now() / 1000);
+      try {
+        const block = await provider.getBlock(log.blockNumber);
+        if (block) timestamp = block.timestamp;
+      } catch {}
+
+      if (storeEvent({
+        contractName: contract.name,
+        contractAddress: contract.address,
+        eventName: parsed.name,
+        blockNumber: log.blockNumber,
+        txHash: log.transactionHash,
+        logIndex: log.index,
+        args,
+        timestamp,
+      })) stored++;
+    } catch {}
+  }
+  return stored;
+}
+
+export interface IndexContractResult {
+  /** Highest block such that every block in [fromBlock, lastBlock] was fully
+   * indexed. fromBlock - 1 when the first chunk failed (no progress). The
+   * caller must checkpoint at most this value — never past a failed range. */
+  lastBlock: number;
+  /** Events actually stored (not blocks scanned — the old metric). */
+  eventsStored: number;
+  /** One entry per failed chunk; non-empty means indexing stopped early. */
+  errors: string[];
+}
+
+async function indexContract(contract: ContractEntry, fromBlock: number, toBlock: number): Promise<IndexContractResult> {
   const provider = getProvider();
-  let lastBlock = fromBlock;
 
   // Get all event topics from the ABI
   const events = contract.iface.fragments.filter((f: any) => f.type === "event") as ethers.EventFragment[];
@@ -142,88 +240,38 @@ async function indexContract(contract: ContractEntry, fromBlock: number, toBlock
     .map(f => { const ev = contract.iface.getEvent(f.name); return ev ? ev.topicHash : null; })
     .filter((t): t is string => t !== null);
 
-  if (topics.length === 0) return toBlock;
+  if (topics.length === 0) return { lastBlock: toBlock, eventsStored: 0, errors: [] };
 
-  // Query in chunks
+  // Query in chunks, in order. On the FIRST chunk that cannot be fetched
+  // (even after split-retry down to single blocks), STOP: later chunks are
+  // not processed and the checkpoint is not advanced past the gap, so the
+  // failed range is retried on the next run instead of being lost forever.
+  // The old code swallowed the failure, kept looping, and advanced the
+  // checkpoint past it — silent data loss.
+  let frontier = fromBlock - 1;
+  let eventsStored = 0;
+  const errors: string[] = [];
   for (let start = fromBlock; start <= toBlock; start += BLOCK_CHUNK) {
     const end = Math.min(start + BLOCK_CHUNK - 1, toBlock);
     try {
-      const logs = await provider.getLogs({
-        address: contract.address,
-        topics: [topics], // OR — any of these topics
-        fromBlock: start,
-        toBlock: end,
-      });
-
-      for (const log of logs) {
-        try {
-          const parsed = contract.iface.parseLog({ topics: log.topics as string[], data: log.data });
-          if (!parsed) continue;
-
-          const args: Record<string, any> = {};
-          parsed.args.forEach((val: any, key: any) => {
-            if (typeof key === "string") args[key] = typeof val === "bigint" ? val.toString() : val;
-          });
-
-          // Get block timestamp
-          let timestamp = Math.floor(Date.now() / 1000);
-          try {
-            const block = await provider.getBlock(log.blockNumber);
-            if (block) timestamp = block.timestamp;
-          } catch {}
-
-          storeEvent({
-            contractName: contract.name,
-            contractAddress: contract.address,
-            eventName: parsed.name,
-            blockNumber: log.blockNumber,
-            txHash: log.transactionHash,
-            logIndex: log.index,
-            args,
-            timestamp,
-          });
-
-          lastBlock = Math.max(lastBlock, log.blockNumber);
-        } catch {}
-      }
-
-      lastBlock = Math.max(lastBlock, end);
+      const logs = await queryLogsWithSplitRetry(provider, contract.address, topics, start, end);
+      eventsStored += await processLogs(contract, logs, provider);
+      frontier = end;
     } catch (e: any) {
-      logger.warn("event-indexer", `getLogs failed for ${contract.name} [${start}-${end}]: ${e.message}`);
-      // If chunk is too large, try smaller
-      if (e.message?.includes("too large") || e.message?.includes("limit")) {
-        const mid = Math.floor((start + end) / 2);
-        try {
-          const logs1 = await provider.getLogs({ address: contract.address, topics: [topics], fromBlock: start, toBlock: mid });
-          const logs2 = await provider.getLogs({ address: contract.address, topics: [topics], fromBlock: mid + 1, toBlock: end });
-          // Process both (reuse logic)
-          for (const log of [...logs1, ...logs2]) {
-            try {
-              const parsed = contract.iface.parseLog({ topics: log.topics as string[], data: log.data });
-              if (!parsed) continue;
-              const args: Record<string, any> = {};
-              parsed.args.forEach((val: any, key: any) => {
-                if (typeof key === "string") args[key] = typeof val === "bigint" ? val.toString() : val;
-              });
-              let timestamp = Math.floor(Date.now() / 1000);
-              try { const block = await provider.getBlock(log.blockNumber); if (block) timestamp = block.timestamp; } catch {}
-              storeEvent({ contractName: contract.name, contractAddress: contract.address, eventName: parsed.name, blockNumber: log.blockNumber, txHash: log.transactionHash, logIndex: log.index, args, timestamp });
-            } catch {}
-          }
-          lastBlock = Math.max(lastBlock, end);
-        } catch {
-          logger.error("event-indexer", `Chunked query also failed for ${contract.name}`);
-        }
-      }
+      const msg = `${contract.name} [${start}-${end}]: ${e.message}`;
+      errors.push(msg);
+      logger.error("event-indexer", `getLogs failed for ${msg} — checkpoint NOT advanced past this range`);
+      break;
     }
   }
 
-  return lastBlock;
+  return { lastBlock: frontier, eventsStored, errors };
 }
 
 let _running = false;
 let _timer: NodeJS.Timeout | null = null;
 let _lastRun = 0;
+/** Cumulative EVENTS stored by runIndexer/reindexFromBlock (not blocks scanned). */
 let _totalIndexed = 0;
 
 export async function runIndexer(): Promise<{ indexed: number; contracts: number; errors: string[] }> {
@@ -248,11 +296,16 @@ export async function runIndexer(): Promise<{ indexed: number; contracts: number
         }
         if (fromBlock > currentBlock) continue;
 
-        const lastBlock = await indexContract(contract, fromBlock, currentBlock);
-        setCheckpoint(contract.name, lastBlock);
-        if (lastBlock > fromBlock) {
-          totalNew += lastBlock - fromBlock + 1;
+        const result = await indexContract(contract, fromBlock, currentBlock);
+        // Checkpoint ONLY to the contiguous frontier. If the first chunk
+        // failed, result.lastBlock < fromBlock and the checkpoint is left
+        // untouched, so the next run retries the failed range instead of
+        // silently skipping it. `indexed` counts events stored, not blocks.
+        if (result.lastBlock >= fromBlock) {
+          setCheckpoint(contract.name, result.lastBlock);
         }
+        totalNew += result.eventsStored;
+        errors.push(...result.errors);
       } catch (e: any) {
         errors.push(`${contract.name}: ${e.message}`);
         logger.error("event-indexer", `Failed to index ${contract.name}: ${e.message}`);
@@ -261,7 +314,7 @@ export async function runIndexer(): Promise<{ indexed: number; contracts: number
 
     _lastRun = Date.now();
     _totalIndexed += totalNew;
-    logger.info("event-indexer", `Indexed ${contracts.length} contracts up to block ${currentBlock}`);
+    logger.info("event-indexer", `Indexed ${totalNew} events from ${contracts.length} contracts up to block ${currentBlock}${errors.length ? ` (${errors.length} range error(s) — checkpoints held at the failed ranges)` : ""}`);
   } catch (e: any) {
     errors.push(e.message);
   } finally {
@@ -296,10 +349,16 @@ export async function reindexFromBlock(fromBlock: number): Promise<{ indexed: nu
       try {
         // Reset checkpoint to force re-scan from the specified block
         setCheckpoint(contract.name, startBlock - 1);
-        
-        const lastBlock = await indexContract(contract, startBlock, currentBlock);
-        setCheckpoint(contract.name, lastBlock);
-        totalNew += lastBlock - startBlock + 1;
+
+        const result = await indexContract(contract, startBlock, currentBlock);
+        // Advance only to the contiguous frontier (see runIndexer). The
+        // checkpoint already sits at startBlock - 1, so a failed first
+        // chunk leaves it there for a later retry, never past the gap.
+        if (result.lastBlock >= startBlock) {
+          setCheckpoint(contract.name, result.lastBlock);
+        }
+        totalNew += result.eventsStored;
+        errors.push(...result.errors);
       } catch (e: any) {
         errors.push(`${contract.name}: ${e.message}`);
         logger.error("event-indexer", `Failed to re-index ${contract.name}: ${e.message}`);

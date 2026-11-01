@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Save, RotateCcw, ToggleLeft, ToggleRight, Eye, EyeOff } from 'lucide-react';
 import { PageHeader, Button, Card, CardHeader, Input, Alert } from '@/components/ui';
-import { fetchJSON, putJSON } from '@/lib/api';
+import { fetchJSON, putJSON, getLocalToken, setLocalToken } from '@/lib/api';
 
 export function SettingsPage() {
   const [config, setConfig] = useState<any>(null);
@@ -12,6 +12,17 @@ export function SettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [rpcUrl, setRpcUrl] = useState('');
   const [devMode, setDevMode] = useState(false);
+  // Local API token (R-5): the per-run X-Agentix-Token, initialised from
+  // dashboard-origin localStorage (not from the server, which cannot be
+  // read by the browser). Required for state-changing dashboard actions.
+  const [localToken, setLocalTokenState] = useState('');
+
+  const saveLocalToken = () => {
+    setLocalToken(localToken || null);
+    setMessage({ type: 'success', text: localToken ? 'Local API token saved in this browser' : 'Local API token cleared' });
+  };
+
+  useEffect(() => { setLocalTokenState(getLocalToken() || ''); }, []);
 
   const fetchConfig = async () => {
     setLoading(true);
@@ -60,6 +71,15 @@ export function SettingsPage() {
             <Input label="RPC URL" value={rpcUrl} onChange={e => setRpcUrl(e.target.value)} placeholder="https://sepolia.base.org" />
             <div><div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Network</div><div className="text-xs font-mono text-muted-foreground/60 px-3 py-2 rounded-lg bg-secondary">{config?.networkName || '—'}</div></div>
             <Button size="sm" icon={<Save className="w-3.5 h-3.5" />} onClick={saveConfig} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Local API Token" />
+          <div className="space-y-3">
+            <Input label="Per-run server token" type="password" value={localToken} onChange={e => setLocalTokenState(e.target.value)} placeholder="Paste from the API server startup log" />
+            <p className="text-[10px] text-muted-foreground/60">Required for state-changing actions (writes, approvals, policy changes). The server prints a fresh token on every start and writes it 0600 to AGENTIX_HOME/.local-token — paste it here once per server run. It is stored only in this browser's localStorage.</p>
+            <Button size="sm" icon={<Save className="w-3.5 h-3.5" />} onClick={saveLocalToken}>Save Token</Button>
           </div>
         </Card>
 

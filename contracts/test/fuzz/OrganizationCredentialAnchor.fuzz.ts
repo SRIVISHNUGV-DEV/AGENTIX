@@ -34,7 +34,10 @@ describe("Fuzz — OrganizationCredentialAnchor", function () {
   it("Fuzz: 500 root updates", async function () {
     for (let i = 0; i < 500; i++) {
       const root = randBytes32();
-      await anchor.connect(owner).updateRoot(root);
+      await anchor.connect(owner).proposeRoot(root);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await anchor.connect(owner).acceptRoot();
       expect(await anchor.currentRoot()).to.equal(root);
     }
   });
@@ -63,27 +66,33 @@ describe("Fuzz — OrganizationCredentialAnchor", function () {
 
   it("Fuzz: duplicate root always reverts", async function () {
     const root = randBytes32();
-    await anchor.connect(owner).updateRoot(root);
-    await expect(anchor.connect(owner).updateRoot(root)).to.be.reverted;
+    await anchor.connect(owner).proposeRoot(root);
+    await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+    await anchor.connect(owner).acceptRoot();
+    await expect(anchor.connect(owner).proposeRoot(root)).to.be.reverted;
   });
 
   it("Fuzz: non-owner cannot update root", async function () {
     await expect(
-      anchor.connect(signers[1]).updateRoot(randBytes32())
+      anchor.connect(signers[1]).proposeRoot(randBytes32())
     ).to.be.reverted;
   });
 
   it("Fuzz: pause blocks root updates", async function () {
     await anchor.connect(owner).pause();
-    await expect(anchor.connect(owner).updateRoot(randBytes32())).to.be.reverted;
+    await expect(anchor.connect(owner).proposeRoot(randBytes32())).to.be.reverted;
     await anchor.connect(owner).unpause();
-    await expect(anchor.connect(owner).updateRoot(randBytes32())).to.not.be.reverted;
+    await expect(anchor.connect(owner).proposeRoot(randBytes32())).to.not.be.reverted;
   });
 
   it("Fuzz: revoked root updates are idempotent (no revert)", async function () {
     for (let i = 0; i < 100; i++) {
       const root = randBytes32();
-      await anchor.connect(owner).updateRevokedRoot(root);
+      await anchor.connect(owner).proposeRevokedRoot(root);
+      await ethers.provider.send("evm_increaseTime", [172800]);
+      await ethers.provider.send("evm_mine", []);
+      await anchor.connect(owner).acceptRevokedRoot();
       expect(await anchor.revokedRoot()).to.equal(root);
     }
   });

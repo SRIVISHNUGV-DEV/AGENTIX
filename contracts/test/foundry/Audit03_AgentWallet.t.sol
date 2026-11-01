@@ -20,12 +20,12 @@ contract MockSessionManager {
         return sessionType[sessionId];
     }
 
-    function validateSession(bytes32 sessionId, address, uint256, address) external view returns (bool) {
+    function validateSession(bytes32 sessionId, address, uint256, address, bytes calldata) external view returns (bool) {
         require(!failAll, "fail");
         return validateResult[sessionId];
     }
 
-    function validateLightweightSession(bytes32 sessionId, address, uint256, address) external view returns (bool) {
+    function validateLightweightSession(bytes32 sessionId, address, uint256, address, bytes calldata) external view returns (bool) {
         require(!failAll, "fail");
         return lightValidateResult[sessionId];
     }

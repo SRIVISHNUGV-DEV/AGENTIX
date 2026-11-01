@@ -20,21 +20,66 @@ export class CredentialModule {
     return { activeRoot, revokedSecretRoot, issuers: [], sessionManagers: [] };
   }
 
-  async updateActiveRoot(newRoot: string, options?: TxOptions): Promise<TransactionResult> {
+  /**
+   * Propose a new active credential root. This does NOT update the root:
+   * the proposal becomes effective only after the contract's 2-day timelock
+   * AND an acceptActiveRoot() call. Never report a propose as "root updated".
+   */
+  async proposeActiveRoot(newRoot: string, options?: TxOptions): Promise<TransactionResult> {
     assertNonZero(newRoot, 'newRoot');
     const cr = this.contracts.send('CredentialRegistry');
     return this.tx.send(
-      () => cr.updateActiveRoot(newRoot),
-      { description: 'Update active credential root', ...options }
+      () => cr.proposeActiveRoot(newRoot),
+      { description: 'Propose active credential root (effective after 2-day timelock + accept)', ...options }
     );
   }
 
-  async updateRevokedSecretRoot(newRoot: string, options?: TxOptions): Promise<TransactionResult> {
+  /** Complete a pending active-root proposal after the 2-day timelock. Reverts before the delay (TimelockNotReady). */
+  async acceptActiveRoot(options?: TxOptions): Promise<TransactionResult> {
+    const cr = this.contracts.send('CredentialRegistry');
+    return this.tx.send(
+      () => cr.acceptActiveRoot(),
+      { description: 'Accept pending active credential root', ...options }
+    );
+  }
+
+  /** Cancel a pending active-root proposal. */
+  async cancelActiveRoot(options?: TxOptions): Promise<TransactionResult> {
+    const cr = this.contracts.send('CredentialRegistry');
+    return this.tx.send(
+      () => cr.cancelActiveRoot(),
+      { description: 'Cancel pending active credential root', ...options }
+    );
+  }
+
+  /**
+   * Propose a new revoked-secret root. Same timelock rule as
+   * proposeActiveRoot: effective only after 2 days + acceptRevokedSecretRoot().
+   */
+  async proposeRevokedSecretRoot(newRoot: string, options?: TxOptions): Promise<TransactionResult> {
     assertNonZero(newRoot, 'newRoot');
     const cr = this.contracts.send('CredentialRegistry');
     return this.tx.send(
-      () => cr.updateRevokedSecretRoot(newRoot),
-      { description: 'Update revoked secret root', ...options }
+      () => cr.proposeRevokedSecretRoot(newRoot),
+      { description: 'Propose revoked secret root (effective after 2-day timelock + accept)', ...options }
+    );
+  }
+
+  /** Complete a pending revoked-secret-root proposal after the 2-day timelock. */
+  async acceptRevokedSecretRoot(options?: TxOptions): Promise<TransactionResult> {
+    const cr = this.contracts.send('CredentialRegistry');
+    return this.tx.send(
+      () => cr.acceptRevokedSecretRoot(),
+      { description: 'Accept pending revoked secret root', ...options }
+    );
+  }
+
+  /** Cancel a pending revoked-secret-root proposal. */
+  async cancelRevokedSecretRoot(options?: TxOptions): Promise<TransactionResult> {
+    const cr = this.contracts.send('CredentialRegistry');
+    return this.tx.send(
+      () => cr.cancelRevokedSecretRoot(),
+      { description: 'Cancel pending revoked secret root', ...options }
     );
   }
 

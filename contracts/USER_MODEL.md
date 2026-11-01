@@ -13,7 +13,7 @@
 
 **Organizations:** The owner adds issuer addresses. Issuers update active/revoked roots. SessionManagers (authorized by owner) mark nullifiers. This is a shared infrastructure contract — one registry serves many organizations.
 
-**UX assessment:** Production-ready. Minimal interface (4 write functions). View functions for nullifier checking. No user-facing complexity.
+**UX assessment:** UX-complete (not production-ready — contracts unaudited, testnet-only). Minimal interface (4 write functions). View functions for nullifier checking. No user-facing complexity.
 
 **Differences standalone vs org:** None — this contract is purely infrastructure.
 
@@ -71,7 +71,7 @@
 
 **Additional setup required:** Factory must exist; SessionManager must be deployed; EntryPoint must be available.
 
-**UX assessment:** Production-ready for owner execution. Session-based execution requires understanding of session creation flow. 2FA ownership transfer is standard. Timelocks add security at cost of speed.
+**UX assessment:** UX-complete for owner execution (not production-ready — contracts unaudited, testnet-only). Session-based execution requires understanding of session creation flow. 2FA ownership transfer is standard. Timelocks add security at cost of speed.
 
 **Differences standalone vs org:** None. Wallet structure is identical.
 

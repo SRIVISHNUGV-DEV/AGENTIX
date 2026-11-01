@@ -14,7 +14,7 @@ in local storage (SQLite) on the machine running it.
 | Part | Contents |
 |---|---|
 | `agentix/src/` | `core/` (event bus, services wiring), `mcp/` (MCP server), `runtime/` (server, bundler + risk gate), `tools/`, `sdk/`, `blockchain/`, `compiler-gateway.ts`, `trees/`, `types.d.ts`, `utils/` |
-| `agentix/packages/` | `shared/`, `core/`, `services/`, `compiler/`, `indexer/`, `scheduler/`, `merkle-tree/`, `agent-manifest/` |
+| `agentix/packages/` | `shared/`, `core/`, `services/`, `compiler/`, `scheduler/`, `merkle-tree/`, `agent-manifest/` |
 | `agentix/apps/dashboard/` | Local dashboard (Next.js), served by the runtime |
 | `agentix/bin/` | CLI entry points (`agentix`, `agentix-mcp`) |
 | `agentix/tests/` | Vitest suites + e2e, run sequentially (suites share one SQLite file) |

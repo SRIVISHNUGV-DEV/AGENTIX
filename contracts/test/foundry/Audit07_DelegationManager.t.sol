@@ -108,7 +108,10 @@ contract Audit07_DelegationManager is Test {
         bytes32 scopeHash = keccak256(abi.encodePacked("action"));
         bytes32 root = keccak256("root1");
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, root, 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, root, 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
 
         (bytes32 storedRoot, uint64 exp,) = dm.getDelegationRoot(delegator1, scopeHash);
         assertEq(storedRoot, root);
@@ -119,7 +122,10 @@ contract Audit07_DelegationManager is Test {
         bytes32 scopeHash = keccak256(abi.encodePacked("action"));
         bytes32 root = keccak256("root2");
         vm.prank(owner);
-        dm.updateDelegationRoot(delegator1, scopeHash, root, 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, root, 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(owner);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         (bytes32 sr,,) = dm.getDelegationRoot(delegator1, scopeHash);
         assertEq(sr, root);
     }
@@ -130,23 +136,26 @@ contract Audit07_DelegationManager is Test {
         bytes32 scopeHash = keccak256(abi.encodePacked("action"));
         vm.prank(delegator1);
         vm.expectRevert(DelegatorHasBeenRevoked.selector);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
     }
 
     function test_UpdateDelegationRoot_Unauthorized() public {
         vm.prank(attacker);
         vm.expectRevert();
-        dm.updateDelegationRoot(delegator1, keccak256(abi.encodePacked("a")), keccak256("r"), 0);
+        dm.proposeDelegationRoot(delegator1, keccak256(abi.encodePacked("a")), keccak256("r"), 0);
     }
 
     function test_UpdateDelegationRoot_ScopeLimitExceeded() public {
         for (uint256 i = 0; i < 32; i++) {
             vm.prank(delegator1);
-            dm.updateDelegationRoot(delegator1, keccak256(abi.encode(i)), keccak256("root"), 0);
+            dm.proposeDelegationRoot(delegator1, keccak256(abi.encode(i)), keccak256("root"), 0);
+            vm.warp(block.timestamp + 2 days);
+            vm.prank(delegator1);
+            dm.acceptDelegationRoot(delegator1, keccak256(abi.encode(i)));
         }
         vm.prank(delegator1);
         vm.expectRevert(ScopeLimitExceeded.selector);
-        dm.updateDelegationRoot(delegator1, keccak256("overflow"), keccak256("root"), 0);
+        dm.proposeDelegationRoot(delegator1, keccak256("overflow"), keccak256("root"), 0);
     }
 
     // ═══════════════════════════════════════════════
@@ -157,14 +166,14 @@ contract Audit07_DelegationManager is Test {
         bytes32 leaf = keccak256("leaf");
         vm.prank(delegator1);
         dm.revokeDelegation(leaf, delegator1);
-        assertTrue(dm.isRevoked(leaf));
+        assertTrue(dm.isRevoked(delegator1, leaf));
     }
 
     function test_RevokeDelegation_AsAdmin() public {
         bytes32 leaf = keccak256("leaf");
         vm.prank(owner);
         dm.revokeDelegation(leaf, delegator1);
-        assertTrue(dm.isRevoked(leaf));
+        assertTrue(dm.isRevoked(delegator1, leaf));
     }
 
     function test_RevokeDelegation_Unauthorized() public {
@@ -209,7 +218,10 @@ contract Audit07_DelegationManager is Test {
     function test_ReAuthorizeDelegator_ClearsRoots() public {
         bytes32 scopeHash = keccak256(abi.encodePacked("s1"));
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         (bytes32 r,,) = dm.getDelegationRoot(delegator1, scopeHash);
         assertTrue(r != bytes32(0));
 
@@ -287,7 +299,10 @@ contract Audit07_DelegationManager is Test {
         vm.assume(root != bytes32(0));
         bytes32 scopeHash = keccak256(abi.encodePacked(scopeAction));
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, root, 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, root, 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         (bytes32 sr,,) = dm.getDelegationRoot(delegator1, scopeHash);
         assertEq(sr, root);
     }
@@ -295,7 +310,7 @@ contract Audit07_DelegationManager is Test {
     function testFuzz_RevokeLeaf(bytes32 leaf) public {
         vm.prank(delegator1);
         dm.revokeDelegation(leaf, delegator1);
-        assertTrue(dm.isRevoked(leaf));
+        assertTrue(dm.isRevoked(delegator1, leaf));
     }
 
     // ═══════════════════════════════════════════════
@@ -305,7 +320,10 @@ contract Audit07_DelegationManager is Test {
     function test_Invariant_RevokedDelegatorBlocksAllRoots() public {
         bytes32 scopeHash = keccak256(abi.encodePacked("s1"));
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         vm.prank(owner);
         dm.emergencyRevokeAll(delegator1);
         bytes32 leaf = keccak256(abi.encode(delegator1, delegate1, scopeHash, uint64(0)));
@@ -316,9 +334,15 @@ contract Audit07_DelegationManager is Test {
 
     function test_Invariant_ReAuthorizeClearsAll() public {
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, keccak256(abi.encodePacked("a")), keccak256("r1"), 0);
+        dm.proposeDelegationRoot(delegator1, keccak256(abi.encodePacked("a")), keccak256("r1"), 0);
+        vm.warp(block.timestamp + 2 days);
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, keccak256(abi.encodePacked("b")), keccak256("r2"), 0);
+        dm.acceptDelegationRoot(delegator1, keccak256(abi.encodePacked("a")));
+        vm.prank(delegator1);
+        dm.proposeDelegationRoot(delegator1, keccak256(abi.encodePacked("b")), keccak256("r2"), 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, keccak256(abi.encodePacked("b")));
         vm.prank(owner);
         dm.emergencyRevokeAll(delegator1);
         vm.prank(owner);
@@ -337,7 +361,10 @@ contract Audit07_DelegationManager is Test {
     function test_Adversarial_ExpiredRoot() public {
         bytes32 scopeHash = keccak256(abi.encodePacked("exp-scope"));
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root"), uint64(block.timestamp + 100));
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root"), uint64(block.timestamp + 2 days + 100));
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         vm.warp(block.timestamp + 200);
         bytes32 leaf = keccak256(abi.encode(delegator1, delegate1, scopeHash, uint64(0)));
         bytes32[] memory proof = new bytes32[](0);
@@ -348,7 +375,10 @@ contract Audit07_DelegationManager is Test {
     function test_Adversarial_DepthExceeded() public {
         bytes32 scopeHash = keccak256(abi.encodePacked("s"));
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root"), 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
         bytes32 leaf = keccak256(abi.encode(delegator1, delegate1, scopeHash, uint64(0)));
         bytes32[] memory proof = new bytes32[](0);
         bool ok = dm.verifyDelegation(leaf, proof, delegator1, scopeHash, 0, 0); // maxDepth=0, currentDepth=1
@@ -369,7 +399,10 @@ contract Audit07_DelegationManager is Test {
         bytes32 scopeHash = keccak256(abi.encodePacked("sc"));
 
         vm.prank(delegator1);
-        dm.updateDelegationRoot(delegator1, scopeHash, keccak256("root1"), 0);
+        dm.proposeDelegationRoot(delegator1, scopeHash, keccak256("root1"), 0);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(delegator1);
+        dm.acceptDelegationRoot(delegator1, scopeHash);
 
         // Hop 1: delegator1 -> delegate1 (correct)
         leaves[0] = keccak256(abi.encode(delegator1, delegate1, scopeHash, uint64(0)));
