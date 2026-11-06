@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AgentIX — AI Agent Operating System",
+  title: "AGENTIX — AI Agent Operating System",
   description: "Local-first AI agent credential protocol runtime",
 };
 

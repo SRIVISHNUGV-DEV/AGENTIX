@@ -60,7 +60,7 @@ Credentials use Poseidon(7) hashing over 7 fields: \`agentId, orgId, budget, wal
     icon: Wallet,
     content: `## ERC-4337 Smart Wallets
 
-AgentIX deploys ERC-4337 compatible smart wallets via the \`AgentWalletFactory\`. Each wallet is a UUPS proxy clone of the \`AgentWallet\` implementation.
+AGENTIX deploys ERC-4337 compatible smart wallets via the \`AgentWalletFactory\`. Each wallet is a UUPS proxy clone of the \`AgentWallet\` implementation.
 
 ### Architecture
 \`\`\`

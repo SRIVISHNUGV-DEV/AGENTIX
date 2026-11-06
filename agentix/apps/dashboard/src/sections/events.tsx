@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Activity, RefreshCw, ExternalLink, Search, Database, Wifi, HardDrive, ChevronDown, ChevronUp, Filter } from 'lucide-react';
-import { PageHeader, EmptyState, Badge, Button, Card, Select, Skeleton, StatusDot } from '@/components/ui';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Activity, RefreshCw, ExternalLink, Search, Database, Wifi, HardDrive, Filter } from 'lucide-react';
+import { PageHeader, Badge, Button, Card, Select, StatusDot } from '@/components/ui';
+import { StreamingTable, type Column } from '@/components/streaming-table';
 import { fetchJSON, postJSON, truncate, explorerTx, explorerBlock, explorerAddress } from '@/lib/api';
 
 const CONTRACT_NAMES = [
@@ -35,6 +36,12 @@ const SOURCE_COLORS: Record<string, string> = {
   local: 'text-amber-400',
   bus: 'text-green-400',
 };
+
+function eventRowId(e: any): string {
+  if (e._id) return String(e._id);
+  if (e.txHash) return `${e.txHash}:${e.logIndex ?? ''}`;
+  return `${e.type || 'event'}:${e.timestamp ?? ''}:${e.blockNumber ?? ''}`;
+}
 
 export function EventsPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -142,6 +149,75 @@ export function EventsPage() {
 
   const uniqueEventTypes = Array.from(new Set(events.map((e: any) => e.type).filter(Boolean))).sort();
 
+  // Live table columns — stable across renders so the table's change
+  // detection only fires on real data changes, not on re-renders.
+  const eventColumns = useMemo<Column<any>[]>(() => [
+    {
+      key: 'event',
+      header: 'Event',
+      sortable: true,
+      value: (e) => e.type || e.eventName || 'Event',
+      render: (e) => {
+        const SourceIcon = SOURCE_ICONS[e.source] || Activity;
+        return (
+          <span className="flex items-center gap-2 min-w-0">
+            <SourceIcon className={`w-3.5 h-3.5 flex-shrink-0 ${SOURCE_COLORS[e.source] || 'text-muted-foreground/40'}`} />
+            <span className="text-xs font-medium truncate">{e.type || e.eventName || 'Event'}</span>
+            {e.contractName && <Badge variant="default" className="text-[9px] shrink-0">{e.contractName}</Badge>}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      value: (e) => e.source || '',
+      render: (e) => (
+        e.source ? (
+          <span className={`text-[10px] uppercase tracking-wider ${SOURCE_COLORS[e.source] || 'text-muted-foreground/40'}`}>
+            {e.source}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/30">—</span>
+        )
+      ),
+    },
+    {
+      key: 'time',
+      header: 'Time',
+      align: 'end',
+      sortable: true,
+      value: (e) => e.timestamp ?? 0,
+      render: (e) => (
+        <span className="text-[10px] text-muted-foreground/60 font-mono whitespace-nowrap">
+          {e.timestamp ? new Date(e.timestamp * 1000).toLocaleString() : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'block',
+      header: 'Block',
+      align: 'end',
+      sortable: true,
+      value: (e) => e.blockNumber ?? 0,
+      render: (e) => (e.blockNumber ? <Badge variant="default">#{e.blockNumber}</Badge> : <span className="text-muted-foreground/30">—</span>),
+    },
+  ], []);
+
+  const handleRowAction = (actionId: string, row: any) => {
+    if (actionId === 'details') {
+      const id = eventRowId(row);
+      setExpandedEvent((cur) => (cur === id ? null : id));
+      return;
+    }
+    if (actionId === 'explorer') {
+      const link = eventExplorerLink(row);
+      if (link) window.open(link, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const expanded = expandedEvent ? events.find((e: any) => eventRowId(e) === expandedEvent) : null;
+
   return (
     <div>
       <PageHeader title="Events" description="On-chain and system events from all contracts"
@@ -220,100 +296,90 @@ export function EventsPage() {
         </Card>
       )}
 
-      {loading ? <Skeleton className="h-64" /> : error ? (
+      {error && !loading ? (
         <Card><div className="text-center py-8"><p className="text-xs text-destructive/60">{error}</p></div></Card>
-      ) : filteredEvents.length === 0 ? (
-        <EmptyState icon={<Activity className="w-8 h-8" />} title="No Events"
-          description={search || contractFilter || typeFilter !== 'all'
-            ? "No events match your filters. Try adjusting them."
-            : "Events appear here as the protocol processes actions on-chain. Click 'Index Now' to fetch historical events."} />
       ) : (
         <>
           <div className="text-[10px] text-muted-foreground/40 mb-2">
             {total} events {search ? `(filtered from ${events.length})` : ''}
           </div>
-          <div className="space-y-1">
-            {filteredEvents.map((e: any, i: number) => {
-              const link = eventExplorerLink(e);
-              const isExpanded = expandedEvent === e._id;
-              const SourceIcon = SOURCE_ICONS[e.source] || Activity;
+          <StreamingTable
+            rows={filteredEvents}
+            columns={eventColumns}
+            getRowId={eventRowId}
+            defaultSort={{ key: 'time', dir: 'desc' }}
+            state={loading ? 'loading' : 'idle'}
+            onRetry={() => { fetchEvents(); fetchIndexerStatus(); }}
+            caption="Protocol events"
+            emptyContent={
+              search || contractFilter || typeFilter !== 'all'
+                ? 'No events match your filters. Try adjusting them.'
+                : "Events appear here as the protocol processes actions on-chain. Click 'Index Now' to fetch historical events."
+            }
+            rowActions={(row: any) => {
+              const actions: { id: string; label: string }[] = [{ id: 'details', label: expandedEvent === eventRowId(row) ? 'Hide' : 'Details' }];
+              if (eventExplorerLink(row)) actions.push({ id: 'explorer', label: 'Explorer' });
+              return actions;
+            }}
+            onRowAction={handleRowAction}
+            renderMobileRow={(row: any, { actions }) => {
+              const SourceIcon = SOURCE_ICONS[row.source] || Activity;
               return (
-                <Card key={e._id || i} className="py-2.5 cursor-pointer hover:border-foreground/20 transition-all"
-                  onClick={() => setExpandedEvent(isExpanded ? null : e._id)}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <SourceIcon className={`w-3.5 h-3.5 flex-shrink-0 ${SOURCE_COLORS[e.source] || 'text-muted-foreground/40'}`} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium">{e.type || e.eventName || 'Event'}</span>
-                          {e.contractName && (
-                            <Badge variant="default" className="text-[9px]">{e.contractName}</Badge>
-                          )}
-                          {e.source && (
-                            <span className={`text-[8px] uppercase tracking-wider ${SOURCE_COLORS[e.source] || 'text-muted-foreground/30'}`}>
-                              {e.source}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground/50 font-mono mt-0.5 truncate">
-                          {e.txHash && truncate(e.txHash, 12)}
-                          {e.blockNumber && ` — Block #${e.blockNumber}`}
-                          {!e.txHash && e.data?.walletAddress && truncate(e.data.walletAddress, 10)}
-                          {!e.txHash && e.data?.sessionId && ` — ${truncate(e.data.sessionId, 10)}`}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-[10px] text-muted-foreground/40 font-mono">
-                        {e.timestamp ? new Date(e.timestamp * 1000).toLocaleString() : '—'}
-                      </span>
-                      {e.blockNumber && <Badge variant="default">#{e.blockNumber}</Badge>}
-                      {link && (
-                        <a href={link} target="_blank" rel="noopener noreferrer"
-                          onClick={ev => ev.stopPropagation()}
-                          className="text-muted-foreground/40 hover:text-foreground transition-colors">
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                      {isExpanded ? <ChevronUp className="w-3 h-3 text-muted-foreground/40" /> : <ChevronDown className="w-3 h-3 text-muted-foreground/40" />}
-                    </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <SourceIcon className={`w-3.5 h-3.5 flex-shrink-0 ${SOURCE_COLORS[row.source] || 'text-muted-foreground/40'}`} />
+                    <span className="text-xs font-medium truncate">{row.type || row.eventName || 'Event'}</span>
+                    {row.contractName && <Badge variant="default" className="text-[9px]">{row.contractName}</Badge>}
                   </div>
-
-                  {/* Expanded details */}
-                  {isExpanded && (
-                    <div className="mt-3 pt-3 border-t border-border space-y-1.5">
-                      {e.contractAddress && (
-                        <div className="flex gap-2 text-[10px]">
-                          <span className="text-muted-foreground/50 min-w-[80px]">Contract</span>
-                          <a href={explorerAddress(e.contractAddress)} target="_blank" rel="noopener noreferrer"
-                            className="font-mono text-blue-400 hover:underline" onClick={ev => ev.stopPropagation()}>
-                            {e.contractAddress}
-                          </a>
-                        </div>
-                      )}
-                      {e.txHash && (
-                        <div className="flex gap-2 text-[10px]">
-                          <span className="text-muted-foreground/50 min-w-[80px]">Tx Hash</span>
-                          <a href={explorerTx(e.txHash)} target="_blank" rel="noopener noreferrer"
-                            className="font-mono text-blue-400 hover:underline" onClick={ev => ev.stopPropagation()}>
-                            {e.txHash}
-                          </a>
-                        </div>
-                      )}
-                      {e.logIndex !== undefined && (
-                        <div className="flex gap-2 text-[10px]">
-                          <span className="text-muted-foreground/50 min-w-[80px]">Log Index</span>
-                          <span className="font-mono text-muted-foreground/80">{e.logIndex}</span>
-                        </div>
-                      )}
-                      {e.args && formatArgs(e.args)}
-                      {e.data && Object.keys(e.data).length > 0 && !e.args && formatArgs(e.data)}
-                    </div>
-                  )}
-                </Card>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground/50 font-mono">
+                      {row.timestamp ? new Date(row.timestamp * 1000).toLocaleString() : '—'}
+                      {row.blockNumber ? ` — Block #${row.blockNumber}` : ''}
+                    </span>
+                    {actions}
+                  </div>
+                </div>
               );
-            })}
-          </div>
+            }}
+          />
+
+          {/* Expanded event details */}
+          {expanded && (
+            <Card className="mt-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium">{expanded.type || expanded.eventName || 'Event'}</span>
+                  {expanded.contractName && <Badge variant="default" className="text-[9px]">{expanded.contractName}</Badge>}
+                </div>
+                {expanded.contractAddress && (
+                  <div className="flex gap-2 text-[10px]">
+                    <span className="text-muted-foreground/50 min-w-[80px]">Contract</span>
+                    <a href={explorerAddress(expanded.contractAddress)} target="_blank" rel="noopener noreferrer"
+                      className="font-mono text-blue-400 hover:underline">
+                      {expanded.contractAddress}
+                    </a>
+                  </div>
+                )}
+                {expanded.txHash && (
+                  <div className="flex gap-2 text-[10px]">
+                    <span className="text-muted-foreground/50 min-w-[80px]">Tx Hash</span>
+                    <a href={explorerTx(expanded.txHash)} target="_blank" rel="noopener noreferrer"
+                      className="font-mono text-blue-400 hover:underline">
+                      {expanded.txHash}
+                    </a>
+                  </div>
+                )}
+                {expanded.logIndex !== undefined && (
+                  <div className="flex gap-2 text-[10px]">
+                    <span className="text-muted-foreground/50 min-w-[80px]">Log Index</span>
+                    <span className="font-mono text-muted-foreground/80">{expanded.logIndex}</span>
+                  </div>
+                )}
+                {expanded.args && formatArgs(expanded.args)}
+                {expanded.data && Object.keys(expanded.data).length > 0 && !expanded.args && formatArgs(expanded.data)}
+              </div>
+            </Card>
+          )}
 
           {/* Pagination */}
           {total > pageSize && (

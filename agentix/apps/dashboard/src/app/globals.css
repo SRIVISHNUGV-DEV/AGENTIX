@@ -83,16 +83,11 @@
 
 /* ── Layout ──────────────────────────────────── */
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  min-height: 100vh;
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }
-
-@media (max-width: 768px) {
-  .dashboard-grid { grid-template-columns: 1fr; }
-  .sidebar-desktop { display: none; }
-}
+.animate-slide-in-left { animation: slide-in-left 0.22s ease-out; }
 
 /* ── Sidebar ─────────────────────────────────── */
 
