@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Building2, CreditCard, Wallet, KeyRound, Activity, Shield, Clock, Network, ChevronRight } from 'lucide-react';
 import { StatCard, PageHeader, Card, CardHeader, Badge, StatusDot, Skeleton, Timeline } from '@/components/ui';
+import { ActivityChart, type ActivityPoint } from '@/components/activity-chart';
 import { fetchJSON } from '@/lib/api';
 
 // Navigate without prop-drilling — page.tsx listens for this custom event
@@ -18,6 +19,39 @@ const QUICK_ACTIONS: { page: string; icon: React.ComponentType<{ className?: str
   { page: 'sessions', icon: KeyRound, title: 'Create Session', description: 'Authorize agent actions with limits' },
 ];
 
+// Event types that count toward each KPI's 7-day sparkline. Real data only:
+// if the backend has no history, the series is flat and the sparkline hides.
+const SERIES_TYPES: Record<string, string[]> = {
+  organizations: ['OrganizationRegistered', 'OrganizationDeactivated', 'OrganizationReactivated'],
+  credentials: ['CredentialIssued', 'CredentialRevoked', 'CredentialLinked'],
+  wallets: ['WalletCreated', 'WalletInitialized', 'WalletLinked'],
+  sessions: ['SessionCreated', 'SessionUsed', 'SessionRevoked', 'LightSessionCreated', 'LightSessionUsed', 'LightSessionRevoked'],
+};
+
+function last7Days(): { start: number; labels: string[] } {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const startMs = start.getTime() - 6 * 86400000;
+  const labels: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startMs + i * 86400000);
+    labels.push(d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }));
+  }
+  return { start: startMs, labels };
+}
+
+function bucketByDay(events: any[], types: string[] | null, startMs: number, days = 7): number[] {
+  const out = new Array(days).fill(0);
+  for (const e of events) {
+    if (types && !types.includes(e.type)) continue;
+    const t = e.timestamp ? e.timestamp * 1000 : null;
+    if (!t) continue;
+    const idx = Math.floor((t - startMs) / 86400000);
+    if (idx >= 0 && idx < days) out[idx] += 1;
+  }
+  return out;
+}
+
 export function OverviewPage() {
   const [stats, setStats] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
@@ -28,7 +62,7 @@ export function OverviewPage() {
       try {
         const [s, e] = await Promise.allSettled([
           fetchJSON<any>('/api/stats'),
-          fetchJSON<any>('/api/events?limit=8'),
+          fetchJSON<any>('/api/events?limit=200'),
         ]);
         if (s.status === 'fulfilled') setStats(s.value);
         if (e.status === 'fulfilled') setEvents(Array.isArray(e.value) ? e.value : (e.value?.events || []));
@@ -38,6 +72,17 @@ export function OverviewPage() {
     load();
   }, []);
 
+  const { start, labels } = useMemo(last7Days, []);
+  const series = useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const [key, types] of Object.entries(SERIES_TYPES)) out[key] = bucketByDay(events, types, start);
+    return out;
+  }, [events, start]);
+  const activityPoints: ActivityPoint[] = useMemo(() => {
+    const totals = bucketByDay(events, null, start);
+    return labels.map((label, i) => ({ label, value: totals[i] }));
+  }, [events, start, labels]);
+
   const timelineEvents = (events || []).slice(0, 6).map((e: any) => ({
     time: e.timestamp ? new Date(e.timestamp * 1000).toLocaleTimeString() : '—',
     title: e.type || e.eventName || 'Event',
@@ -45,17 +90,31 @@ export function OverviewPage() {
     status: (e.type?.includes('Failed') || e.type?.includes('Error')) ? 'error' as const : 'info' as const,
   }));
 
+  const spark = (key: string) => {
+    const s = series[key] || [];
+    const sum = s.reduce((a, b) => a + b, 0);
+    // Hide the sparkline when there is no history to draw — never fake data.
+    return sum > 0 ? s : undefined;
+  };
+
   return (
     <div>
       <PageHeader title="Overview" description="System status and live metrics" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard loading={loading} label="Organizations" value={stats?.organizations ?? 0} icon={<Building2 className="w-4 h-4" />} />
-        <StatCard loading={loading} label="Credentials" value={stats?.credentials ?? 0} icon={<CreditCard className="w-4 h-4" />} />
-        <StatCard loading={loading} label="Wallets" value={stats?.wallets ?? 0} icon={<Wallet className="w-4 h-4" />} />
+        <StatCard loading={loading} label="Organizations" value={stats?.organizations ?? 0} icon={<Building2 className="w-4 h-4" />} sparkline={spark('organizations')} />
+        <StatCard loading={loading} label="Credentials" value={stats?.credentials ?? 0} icon={<CreditCard className="w-4 h-4" />} sparkline={spark('credentials')} />
+        <StatCard loading={loading} label="Wallets" value={stats?.wallets ?? 0} icon={<Wallet className="w-4 h-4" />} sparkline={spark('wallets')} />
         <StatCard loading={loading} label="Sessions" value={stats?.sessions ?? 0} icon={<KeyRound className="w-4 h-4" />}
-          trend={stats?.sessions ? `${stats.sessions} active` : undefined} trendDir={stats?.sessions ? 'up' : 'neutral'} />
+          trend={stats?.sessions ? `${stats.sessions} active` : undefined} trendDir={stats?.sessions ? 'up' : 'neutral'}
+          sparkline={spark('sessions')} />
       </div>
+
+      {/* Activity — real event volume, last 7 days. */}
+      <Card className="mb-6">
+        <CardHeader title="Activity" description="On-chain and system events per day, last 7 days" />
+        {loading ? <Skeleton className="h-56" /> : <ActivityChart points={activityPoints} title="Events per day" />}
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Network Status */}

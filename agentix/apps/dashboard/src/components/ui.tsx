@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { Sparkline } from './kpi-sparkline';
 
 // ── Button ───────────────────────────────────────
 
@@ -73,9 +74,13 @@ interface StatCardProps {
   trendDir?: 'up' | 'down' | 'neutral';
   /** When true, renders a shimmer placeholder instead of the value. */
   loading?: boolean;
+  /** Daily series for the sparkline (right side, replaces the icon when set). */
+  sparkline?: number[];
+  /** Whether the sparkline's direction reads as good (colors the end dot). */
+  sparkGood?: boolean;
 }
 
-export function StatCard({ label, value, icon, trend, trendDir = 'neutral', loading }: StatCardProps) {
+export function StatCard({ label, value, icon, trend, trendDir = 'neutral', loading, sparkline, sparkGood = true }: StatCardProps) {
   const trendColor =
     trendDir === 'up' ? 'text-success' : trendDir === 'down' ? 'text-destructive' : 'text-muted-foreground/50';
   const trendArrow = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '';
@@ -96,7 +101,11 @@ export function StatCard({ label, value, icon, trend, trendDir = 'neutral', load
             </p>
           )}
         </div>
-        <div className="text-muted-foreground/25 bg-secondary/40 rounded-lg p-2">{icon}</div>
+        {sparkline && sparkline.length >= 2 && !loading ? (
+          <Sparkline values={sparkline} good={sparkGood} />
+        ) : (
+          <div className="text-muted-foreground/25 bg-secondary/40 rounded-lg p-2">{icon}</div>
+        )}
       </div>
     </div>
   );

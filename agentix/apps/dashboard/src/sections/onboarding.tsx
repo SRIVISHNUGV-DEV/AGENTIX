@@ -13,15 +13,15 @@ interface WizardStep {
 }
 
 const STEPS: WizardStep[] = [
-  { id: "welcome", title: "Welcome to AgentIX", subtitle: "The operating system for AI agents", icon: "⚡" },
+  { id: "welcome", title: "Welcome to AGENTIX", subtitle: "The operating system for AI agents", icon: "⚡" },
   { id: "diagnostics", title: "System Check", subtitle: "Verifying your environment", icon: "🔍" },
   { id: "harnesses", title: "AI Harnesses", subtitle: "Detecting connected agents", icon: "🤖" },
   { id: "wallet", title: "Connect Wallet", subtitle: "Secure your agent identity", icon: "🔐" },
   { id: "runtime", title: "Initialize Runtime", subtitle: "Setting up local infrastructure", icon: "⚙️" },
   { id: "configure", title: "Configure", subtitle: "Network and preferences", icon: "📋" },
   { id: "database", title: "Database", subtitle: "Initializing local storage", icon: "💾" },
-  { id: "services", title: "Start Services", subtitle: "Launching AgentIX services", icon: "🚀" },
-  { id: "ready", title: "Ready", subtitle: "AgentIX is ready to use", icon: "✨" },
+  { id: "services", title: "Start Services", subtitle: "Launching AGENTIX services", icon: "🚀" },
+  { id: "ready", title: "Ready", subtitle: "AGENTIX is ready to use", icon: "✨" },
 ];
 
 interface WizardState {
@@ -172,7 +172,7 @@ function WelcomeStep() {
         ))}
       </div>
       <p className="text-neutral-500 text-sm mt-6">
-        AgentIX manages AI agent credentials, permissions, and sessions — all running locally on your machine.
+        AGENTIX manages AI agent credentials, permissions, and sessions — all running locally on your machine.
       </p>
     </div>
   );
@@ -527,7 +527,7 @@ function ReadyStep() {
         🎉
       </motion.div>
       <div className="space-y-2">
-        <p className="text-white font-medium">AgentIX is ready</p>
+        <p className="text-white font-medium">AGENTIX is ready</p>
         <p className="text-neutral-400 text-sm">Your local AI agent runtime is fully configured and running.</p>
       </div>
       <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
