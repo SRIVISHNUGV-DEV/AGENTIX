@@ -7,6 +7,14 @@ const __filename = fileURLToPath(import.meta.url);
 const ROOT = join(dirname(__filename), "..");
 const DIST = join(ROOT, "dist-publish");
 
+/**
+ * Builds the publishable agentix bundle: esbuilds the CLI, MCP server, and API server, copies bin scripts and ZK circuit artifacts, and writes the publish package.json, README, and bin shims.
+ * WHY: the published npm package must run standalone — one `npx agentix` install with proving artifacts included, no source tree needed.
+ * @returns Nothing; exits the process with code 1 (via the top-level catch) when the bundle fails.
+ * @throws Throws when a required circuit artifact is missing (unless AGENTIX_ALLOW_PARTIAL_BUNDLE=1), when esbuild fails, or when the output directory cannot be written. A partial dist-publish/ may be left behind.
+ * Maps to: internal — npm publish (dist-publish/ is the publish input); CLI `agentix` entry (dist-publish/index.js).
+ * Side effects: deletes and recreates dist-publish/, writes bundled JS, bin shims, package.json, README.md, and copied circuit artifacts (disk I/O). better-sqlite3 stays external — the install target must build it.
+ */
 async function main() {
   console.log("Cleaning dist-publish/...");
   if (existsSync(DIST)) rmSync(DIST, { recursive: true });
@@ -121,6 +129,15 @@ async function main() {
   // unbuilt native dependency (better-sqlite3 is the only native one) surfaces
   // an actionable message instead of a raw stack trace — keeping the CLI usable
   // out of the box even when a prebuilt binary didn't land.
+  /**
+   * Builds a bin-script shim that requires a bundled entry and translates a missing-native-module failure into an actionable reinstall message.
+   * WHY: better-sqlite3 is a native module — when its prebuilt binary is missing, users would otherwise get a raw stack trace instead of a fix.
+   * @param entry Bundled file to require, relative to dist-publish/bin/ (e.g. "../index.js").
+   * @returns The shim source text, including a #!/usr/bin/env node shebang.
+   * @throws Never throws.
+   * Maps to: internal — bundle main() (bin-script fix-up step).
+   * Side effects: none (pure string builder).
+   */
   const shim = (entry: string) => `#!/usr/bin/env node
 try {
   require('${entry}');

@@ -59,6 +59,15 @@ const DEFAULT_MANIFEST: AgentManifest = {
   },
 };
 
+/**
+ * Parses the flat subset of TOML that agent.toml files use into nested section maps.
+ * WHY: no TOML dependency is vendored, so manifests are read with this hand-rolled parser; keep manifests to the shapes it understands (sections, scalars, flat arrays, flat inline tables).
+ * @param content Raw file text; blank lines and `#` comments are skipped, malformed lines are silently ignored rather than reported.
+ * @returns Nested record keyed by `[section]` name; unparseable values stay raw strings. Inline tables split naively on commas, so a quoted value containing a comma corrupts.
+ * @throws Never throws on bad input — unknown lines are dropped, so callers must validate the result.
+ * Maps to: internal — loadAgentManifest (only caller).
+ * Side effects: none (pure).
+ */
 function parseSimpleToml(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   let currentSection: Record<string, unknown> = result;
@@ -114,6 +123,16 @@ function parseSimpleToml(content: string): Record<string, unknown> {
   return result;
 }
 
+/**
+ * Loads an agent's manifest from `agent.toml`, falling back to safe defaults when the file is missing.
+ * WHY: every agent command needs identity, permissions, and session limits before it can act; a missing file must still yield a usable manifest rather than crashing setup.
+ * @param agentName Directory name under `~/.agentix/agents` and the fallback `name` when the file is absent.
+ * @param baseDir Override for the agent directory (tests); defaults to `~/.agentix/agents/<agentName>`.
+ * @returns A complete manifest; missing sections/fields are filled from DEFAULT_MANIFEST (1 ETH/tx, 10 ETH/day, 5 sessions, 24 h expiry).
+ * @throws Throws on unreadable files or filesystem errors; a present-but-malformed TOML file yields defaults silently, not an error.
+ * Maps to: internal — CLI `agentix` setup/init and any caller needing agent identity/permissions.
+ * Side effects: reads one file from disk; no writes.
+ */
 export function loadAgentManifest(agentName: string, baseDir?: string): AgentManifest {
   const dir = baseDir || path.join(os.homedir(), '.agentix', 'agents', agentName);
   const manifestPath = path.join(dir, 'agent.toml');
@@ -171,6 +190,16 @@ export function loadAgentManifest(agentName: string, baseDir?: string): AgentMan
   };
 }
 
+/**
+ * Serializes a manifest to `agent.toml`, creating the agent directory when needed.
+ * WHY: the on-disk file is the agent's durable identity and permission record; writes must round-trip through loadAgentManifest.
+ * @param manifest Full manifest to persist; string values containing `"` are not escaped, so they corrupt the round-trip on the next load.
+ * @returns Nothing; the file is fully overwritten on success.
+ * @throws Throws on filesystem errors (unwritable directory, disk full); a partial write can leave a truncated file.
+ * Maps to: internal — CLI `agentix` setup/init (the writer of agent.toml).
+ * Side effects: creates `~/.agentix/agents/<agentName>/` and overwrites `agent.toml`.
+ * Security note: writes permission limits to disk — a tampered file changes what the agent is allowed to spend.
+ */
 export function saveAgentManifest(agentName: string, manifest: AgentManifest, baseDir?: string): void {
   const dir = baseDir || path.join(os.homedir(), '.agentix', 'agents', agentName);
   if (!fs.existsSync(dir)) {
@@ -220,6 +249,14 @@ export function saveAgentManifest(agentName: string, manifest: AgentManifest, ba
   fs.writeFileSync(path.join(dir, 'agent.toml'), lines.join('\n'), 'utf-8');
 }
 
+/**
+ * Checks a manifest for the minimum configuration an agent needs to operate.
+ * WHY: fail fast with actionable errors at load/setup time instead of failing mid-execution on a missing identity or a zero spend limit.
+ * @returns `{ valid: true, errors: [] }` when usable; otherwise `valid: false` with one message per violated rule.
+ * @throws Never throws.
+ * Maps to: internal — CLI `agentix` setup/init validation before an agent runs.
+ * Side effects: none (pure).
+ */
 export function validateAgentManifest(manifest: AgentManifest): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
