@@ -220,10 +220,25 @@ const SCHEMA_MAP: Record<string, z.ZodType> = {
   anchor_cancel_revoked_root: AnchorCancelRevokedRootSchema,
 };
 
+/**
+ * Return the zod schema for an action, or undefined when the action has no schema.
+ * Why: schema lookup is the single dispatch table — validateIntent and any future caller resolve through here, so adding an action means adding one map entry.
+ * @param action - canonical action name.
+ * @returns The zod schema, or undefined for known actions without a schema (those validate as valid — see validateIntent).
+ * Maps to: internal — validateIntent.
+ */
 export function getSchemaForAction(action: string): z.ZodType | undefined {
   return SCHEMA_MAP[action];
 }
 
+/**
+ * Validate an action's params against its zod schema.
+ * Why: stage 2's first gate — malformed addresses, non-numeric values and missing required fields are rejected here with dotted-path error messages.
+ * @param action - canonical action name; unknown actions fail immediately.
+ * @param params - raw params bag.
+ * @returns { valid, errors }: valid false with zod issue messages (e.g. "target: Invalid") on failure. Known actions with no schema in SCHEMA_MAP return valid true — a gap, not a pass; see report.
+ * Maps to: internal — IntentValidator.validate (stage 2).
+ */
 export function validateIntent(action: string, params: Record<string, unknown>): { valid: boolean; errors: string[] } {
   if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
     return { valid: false, errors: [`Unknown action: ${action}`] };

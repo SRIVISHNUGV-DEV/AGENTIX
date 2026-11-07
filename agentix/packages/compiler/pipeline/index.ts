@@ -31,6 +31,13 @@ export class PipelineOrchestrator {
 
   private cache: CompilationCacheStore;
 
+    /**
+     * Wire the 10 pipeline stages and their stores from one registry and config.
+     * Why: the orchestrator owns stage construction so stages never construct each other.
+     * @param plugins - registry consulted by capability/policy/simulation/risk stages; empty registry means no plugins run.
+     * @param config - compiler config; defaults to compiler.toml via loadCompilerConfig().
+     * Maps to: internal — Compiler constructor.
+     */
   constructor(
     public readonly plugins: PluginRegistry,
     public readonly config: CompilerConfig = loadCompilerConfig()
@@ -50,6 +57,20 @@ export class PipelineOrchestrator {
     this.planGenerator = new ExecutionPlanGenerator(planStore);
   }
 
+    /**
+     * Run the full 10-stage compile: parse → validate → capabilities → policy →
+     * optimize → contracts → simulate → risk → explain → plan, with a content-hash cache.
+     * Why: this is the one place the stage order lives — simulation runs before risk
+     * because the risk engine consumes the dry-run outcome; caching sits after parse
+     * so identical intents skip the whole pipeline.
+     * @param input - structured intent or free text (free text needs naturalLanguageEnabled).
+     * @param context - optional wallet/session/org context; part of the cache key.
+     * @param contractAddresses - optional address overrides; anchor actions ignore these.
+     * @returns CompilationResult; on parse/validation/contract errors the plan is an empty REJECTED plan with errors listed — never a throw. Simulation failures are warnings, not errors.
+     * @throws Only on unexpected internal failures; stage failures are returned as errors/warnings.
+     * Side effects: writes the successful plan to the compilation cache and the plan store.
+     * Maps to: contract SessionManager.createSession et al. via the resolved execution nodes.
+     */
   async compile(
     input: StructuredIntent | string,
     context?: CompilerContext,
@@ -192,6 +213,15 @@ export class PipelineOrchestrator {
     };
   }
 
+    /**
+     * Compile from a classified action plus params (structured-intent shorthand).
+     * Why: SDK/MCP callers that already classified the intent skip building a StructuredIntent.
+     * @param action - canonical or aliased action name.
+     * @param params - raw action parameters.
+     * @param source - intent source; defaults to 'sdk'.
+     * @returns Same CompilationResult contract as compile().
+     * Maps to: MCP tool agentix_compile_intent.
+     */
   compileIntent(
     action: string,
     params: Record<string, unknown>,
@@ -206,34 +236,94 @@ export class PipelineOrchestrator {
     );
   }
 
+  /**
+   * Fetch a stored execution plan by id.
+   * Why: approval flows read the plan back before signing.
+   * @param planId - plan id.
+   * @returns The plan, or null when unknown.
+   * Maps to: internal — ExecutionPlanGenerator.get.
+   */
   getPlan(planId: string): ExecutionPlan | null {
     return this.planGenerator.get(planId);
   }
 
+  /**
+   * Move a plan to APPROVED.
+   * Why: the human gate for APPROVAL_REQUIRED plans.
+   * @param planId - plan id.
+   * @returns The updated plan, null when unknown, or the unchanged plan when the lifecycle forbids it.
+   * Maps to: internal — ExecutionPlanGenerator.approve.
+   */
   approvePlan(planId: string): ExecutionPlan | null {
     return this.planGenerator.approve(planId);
   }
 
+  /**
+   * Reject a plan with a recorded reason.
+   * Why: rejections are persisted for audit, not dropped.
+   * @param planId - plan id.
+   * @param reason - rejection reason stored on the plan.
+   * @returns The updated plan, null when unknown, or the unchanged plan when the lifecycle forbids it.
+   * Maps to: internal — ExecutionPlanGenerator.reject.
+   */
   rejectPlan(planId: string, reason: string): ExecutionPlan | null {
     return this.planGenerator.reject(planId, reason);
   }
 
+  /**
+   * Mark a plan EXECUTING (lifecycle bookkeeping only; does not send a transaction).
+   * Why: separates plan state from on-chain execution.
+   * @param planId - plan id; must be APPROVED.
+   * @returns The updated plan, null when unknown, or the unchanged plan when the lifecycle forbids it.
+   * Maps to: internal — ExecutionPlanGenerator.execute.
+   */
   executePlan(planId: string): ExecutionPlan | null {
     return this.planGenerator.execute(planId);
   }
 
+  /**
+   * Mark a plan COMPLETED with its transaction hash.
+   * Why: the tx hash is the execution proof; a plan cannot complete without one.
+   * @param planId - plan id; must be EXECUTING.
+   * @param txHash - transaction hash of the executed call.
+   * @returns The updated plan, null when unknown, or the unchanged plan when the lifecycle forbids it.
+   * Maps to: internal — ExecutionPlanGenerator.complete.
+   */
   completePlan(planId: string, txHash: string): ExecutionPlan | null {
     return this.planGenerator.complete(planId, txHash);
   }
 
+  /**
+   * Mark a plan FAILED with the failure reason.
+   * Why: failures stay queryable for retry/audit.
+   * @param planId - plan id.
+   * @param error - failure reason stored on the plan.
+   * @returns The updated plan, null when unknown, or the unchanged plan when the lifecycle forbids it.
+   * Maps to: internal — ExecutionPlanGenerator.fail.
+   */
   failPlan(planId: string, error: string): ExecutionPlan | null {
     return this.planGenerator.fail(planId, error);
   }
 
+  /**
+   * Archive a completed plan.
+   * Why: ARCHIVED is terminal; only COMPLETED plans may enter it.
+   * @param planId - plan id; must be COMPLETED.
+   * @returns The updated plan, null when unknown, or the unchanged plan when not COMPLETED.
+   * Maps to: internal — ExecutionPlanGenerator.archive.
+   */
   archivePlan(planId: string): ExecutionPlan | null {
     return this.planGenerator.archive(planId);
   }
 
+  /**
+   * List stored plans newest first, optionally filtered by status.
+   * Why: history views read through here. Note it opens a fresh PlanStore per call.
+   * @param status - optional status filter; unknown statuses yield an empty list.
+   * @param limit - max rows; defaults to 50.
+   * @returns Plans newest first; empty array when none match.
+   * Maps to: internal — PlanStore.listByStatus / listRecent.
+   */
   listPlans(status?: string, limit: number = 50): ExecutionPlan[] {
     const planStore = new PlanStore();
     if (status) {
@@ -242,14 +332,34 @@ export class PipelineOrchestrator {
     return planStore.listRecent(limit);
   }
 
+  /**
+   * Delete expired compilation-cache rows.
+   * Why: bounds the cache table as chain state moves on.
+   * @returns Number of rows deleted (0 when nothing expired).
+   * Maps to: internal — CompilationCacheStore.prune.
+   */
   pruneCache(): number {
     return this.cache.prune();
   }
 
+  /**
+   * Delete every compilation-cache row.
+   * Why: escape hatch for stale caches after config/contract changes.
+   * Side effects: wipes compilation_cache; execution_plans untouched.
+   * Maps to: internal — CompilationCacheStore.clear.
+   */
   clearCache(): void {
     this.cache.clear();
   }
 
+  /**
+   * Build the REJECTED placeholder plan returned when compilation fails early.
+   * Why: callers always get a well-formed plan object — even on failure — so
+   * downstream code never null-checks the plan itself.
+   * @param intent - the parsed (possibly errored) intent to embed.
+   * @returns A REJECTED plan with empty graphs, risk score 100, and the intent's validation errors as the simulation errors.
+   * Maps to: internal — PipelineOrchestrator.compile (early-return paths).
+   */
   private _emptyPlan(intent: ParsedIntent): ExecutionPlan {
     return {
       planId: intent.id,

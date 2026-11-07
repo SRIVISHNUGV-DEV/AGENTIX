@@ -93,8 +93,11 @@ export interface RiskContext {
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 
 /**
- * Pull every counterparty-like address out of an intent, from both the typed
- * `targets` array and the loosely-typed params bag. Returns lowercased, unique.
+ * Pull every counterparty-like address out of an intent, lowercased and de-duplicated.
+ * Why: risk scoring needs the full counterparty set — targets hide in the typed array and in the loose params bag, and a missed address is a missed reputation check.
+ * @param intent - parsed intent.
+ * @returns Lowercased unique 0x addresses; non-address values are silently ignored.
+ * Maps to: internal — RiskEngineCore.assess (reputation step).
  */
 export function extractTargets(intent: ParsedIntent): string[] {
   const out = new Set<string>();
@@ -118,7 +121,11 @@ export function extractTargets(intent: ParsedIntent): string[] {
 }
 
 /**
- * Sum the wei value(s) an intent moves, handling both single and batch shapes.
+ * Sum the wei value(s) an intent moves, handling single and batch shapes.
+ * Why: every value-based signal needs one total — batch intents carry values[] instead of value.
+ * @param intent - parsed intent; non-string/number values and unparseable strings count as 0.
+ * @returns { total, isBatch, batchSize }: total is 0n for value-less intents; batchSize is the values[] length, or 1 for single transfers.
+ * Maps to: internal — RiskEngineCore.assess (economic view).
  */
 export function computeValue(intent: ParsedIntent): { total: bigint; isBatch: boolean; batchSize: number } {
   const p = intent.params || {};

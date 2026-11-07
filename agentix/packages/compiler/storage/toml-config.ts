@@ -26,6 +26,13 @@ const DEFAULT_CONFIG: CompilerConfig = {
 
 const CONFIG_PATH = path.join(os.homedir(), '.agentix', 'compiler', 'compiler.toml');
 
+/**
+ * Parse a minimal TOML subset (sections, booleans, integers, floats, quoted strings, string arrays) into a nested object.
+ * Why: the compiler reads ~/.agentix/compiler/compiler.toml without a TOML dependency — the config file only ever uses this subset.
+ * @param content - raw TOML text; blank lines and # comments are ignored, unparseable lines are skipped silently.
+ * @returns Nested record keyed by section then key. Unknown constructs are dropped, never an error.
+ * Maps to: internal — loadCompilerConfig.
+ */
 function parseToml(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   let currentSection: Record<string, unknown> = result;
@@ -59,6 +66,13 @@ function parseToml(content: string): Record<string, unknown> {
   return result;
 }
 
+/**
+ * Load the compiler config from ~/.agentix/compiler/compiler.toml, falling back to defaults.
+ * Why: every Compiler/PipelineOrchestrator construction reads through here — it is the single config source.
+ * @returns Merged config (defaults for any missing file, section or key; risk section parsed by parseRiskConfig). Never throws — any read/parse failure returns the defaults.
+ * Side effects: creates ~/.agentix/compiler/ when missing; reads compiler.toml when present.
+ * Maps to: internal — Compiler / PipelineOrchestrator constructors.
+ */
 export function loadCompilerConfig(): CompilerConfig {
   try {
     const dir = path.dirname(CONFIG_PATH);
@@ -86,6 +100,14 @@ export function loadCompilerConfig(): CompilerConfig {
   }
 }
 
+/**
+ * Parse the [risk] TOML section plus the legacy compiler.risk_threshold into a RiskEngineConfig.
+ * Why: risk config has two legacy spellings (dedicated section vs top-level threshold) — this reconciles them with section values winning.
+ * @param risk - parsed [risk] section, or undefined.
+ * @param compiler - parsed [compiler] section, or undefined (supplies the legacy risk_threshold fallback).
+ * @returns Complete risk config; weights keep only numeric values, address lists are lowercased, non-array lists become [].
+ * Maps to: internal — loadCompilerConfig.
+ */
 function parseRiskConfig(
   risk: Record<string, unknown> | undefined,
   compiler: Record<string, unknown> | undefined
@@ -114,6 +136,14 @@ function parseRiskConfig(
   };
 }
 
+/**
+ * Write the compiler config back to ~/.agentix/compiler/compiler.toml.
+ * Why: operator tooling needs a round-trip — load, edit, save — without hand-editing TOML.
+ * @param config - config to persist; only the [compiler] section is written — the [risk] section is NOT saved (it is read-only via this path).
+ * @throws Propagates filesystem errors (e.g. unwritable home directory).
+ * Side effects: creates ~/.agentix/compiler/ when missing; overwrites compiler.toml.
+ * Maps to: internal — loadCompilerConfig (round-trip partner).
+ */
 export function saveCompilerConfig(config: CompilerConfig): void {
   const dir = path.dirname(CONFIG_PATH);
   if (!fs.existsSync(dir)) {

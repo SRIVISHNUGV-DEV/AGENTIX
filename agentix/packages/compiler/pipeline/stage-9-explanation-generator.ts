@@ -172,6 +172,16 @@ Risk: {riskCategory} (score: {riskScore})`,
 };
 
 export class ExplanationGenerator {
+    /**
+     * Render the human-readable explanation of a plan as a JSON string (plain + detailed text, intent, risk, score, timestamp).
+     * Why: stage 9 is what the approver actually reads — the plan's explanation must name the action, value, target, risk and limits in plain language before anyone signs.
+     * @param intent - parsed intent.
+     * @param risk - risk assessment; its warnings/suggestions are appended and requiresApproval adds an explicit approval notice.
+     * @param capabilities - optional; currently unused beyond the signature (reserved for capability-aware text).
+     * @param policy - optional; supplies effectiveLimits.maxValue for the detailed text.
+     * @returns JSON string of the Explanation (plain, detailed, intent, risk, score, timestamp in unix seconds). Unknown actions fall back to DEFAULT_TEMPLATE.
+     * Maps to: internal — PipelineOrchestrator.compile (stage 9); surfaced to the plan approver.
+     */
   generate(
     intent: ParsedIntent,
     risk: RiskAssessment,
@@ -217,6 +227,16 @@ export class ExplanationGenerator {
     });
   }
 
+  /**
+   * Build the template variable map for an intent (addresses, values, limits, risk, contract names).
+   * Why: templates are dumb string substitution — all the "which param, which default" logic lives here, in one place.
+   * @param intent - parsed intent; missing params become 'N/A' (or documented defaults: dailySpendLimit '1', dailyTxLimit '100').
+   * @param risk - risk assessment for category/score.
+   * @param capabilities - optional; currently unused (reserved).
+   * @param policy - optional; effectiveLimits.maxValue wins over params.maxValue.
+   * @returns String-valued variable map; unfilled placeholders stay literal in the output (never crash).
+   * Maps to: internal — ExplanationGenerator.generate.
+   */
   private _extractVariables(
     intent: ParsedIntent,
     risk: RiskAssessment,

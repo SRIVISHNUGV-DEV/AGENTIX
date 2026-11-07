@@ -21,6 +21,12 @@ interface ActionRow {
   metadata?: string;
 }
 
+/**
+ * Lazily require the @agentix/database query helper.
+ * Why: behavioral history is optional — in contexts without the DB module the engine degrades to EMPTY_PROFILE instead of crashing.
+ * @returns A { query } handle, or null when the module cannot be resolved.
+ * Maps to: internal — buildBehavioralProfile.
+ */
 function getDb(): { query: (sql: string, params?: unknown[]) => Record<string, unknown>[] } | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -31,6 +37,13 @@ function getDb(): { query: (sql: string, params?: unknown[]) => Record<string, u
   }
 }
 
+/**
+ * Extract the wei value of a recorded action, preferring the metadata summary and falling back to raw params.
+ * Why: the gateway stores the value in two places — the summary is authoritative, the raw intent is the backup.
+ * @param row - one agent_actions row.
+ * @returns The value in wei, or 0n when neither blob parses or carries a value.
+ * Maps to: internal — buildBehavioralProfile.
+ */
 function parseValueWei(row: ActionRow): bigint {
   // The gateway stores the raw params under `intent` and a summary (incl. value)
   // under `metadata`. Prefer the metadata summary, fall back to raw params.
@@ -45,6 +58,13 @@ function parseValueWei(row: ActionRow): bigint {
   return tryParse(row.metadata) ?? tryParse(row.intent) ?? 0n;
 }
 
+/**
+ * Extract the counterparty address of a recorded action (target/recipient/delegatee), lowercased.
+ * Why: seen-targets is how reputation knows an address is familiar — the address lives in the same two blobs as the value.
+ * @param row - one agent_actions row.
+ * @returns The lowercased 0x address, or null when none is present or well-formed.
+ * Maps to: internal — buildBehavioralProfile.
+ */
 function extractTarget(row: ActionRow): string | null {
   const tryParse = (blob?: string): string | null => {
     if (!blob) return null;
@@ -59,7 +79,13 @@ function extractTarget(row: ActionRow): string | null {
 }
 
 /**
- * Build a behavioral profile for `walletAddress`. `now` is injected for testability.
+ * Build a behavioral profile for a wallet from the last 7 days of local agent_actions (max 500 rows).
+ * Why: velocity and anomaly signals need a baseline — "never moved >0.1 ETH, now moving 5 ETH to a first-seen address" is only visible against history.
+ * @param walletAddress - wallet to profile; empty string returns EMPTY_PROFILE immediately.
+ * @param now - current time in unix seconds, injected for testability; windows are now-24h and now-7d.
+ * @returns BehavioralProfile; EMPTY_PROFILE (hasHistory false) when there is no DB, the query fails, or no rows exist. Never throws.
+ * Side effects: reads the agent_actions table.
+ * Maps to: internal — RiskEngineCore.assess (behavioral step).
  */
 export function buildBehavioralProfile(walletAddress: string, now: number): BehavioralProfile {
   if (!walletAddress) return { ...EMPTY_PROFILE };

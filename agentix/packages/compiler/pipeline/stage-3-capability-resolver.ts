@@ -5,8 +5,23 @@ import { CapabilityPlugin } from '../types/plugin';
 import type { runQuery, runSingle } from '@agentix/database';
 
 export class CapabilityResolver {
+  /**
+   * Build the capability resolver.
+   * Why: capability plugins are the extensible source of grants; the resolver needs the registry up front.
+   * @param plugins - registry consulted for 'capability' plugins.
+   * Maps to: internal — PipelineOrchestrator constructor.
+   */
   constructor(private plugins: PluginRegistry) {}
 
+  /**
+   * Resolve what the acting agent may do: plugin grants + local DB capabilities, credentials, and the missing-action list.
+   * Why: stage 3 answers "is this agent even allowed to attempt this action" before any policy is generated.
+   * @param intent - parsed intent; agent identity 0 and empty wallet mean "anonymous" and resolve to no grants.
+   * @returns ResolvedCapabilities; canExecute is false when the normalized action is not granted. Missing plugins or DB failures are swallowed — they only reduce the grant set, never throw.
+   * @throws Never; plugin and DB errors are caught and skipped.
+   * Side effects: reads the local capabilities/credentials tables when a DB is resolvable.
+   * Maps to: contract CredentialRegistry / CapabilityRegistry (on-chain grants mirrored locally).
+   */
   async resolve(intent: ParsedIntent): Promise<ResolvedCapabilities> {
     const agent = intent.agent || { identityId: 0, walletAddress: '' };
     const org = intent.organizationId
@@ -114,6 +129,12 @@ export class CapabilityResolver {
     };
   }
 
+  /**
+   * Lazily require the @agentix/database query helper.
+   * Why: the compiler package must load in contexts where the DB module is absent (unit tests, MCP-only runs) — a require failure is a normal "no DB" signal, not a crash.
+   * @returns A { query } handle, or null when the module cannot be resolved.
+   * Maps to: internal — CapabilityResolver.resolve.
+   */
   private _getDb(): { query: Function } | null {
     try {
       const { runQuery } = require('@agentix/database');

@@ -1,5 +1,13 @@
 import { PluginManifest } from '../types/plugin';
 
+/**
+ * Validate a parsed plugin manifest (TOML object) and normalize it into a PluginManifest.
+ * Why: plugins are third-party code — the manifest is the trust boundary; a malformed manifest must be rejected before anything is loaded.
+ * @param raw - untrusted parsed TOML value; must be an object with a [plugin] section.
+ * @returns { valid, manifest, errors }: manifest is present only when valid; errors list every problem found (name, version, type, description, pipeline_stages all required; stages must be known).
+ * Security note: this validates the manifest only — it says nothing about the plugin code itself, which is still untrusted.
+ * Maps to: internal — PluginRegistry.register (manifest gate before registration).
+ */
 export function validateManifest(raw: unknown): { valid: boolean; manifest?: PluginManifest; errors: string[] } {
   const errors: string[] = [];
   const m = raw as Record<string, unknown>;
