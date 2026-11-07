@@ -95,10 +95,25 @@ const DEFAULT_CONFIG: AgentixConfig = {
 
 const CONFIG_PATH = join(AGENTIX_HOME, "config", "agentix.config.json");
 
+/**
+ * Return the absolute path of the agentix config file.
+ * Only for diagnostics and tooling that need to locate (not read) the file.
+ * @returns The path under AGENTIX_HOME/config; the file may not exist yet.
+ * @throws Never throws.
+ * Maps to: internal — loadConfig / saveConfig (config file location).
+ */
 export function getConfigPath(): string {
   return CONFIG_PATH;
 }
 
+/**
+ * Load the runtime config, falling back to the built-in Base Sepolia defaults.
+ * Every module reads config through this; a missing or corrupt file must never crash startup.
+ * @returns The merged config — saved values over defaults, with contracts merged key-by-key.
+ * @throws Never throws — a missing/unparseable file returns a copy of DEFAULT_CONFIG.
+ * Maps to: MCP tool agentix_config_show (and agentix_config_get for single keys).
+ * Side effects: none (read-only); note the returned object shares no state with the file.
+ */
 export function loadConfig(): AgentixConfig {
   if (!existsSync(CONFIG_PATH)) {
     return { ...DEFAULT_CONFIG };
@@ -116,6 +131,15 @@ export function loadConfig(): AgentixConfig {
   }
 }
 
+/**
+ * Merge the given fields into the saved config file.
+ * Partial update: unspecified fields keep their current (or default) values.
+ * @param config — fields to set; a nested `contracts` object replaces only its given keys on next load.
+ * @returns Nothing.
+ * @throws Throws on disk write failure; callers should surface that instead of assuming the save landed.
+ * Maps to: CLI 'agentix config set' (and MCP-adjacent config writes in src/tools/config-tool.ts).
+ * Side effects: creates AGENTIX_HOME/config if needed and writes agentix.config.json.
+ */
 export function saveConfig(config: Partial<AgentixConfig>): void {
   const dir = join(AGENTIX_HOME, "config");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -124,6 +148,14 @@ export function saveConfig(config: Partial<AgentixConfig>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2));
 }
 
+/**
+ * Create every directory the runtime owns under AGENTIX_HOME (16 in total).
+ * Called at startup so later file writes never fail on a missing directory.
+ * @returns Nothing; existing directories are left untouched.
+ * @throws Throws if a directory cannot be created (permissions); startup should treat that as fatal.
+ * Maps to: internal — src/index.ts startup (runs before the DB, server, and keystore).
+ * Side effects: creates directories on disk (idempotent).
+ */
 export function ensureDirectories(): void {
   const dirs = [
     "config",

@@ -68,15 +68,12 @@ const USDC_ABI = [
 ];
 
 /**
- * C-1 pre-flight helper (pure, tested): is `token` in the session's
- * on-chain target allowlist? Returns null when allowed, otherwise an
- * explicit error naming the fix. Token selectors are DENIED on-chain
- * unless the token contract is allowlisted — an empty allowlist denies
- * every token move — so a payment session that does not allowlist its
- * payment token is broken, and the failure must say so BEFORE a doomed
- * UserOp is built. The owner fixes it with setSessionTargets (standard
- * sessions, wallet-signed) or by recreating the lightweight session with
- * allowedTargets including the token.
+ * Pre-flight check: is the payment token in the session's on-chain target allowlist?
+ * Token selectors are DENIED on-chain unless the token contract is allowlisted, so a payment session that omits its token is broken — this must say so BEFORE a doomed UserOp is built.
+ * @param targets — the session's allowlisted targets (case-insensitive compare); `token` — the USDC address.
+ * @returns Null when allowed; otherwise an explicit error naming the fix (setSessionTargets or recreate the session).
+ * @throws Never throws.
+ * Maps to: internal — executePaymentViaBundler (C-1 pre-flight before building the UserOp).
  */
 export function checkTokenAllowlisted(targets: readonly string[], token: string): string | null {
   const want = token.toLowerCase();
@@ -98,6 +95,14 @@ const WALLET_EXECUTE_ABI = [
 
 // ── Policy Storage ───────────────────────────────────────────────────────────
 
+/**
+ * Load the stored x402 payment policy, or the documented permissive dev defaults when none is stored.
+ * The defaults are deliberately permissive (autoApprove, $0.10 auto-approve, $10/day, all domains, no wallet) — do not assume they are restrictive.
+ * @returns The stored policy, or the default policy (max $1/request, $10/day, autoApprove true).
+ * @throws Throws on DB failure.
+ * Maps to: REST GET /api/x402/policy (stored policy; the public view is getPublicPaymentPolicy).
+ * Security: the stored policy contains the session key in plaintext — never return it unsanitised (see getPublicPaymentPolicy).
+ */
 export function getPaymentPolicy(): X402Policy {
   const row = runSingle<{ value: string }>(
     "SELECT value FROM config WHERE key = ?",
@@ -127,12 +132,12 @@ export function getPaymentPolicy(): X402Policy {
 }
 
 /**
- * Public view of the payment policy (R-7). Identical to getPaymentPolicy
- * except the session private key is NEVER included — callers learn only
- * whether a key is stored. The stored policy itself is unchanged, and the
- * key at rest remains plaintext in the config table (bounded session key,
- * not an owner key; writes are token-gated and the key is never returned
- * — see the report's residual limitations).
+ * Return the payment policy with the session private key removed (callers learn only whether one is stored).
+ * The safe-to-expose view: the key at rest stays plaintext in the config table, so it must never cross this boundary.
+ * @returns The policy minus sessionKey, plus sessionKeyPresent.
+ * @throws Throws on DB failure (via getPaymentPolicy).
+ * Maps to: REST GET /api/x402/policy (public view served to the dashboard).
+ * Security: the session key is NEVER included in the return value.
  */
 export function getPublicPaymentPolicy(): Omit<X402Policy, "sessionKey"> & { sessionKeyPresent: boolean } {
   const policy = getPaymentPolicy();
@@ -140,6 +145,16 @@ export function getPublicPaymentPolicy(): Omit<X402Policy, "sessionKey"> & { ses
   return { ...rest, sessionKeyPresent: !!sessionKey };
 }
 
+/**
+ * Persist the x402 payment policy (upsert into the config table).
+ * Only call from the token-gated policy endpoint: anyone who can write this can raise limits and point payments at their wallet.
+ * @param policy — the full policy, including the session key when one is configured.
+ * @returns Nothing.
+ * @throws Throws on DB failure.
+ * Maps to: REST POST /api/x402/policy (token-gated).
+ * Side effects: upserts the x402_policy config row.
+ * Security: writes the session key to the local DB in plaintext (bounded session key, not an owner key) — writes must stay token-gated.
+ */
 export function savePaymentPolicy(policy: X402Policy): void {
   runExecute(
     `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('x402_policy', ?, unixepoch())`,
@@ -147,6 +162,13 @@ export function savePaymentPolicy(policy: X402Policy): void {
   );
 }
 
+/**
+ * Sum today's recorded x402 payments (UTC day, atomic USDC units).
+ * The daily-limit ledger: checkPaymentPolicy and getPaymentStats both read through here.
+ * @returns The atomic-unit total for today; 0 when nothing was spent.
+ * @throws Throws on DB failure.
+ * Maps to: internal — checkPaymentPolicy (daily-limit check) and getPaymentStats.
+ */
 function getDailySpend(): number {
   const startOfDay = Math.floor(Date.now() / 86400000) * 86400;
   const row = runSingle<{ total: number }>(
@@ -157,6 +179,15 @@ function getDailySpend(): number {
   return row?.total || 0;
 }
 
+/**
+ * Record a completed x402 payment in the local ledger.
+ * Only call after the retry proves the payment was accepted — recording a failed payment would inflate daily spend.
+ * @param params — url, domain, amount (atomic units, string), payTo, txHash, userOpHash, scheme, network, walletAddress.
+ * @returns Nothing.
+ * @throws Throws on DB failure; callers swallow this (a missed ledger row must not fail the request).
+ * Maps to: internal — fetchWithPayment (post-acceptance bookkeeping).
+ * Side effects: inserts one row into x402_payments.
+ */
 function recordPayment(params: {
   url: string;
   domain: string;
@@ -186,6 +217,14 @@ function recordPayment(params: {
 
 // ── Payment Header Parsing ───────────────────────────────────────────────────
 
+/**
+ * Extract x402 payment requirements from a 402 response's PAYMENT header.
+ * Accepts base64-JSON ({ accepts } or a single requirement) and falls back to raw JSON; anything else is not a payable response.
+ * @param response — the 402 response; a missing PAYMENT header returns null immediately.
+ * @returns The requirement list, or null when the header is absent or unparseable.
+ * @throws Never throws — parse failures return null.
+ * Maps to: internal — fetchWithPayment (402 handling).
+ */
 function parse402Response(response: Response): X402PaymentRequirements[] | null {
   const paymentHeader = response.headers.get("PAYMENT") || response.headers.get("payment");
   if (!paymentHeader) return null;
@@ -209,6 +248,14 @@ function parse402Response(response: Response): X402PaymentRequirements[] | null 
   return null;
 }
 
+/**
+ * Pick the payment requirement to satisfy: exact scheme on our chain first, then any exact EVM requirement, then the first listed.
+ * Paying a requirement for the wrong chain would settle on a network the merchant never checks.
+ * @param requirements — the server's accepts list; [] returns null.
+ * @returns The chosen requirement, or null when the list is empty.
+ * @throws Never throws.
+ * Maps to: internal — fetchWithPayment (requirement selection).
+ */
 function selectBestRequirement(requirements: X402PaymentRequirements[]): X402PaymentRequirements | null {
   const config = loadConfig();
   const isTestnet = config.chainId === 84532;
@@ -231,6 +278,15 @@ function selectBestRequirement(requirements: X402PaymentRequirements[]): X402Pay
 
 // ── Policy Check ─────────────────────────────────────────────────────────────
 
+/**
+ * Decide whether a payment may proceed under the stored x402 policy.
+ * Checks, in order: per-request cap, daily cap, blocked/allowed domains, and that an agent wallet is configured.
+ * @param requirement — the requirement to pay; `url` — the resource URL (its hostname is checked against the domain lists).
+ * @returns { allowed, reason } — reason names the breached limit or the missing configuration.
+ * @throws Never throws — a malformed URL simply skips the domain checks.
+ * Maps to: internal — fetchWithPayment (pre-payment gate).
+ * Security: this is the spend gate for autonomous payments — the defaults are permissive, so tighten the policy explicitly for production.
+ */
 function checkPaymentPolicy(
   requirement: X402PaymentRequirements,
   url: string
@@ -273,6 +329,14 @@ function checkPaymentPolicy(
   return { allowed: true };
 }
 
+/**
+ * Format USDC atomic units as a dollar string (6 decimals, 2 shown).
+ * Display-only: never use the rounded string for on-chain amounts or limit math.
+ * @param atomicUnits — USDC atomic units (number; large values lose precision past 2^53).
+ * @returns The amount as "$X.XX".
+ * @throws Never throws.
+ * Maps to: internal — x402-client logging and stats (payment display).
+ */
 export function formatUsd(atomicUnits: number): string {
   return `$${(atomicUnits / 10 ** USDC_DECIMALS).toFixed(2)}`;
 }
@@ -280,16 +344,15 @@ export function formatUsd(atomicUnits: number): string {
 // ── ERC-4337 Payment Execution ───────────────────────────────────────────────
 
 /**
- * Execute a USDC payment through the agent's ERC-4337 smart contract wallet.
- *
- * Flow:
- *   1. Route through compiler gateway for risk assessment
- *   2. If approved: encode USDC.transfer(payTo, amount) calldata
- *   3. Wrap in AgentWallet.execute(usdcAddress, 0, transferCalldata)
- *   4. Build UserOperation with the encoded callData
- *   5. Session key signs the UserOp hash
- *   6. Submit via local bundler (handleOps)
- *   7. Return tx hash as proof of payment
+ * Pay a USDC x402 requirement through the agent's ERC-4337 wallet via the local bundler.
+ * Flow: compiler-gateway risk check, USDC.transfer wrapped in AgentWallet.execute, session-key-signed UserOp, bundler submission; the tx hash is the proof of payment.
+ * @param walletAddress — the AgentWallet to pay from; `payTo` — the merchant; `amount` — atomic USDC units (string).
+ * @param network — the eip155 network id, e.g. "eip155:84532"; unknown networks return a failure result.
+ * @returns { success, txHash, userOpHash, amount, currency } on success; { success: false, error } on any failure (never throws for payment failures).
+ * @throws Never throws for payment failures — all are returned; only unexpected internal errors propagate.
+ * Maps to: internal — fetchWithPayment (the payment executor).
+ * Side effects: broadcasts a UserOp (value transfer) when the risk gate approves.
+ * Security: the session key signs the UserOp; a missing key, an unallowlisted token, or a risk-gate denial all fail closed.
  */
 async function executePaymentViaBundler(
   walletAddress: string,
@@ -441,12 +504,14 @@ async function executePaymentViaBundler(
 // ── Core: Fetch with Payment ─────────────────────────────────────────────────
 
 /**
- * Wraps fetch to automatically handle HTTP 402 responses using ERC-4337 payments.
- * When the server responds with 402:
- *   1. Parse payment requirements
- *   2. Check policy (limits, domains)
- *   3. Execute USDC transfer via AgentWallet.execute() through the bundler
- *   4. Retry request with tx hash as proof of payment
+ * Fetch a URL, automatically paying any 402 it returns and retrying with the payment proof.
+ * The agent-side x402 flow: first attempt unpaid, parse requirements, policy-check, pay via the bundler, retry with PAYMENT-TX-HASH + standard x402 headers.
+ * @param url — the resource; `options` — fetch options passed through to both attempts.
+ * @param opts — autoPay (default true), maxRetries (default 1), walletAddress override, onPaymentRequest veto callback.
+ * @returns { response, payment? } — response is the final fetch result; payment is present only when a 402 was handled.
+ * @throws Throws only on network failure of the first fetch; payment failures are returned in `payment.error`.
+ * Maps to: internal — paidFetch / paidFetchJSON (convenience wrappers) and agent HTTP calls.
+ * Side effects: may broadcast a USDC payment (value transfer) and records it in the ledger on acceptance.
  */
 export async function fetchWithPayment(
   url: string,
@@ -567,11 +632,27 @@ export async function fetchWithPayment(
 
 // ── Convenience ──────────────────────────────────────────────────────────────
 
+/**
+ * Fetch a URL with automatic x402 payment, returning just the response.
+ * Convenience wrapper over fetchWithPayment for callers that do not need the payment detail.
+ * @param url — the resource; `options` — fetch options.
+ * @returns The final response (possibly still a 402 when payment failed — check response.status).
+ * @throws Throws only on network failure of the first fetch.
+ * Maps to: internal — fetchWithPayment (same flow, response only).
+ */
 export async function paidFetch(url: string, options?: RequestInit): Promise<Response> {
   const { response } = await fetchWithPayment(url, options);
   return response;
 }
 
+/**
+ * Fetch a URL with automatic x402 payment and parse the response as JSON.
+ * Convenience wrapper over paidFetch for JSON APIs; a non-OK final response throws with the status and body.
+ * @param url — the resource; `options` — fetch options.
+ * @returns The parsed JSON body as T.
+ * @throws Throws on a non-OK final response (HTTP status + body) or on JSON parse failure.
+ * Maps to: internal — paidFetch (JSON convenience wrapper).
+ */
 export async function paidFetchJSON<T = any>(url: string, options?: RequestInit): Promise<T> {
   const response = await paidFetch(url, options);
   if (!response.ok) {
@@ -583,6 +664,14 @@ export async function paidFetchJSON<T = any>(url: string, options?: RequestInit)
 
 // ── Payment History ──────────────────────────────────────────────────────────
 
+/**
+ * List recorded x402 payments, newest first.
+ * The audit trail for autonomous spending: every accepted payment lands here via recordPayment.
+ * @param limit — max rows (default 50); 0 returns [].
+ * @returns The payment rows (raw DB rows) in created_at descending order.
+ * @throws Throws on DB failure.
+ * Maps to: REST — x402 payment history endpoint (src/runtime/server.ts).
+ */
 export function getPaymentHistory(limit: number = 50): any[] {
   return runQuery(
     "SELECT * FROM x402_payments ORDER BY created_at DESC LIMIT ?",
@@ -590,6 +679,13 @@ export function getPaymentHistory(limit: number = 50): any[] {
   );
 }
 
+/**
+ * Summarise x402 spending: lifetime total, transaction count, today's spend, and top domains.
+ * Amounts are formatted dollars; counts are raw numbers; an empty ledger returns zeros, not an error.
+ * @returns { totalSpent, totalTransactions, dailySpend, topDomains[{ domain, total, count }] } (top 10 domains).
+ * @throws Throws on DB failure.
+ * Maps to: REST — x402 payment stats endpoint (src/runtime/server.ts).
+ */
 export function getPaymentStats(): {
   totalSpent: string;
   totalTransactions: number;
@@ -618,7 +714,13 @@ export function getPaymentStats(): {
 }
 
 /**
- * Get the agent wallet's USDC balance.
+ * Return an agent wallet's USDC balance as a formatted dollar string.
+ * A read-only balance check for display and pre-flight; it never moves funds.
+ * @param walletAddress — the wallet to check; `network` — the eip155 id (defaults to the configured chain).
+ * @returns The balance as "$X.XX"; "0" for unknown networks or any read failure.
+ * @throws Never throws — read failures return "0".
+ * Maps to: REST — wallet USDC balance endpoint (src/runtime/server.ts).
+ * Side effects: one balanceOf eth_call (network I/O).
  */
 export async function getUsdcBalance(walletAddress: string, network?: string): Promise<string> {
   const config = loadConfig();

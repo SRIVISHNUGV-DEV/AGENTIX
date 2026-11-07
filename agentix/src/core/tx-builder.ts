@@ -39,8 +39,11 @@ const GUARD_MAP: Record<string, string> = {
 };
 
 /**
- * Returns all known deployed contract addresses (proxies + EntryPoint).
- * Used to validate that outgoing transactions only target our contracts.
+ * List every address outgoing transactions may target (configured proxies + EntryPoint).
+ * The allowlist behind validateTargetAddress: anything not on it (and not a known wallet) is blocked.
+ * @returns Lowercased contract addresses from config; [] when nothing is configured (which blocks everything).
+ * @throws Never throws — loadConfig itself never throws (it falls back to defaults).
+ * Maps to: internal — validateTargetAddress (allowlist source).
  */
 export function getAllowedAddresses(): string[] {
   const config = loadConfig();
@@ -52,11 +55,13 @@ export function getAllowedAddresses(): string[] {
 }
 
 /**
- * Validates that a target address is one of our deployed contracts OR a known user wallet.
- * Returns { valid, error } — if invalid, the error explains which contract was expected.
- *
- * Wallet addresses (user-deployed via AgentWalletFactory) are allowed if they exist in the local DB.
- * All other addresses must match a deployed proxy address.
+ * Decide whether a transaction may target an address: a known proxy, or a wallet in the local DB.
+ * The send-side allowlist: unknown addresses are blocked with the full allowed list in the error, so misconfiguration is diagnosable.
+ * @param target — the address to check; compared lowercased.
+ * @returns { valid: true } for proxies and registered wallets; otherwise { valid: false, error } naming the block.
+ * @throws Never throws — DB failures fall through to "blocked" instead of crashing the check.
+ * Maps to: internal — prepareContractCall / prepareWalletCall / callContractRead (pre-send gate).
+ * Security: this is the send-side allowlist — a bypass here means funds can be sent to arbitrary contracts.
  */
 export function validateTargetAddress(target: string): { valid: boolean; error?: string } {
   const lower = target.toLowerCase();
@@ -80,6 +85,16 @@ export function validateTargetAddress(target: string): { valid: boolean; error?:
   };
 }
 
+/**
+ * Build an unsigned transaction to a named contract function (calldata + target + chain).
+ * Resolves the proxy via ProxyGuard and picks the overload matching the arg count; nothing is signed or sent here.
+ * @param contractName — the ABI/config key, e.g. "SessionManager"; unknown names throw from the ABI lookup.
+ * @param args — positional ABI args; a count matching no overload still encodes against the first fragment (and may throw).
+ * @param overrides — optional { value } in hex; defaults to 0x0.
+ * @returns A PreparedTx with a fixed 0x4C4B40 (5,000,000) gas limit.
+ * @throws Throws when the contract is unknown, the address cannot be resolved, or ABI encoding fails.
+ * Maps to: contract — <contractName>.<functionName> (prepared, unsigned).
+ */
 export function prepareContractCall(
   contractName: string,
   functionName: string,
@@ -118,6 +133,17 @@ export function prepareContractCall(
   };
 }
 
+/**
+ * Build an unsigned transaction against one user's AgentWallet instance.
+ * The wallet address itself is the target, so it must pass the ProxyGuard check first; an unregistered wallet only warns, it is not blocked.
+ * @param walletAddress — the AgentWallet instance; an implementation address is rejected by the guard.
+ * @param functionName — the AgentWallet function, e.g. "execute"; unknown functions throw from ABI encoding.
+ * @param overrides — optional { value } in hex; defaults to 0x0.
+ * @returns A PreparedTx to the wallet with a fixed 0x4C4B40 (5,000,000) gas limit.
+ * @throws Throws when the guard rejects the wallet or ABI encoding fails.
+ * Maps to: contract AgentWallet.<functionName> (prepared, unsigned).
+ * Security: the wallet check is advisory for unknown wallets (warn-only) — the guard rejection is the hard block.
+ */
 export function prepareWalletCall(
   walletAddress: string,
   functionName: string,
@@ -147,6 +173,15 @@ export function prepareWalletCall(
   };
 }
 
+/**
+ * Decode the logs of a transaction receipt into named events using a contract ABI.
+ * Logs that do not match the ABI are skipped silently — a receipt may mix contracts, so that is expected.
+ * @param receipt — the mined receipt; only its logs are read.
+ * @param contractName — the ABI key, used unless an explicit `abi` is passed.
+ * @returns The decoded events in log order; [] when nothing matches.
+ * @throws Throws when the ABI cannot be loaded for the contract.
+ * Maps to: internal — wallet creation / transaction confirmation flows (receipt decoding).
+ */
 export function parseEventsFromReceipt(
   receipt: TxReceipt,
   contractName: string,
@@ -177,6 +212,14 @@ export function parseEventsFromReceipt(
   return events;
 }
 
+/**
+ * Pull the new wallet address out of a factory receipt's logs.
+ * Prefers the WalletCreated topic (indexed wallet is topics[1]); falls back to any log from the factory with 2+ topics.
+ * @param logs — receipt logs; `factoryAddress` — the AgentWalletFactory address for the fallback match.
+ * @returns The wallet address, or null when no log carries it.
+ * @throws Never throws — malformed logs simply do not match.
+ * Maps to: event WalletCreated (AgentWalletFactory).
+ */
 export function extractWalletAddressFromLogs(
   logs: any[],
   factoryAddress: string
@@ -203,6 +246,17 @@ export function extractWalletAddressFromLogs(
   return null;
 }
 
+/**
+ * Record a newly created wallet (and its creation transaction) in the local DB and emit the event.
+ * One harness id may own only one wallet: re-recording a different wallet for the same harness throws.
+ * @param walletAddress — the new AgentWallet; `ownerAddress` — its owner.
+ * @param txHash — the creation transaction hash ("" when unknown).
+ * @param harnessId — optional harness binding; `actualToAddress` — overrides the recorded to-address (defaults to the factory).
+ * @returns Nothing.
+ * @throws Throws when the harness already has a different wallet; transaction/event writes failing are logged, not thrown.
+ * Maps to: event WalletCreated (emitted on the bus and persisted to the events table).
+ * Side effects: upserts wallets, inserts a transactions row and an events row, emits on the event bus.
+ */
 export function recordWalletInDB(
   walletAddress: string,
   ownerAddress: string,
@@ -267,10 +321,24 @@ export function recordWalletInDB(
   logger.info("tx-builder", `Recorded wallet: ${walletAddress} (owner: ${ownerAddress})`);
 }
 
+/**
+ * Return the current runtime config (thin alias over loadConfig).
+ * Kept so callers in this module read config through one local name.
+ * @returns The merged config (saved values over defaults).
+ * @throws Never throws — a missing/corrupt file returns defaults.
+ * Maps to: internal — loadConfig (alias).
+ */
 export function getConfig() {
   return loadConfig();
 }
 
+/**
+ * Return the AgentWalletFactory proxy address from config.
+ * The factory is the only legitimate creator of wallets, so its address is needed wherever creation is recorded.
+ * @returns The factory proxy address.
+ * @throws Throws when no proxy address is configured for AgentWalletFactory.
+ * Maps to: internal — recordWalletInDB (default to-address for the creation transaction).
+ */
 export function getFactoryAddress(): string {
   return getProxyGuard().getProxyAddress("AgentWalletFactory");
 }

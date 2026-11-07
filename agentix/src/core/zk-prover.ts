@@ -21,6 +21,14 @@ import { logger } from "./logger";
 
 // snarkjs ships as ESM/CJS; dynamic import keeps us robust to both
 let _snarkjs: any = null;
+/**
+ * Lazily load snarkjs (ESM/CJS-safe dynamic import) and cache it for the process.
+ * The proving library is big and only needed for proof work, so it is never loaded at module import time.
+ * @returns The snarkjs module (same cached object on repeat calls).
+ * @throws Throws when snarkjs cannot be imported (missing dependency).
+ * Maps to: internal — prove / verifyLocally / formatCalldata (all Groth16 operations).
+ * Side effects: caches the module in module memory on first call.
+ */
 async function snarkjs(): Promise<any> {
   if (!_snarkjs) {
     // @ts-ignore - snarkjs has no bundled type declarations
@@ -39,6 +47,14 @@ async function snarkjs(): Promise<any> {
 // the final zkey. Resolution order: env override → walk-up → packaged fallback.
 const MANIFEST_REL = "artifacts.manifest.json";
 
+/**
+ * Check whether a directory holds circuit artifacts (manifest present, or the final zkey).
+ * The directory-recognition test behind artifact resolution: a folder is a circuits dir iff it can prove.
+ * @param dir — the candidate directory; non-existent paths return false.
+ * @returns True when the manifest or the final zkey exists inside.
+ * @throws Never throws.
+ * Maps to: internal — findCircuitsDir (candidate testing).
+ */
 function isCircuitsDir(dir: string): boolean {
   return (
     existsSync(join(dir, MANIFEST_REL)) ||
@@ -47,10 +63,12 @@ function isCircuitsDir(dir: string): boolean {
 }
 
 /**
- * Locate the `circuits/` directory that holds the prover artifacts.
- * Honors AGENTIX_CIRCUITS_DIR, then walks up from __dirname looking for a
- * `circuits/` subdir, then checks a few packaged fallbacks. Returns the
- * resolved circuits dir (may not exist — callers validate via verifyArtifacts).
+ * Locate the circuits/ directory holding the prover artifacts.
+ * Resolution order: AGENTIX_CIRCUITS_DIR, walk-up from __dirname, then packaged fallbacks; a wrong env dir warns and falls through.
+ * @returns The resolved circuits dir — which may not exist; callers must validate via verifyArtifacts.
+ * @throws Never throws — the last resort is a conventional path, not an error.
+ * Maps to: internal — module artifact paths (ZKEY_PATH / WASM_PATH / VK_PATH / MANIFEST_PATH).
+ * Side effects: logs a warning when an explicit AGENTIX_CIRCUITS_DIR contains no artifacts.
  */
 function findCircuitsDir(): string {
   // 1. Explicit override — highest priority, for standalone/CI deployments.
@@ -103,7 +121,14 @@ const REPO_ROOT = resolve(CIRCUITS_DIR, "..");
 const FIELD_PRIME =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
-/** Reduce a value into the BN254 scalar field and return as decimal string. */
+/**
+ * Reduce a value into the BN254 scalar field and return it as a decimal string.
+ * snarkjs/ffjavascript require field elements as decimal strings; negative inputs wrap into range.
+ * @param v — bigint, decimal string, or number; hex strings and non-numeric input throw from BigInt().
+ * @returns The field element as a decimal string in [0, FIELD_PRIME).
+ * @throws Throws when the input cannot be parsed as a bigint.
+ * Maps to: internal — buildWitnessInput (every witness value is reduced through this).
+ */
 export function fe(v: bigint | string | number): string {
   const b = typeof v === "bigint" ? v : BigInt(v);
   return ((((b % FIELD_PRIME) + FIELD_PRIME) % FIELD_PRIME)).toString();
@@ -165,6 +190,14 @@ export interface ProveOptions {
 
 // ─── Poseidon helper (for computing commitment / nullifier off-circuit) ───────
 let _poseidon: any = null;
+/**
+ * Lazily build the circomlibjs Poseidon hasher and cache it for the process.
+ * Poseidon is needed for off-circuit commitment/nullifier computation; building it is expensive, so it happens once.
+ * @returns The Poseidon instance (with its field object F).
+ * @throws Throws when circomlibjs cannot be imported or the hasher cannot be built.
+ * Maps to: internal — computeCommitment / computeNullifier / computeRevocationKey.
+ * Side effects: caches the hasher in module memory on first call.
+ */
 async function getPoseidon() {
   if (!_poseidon) {
     const circomlibjs = await import("circomlibjs");
@@ -174,9 +207,12 @@ async function getPoseidon() {
 }
 
 /**
- * Compute the credential commitment exactly as the circuit does:
- *   Poseidon7(agentId, orgId, budgetLimit, wallet, expiry, credentialVersion, secret)
- * Input ORDER must match the circuit's commitmentHash (credential_V1.circom:136-143).
+ * Compute the credential commitment exactly as the circuit does: Poseidon7(agentId, orgId, budgetLimit, wallet, expiry, credentialVersion, secret).
+ * Input ORDER must match the circuit's commitmentHash — reordering silently produces a commitment the circuit will never accept.
+ * @param params — the seven inputs; credentialVersion defaults to 1n when omitted.
+ * @returns The commitment as a bigint.
+ * @throws Throws when Poseidon cannot be built.
+ * Maps to: contract CredentialRegistry — credential commitment (Merkle leaf; see src/tools/credential.ts).
  */
 export async function computeCommitment(params: {
   agentId: bigint;
@@ -205,8 +241,12 @@ export async function computeCommitment(params: {
 }
 
 /**
- * Compute the nullifier exactly as the circuit does:
- *   Poseidon3(orgId, secret, sessionNonce)
+ * Compute the nullifier exactly as the circuit does: Poseidon3(orgId, secret, sessionNonce).
+ * The nullifier is the circuit's public output and the double-spend marker: the same credential + nonce always yields the same nullifier.
+ * @param orgId — the organization; `secret` — the credential secret; `sessionNonce` — the per-session nonce.
+ * @returns The nullifier as a bigint.
+ * @throws Throws when Poseidon cannot be built.
+ * Maps to: contract CredentialRegistry — nullifier (checked by MCP tool agentix_cred_verify).
  */
 export async function computeNullifier(orgId: bigint, secret: bigint, sessionNonce: bigint): Promise<bigint> {
   const poseidon = await getPoseidon();
@@ -221,9 +261,12 @@ export async function computeNullifier(orgId: bigint, secret: bigint, sessionNon
 }
 
 /**
- * Compute the revocation key as the circuit does:
- *   secretHash = Poseidon2(secret, 0); revocationKey = secretHash mod 2^64
- * (circuit: secretHashComp then TruncateToNBits(64))
+ * Compute the revocation key as the circuit does: Poseidon2(secret, 0), truncated to 64 bits.
+ * The key indexes the revocation SMT: a credential is revoked when its key is present in the revoked tree.
+ * @param secret — the credential secret.
+ * @returns secretHash mod 2^64 as a bigint.
+ * @throws Throws when Poseidon cannot be built.
+ * Maps to: contract CredentialRegistry — revocation SMT key (see src/tools/credential.ts).
  */
 export async function computeRevocationKey(secret: bigint): Promise<bigint> {
   const poseidon = await getPoseidon();
@@ -236,12 +279,23 @@ export async function computeRevocationKey(secret: bigint): Promise<bigint> {
 
 // ─── Witness input assembly ───────────────────────────────────────────────────
 /**
- * Build the exact JSON object the circom witness calculator expects.
- * Every value is a decimal string (snarkjs/ffjavascript convention).
- * Arrays are length `depth` (20).
+ * Build the exact JSON object the circom witness calculator expects from a typed witness.
+ * Every value is a decimal string and the three proof arrays must be exactly depth 20; bounds the circuit enforces are pre-checked here for a clear error instead of a wasm crash.
+ * @param w — the full witness; credentialVersion must be 1, arrays length 20, values within their bit bounds.
+ * @returns The witness input record for snarkjs fullProve.
+ * @throws Throws on a wrong-length array, a negative value, or a value over its bit bound.
+ * Maps to: internal — prove (witness assembly before fullProve).
  */
 export function buildWitnessInput(w: CredentialWitness): Record<string, any> {
   const depth = 20;
+  /**
+   * Assert one witness array has exactly the circuit depth (20).
+   * A wrong-length proof path would otherwise fail deep inside wasm with an opaque error.
+   * @param arr — the array to check; `name` — used in the error message.
+   * @returns Nothing on success.
+   * @throws Throws `<name> must have length 20, got <n>` on mismatch.
+   * Maps to: internal — buildWitnessInput (validates activePathElements / activePathIndices / revokedSiblings).
+   */
   const assertLen = (arr: bigint[], name: string) => {
     if (arr.length !== depth) {
       throw new Error(`${name} must have length ${depth}, got ${arr.length}`);
@@ -294,7 +348,13 @@ export function buildWitnessInput(w: CredentialWitness): Record<string, any> {
 
 // ─── Core operations ──────────────────────────────────────────────────────────
 
-/** Verify the prover artifacts exist on disk. Returns descriptive errors. */
+/**
+ * Check that the three prover artifacts (zkey, wasm, verification key) exist on disk.
+ * Existence-only preflight: for hash verification use verifyIntegrity instead.
+ * @returns { ok, missing } — ok is true only when all three exist; missing lists "key: full-path" entries.
+ * @throws Never throws — missing files are reported, not raised.
+ * Maps to: internal — prove (existence fallback) and REST diagnostics (artifact status).
+ */
 export function verifyArtifacts(): { ok: boolean; missing: string[] } {
   const missing: string[] = [];
   if (!existsSync(ZKEY_PATH)) missing.push(`zkey: ${ZKEY_PATH}`);
@@ -330,13 +390,27 @@ export interface IntegrityResult {
   errors: string[];
 }
 
+/**
+ * Hash a file's full contents with SHA-256 and return the hex digest.
+ * The integrity primitive: a single changed byte in a zkey must change the digest.
+ * @param path — the file to hash; a missing file throws from readFileSync (callers check existence first).
+ * @returns The lowercase hex digest.
+ * @throws Throws on unreadable/missing files.
+ * Maps to: internal — verifyIntegrity (artifact hash check).
+ */
 function sha256File(path: string): string {
   const h = createHash("sha256");
   h.update(readFileSync(path));
   return h.digest("hex");
 }
 
-/** Load the artifact manifest if present. Returns null when absent/unparseable. */
+/**
+ * Load the artifact manifest (expected hashes/sizes) when present.
+ * Without a manifest, integrity checks degrade to existence-only — the manifest is what makes them hash-verified.
+ * @returns The parsed manifest, or null when absent or unparseable (a warning is logged on parse failure).
+ * @throws Never throws — parse failures return null.
+ * Maps to: internal — verifyIntegrity (manifest source) and REST diagnostics.
+ */
 export function loadManifest(): ArtifactManifest | null {
   if (!existsSync(MANIFEST_PATH)) return null;
   try {
@@ -348,13 +422,12 @@ export function loadManifest(): ArtifactManifest | null {
 }
 
 /**
- * Hash-verified preflight: confirm each artifact exists AND its sha256 + byte
- * length match the manifest. This is the guard that catches a corrupted,
- * truncated, or swapped zkey/wasm/vk BEFORE it silently produces a bogus proof.
- *
- * If no manifest is found, degrades to existence-only checks (manifestUsed=false)
- * so a monorepo without a manifest still functions — but a shipped package always
- * carries the manifest and gets full integrity enforcement.
+ * Hash-verify every artifact against the manifest (size first, then SHA-256).
+ * The guard that catches a corrupted, truncated, or swapped zkey/wasm/vk BEFORE it silently produces a bogus proof.
+ * @returns { ok, checks, manifestUsed, errors } — manifestUsed is false when no manifest exists (existence-only fallback).
+ * @throws Never throws — every failure is a checks entry / error string.
+ * Maps to: internal — prove (preflight gate) and REST diagnostics.
+ * Security: a hash mismatch means the proving key is untrusted — prove() refuses to run on it.
  */
 export function verifyIntegrity(): IntegrityResult {
   const manifest = loadManifest();
@@ -427,8 +500,14 @@ export function verifyIntegrity(): IntegrityResult {
 }
 
 /**
- * Generate a real Groth16 proof from a witness.
- * Throws on witness-generation or proving failure.
+ * Generate a real Groth16 proof for a credential witness (integrity preflight, then snarkjs fullProve, then local verification).
+ * The core proving entry point: refuse to prove against unverified artifacts, and refuse to return a proof that does not verify locally.
+ * @param witness — the full credential witness (see buildWitnessInput for bounds).
+ * @param opts — skipLocalVerify / skipIntegrityCheck; both default to false and should stay false outside tests.
+ * @returns { proof, publicSignals } — publicSignals has exactly 7 entries or the call throws.
+ * @throws Throws on integrity failure, missing artifacts, witness/proving failure, a wrong public-signal count, or a failed local verification.
+ * Maps to: contract Groth16Verifier.verifyProof (via formatCalldata) and src/tools/proof.ts.
+ * Side effects: reads the zkey/wasm/vk from disk; logs proving time.
  */
 export async function prove(
   witness: CredentialWitness,
@@ -493,7 +572,14 @@ export async function prove(
   return { proof, publicSignals };
 }
 
-/** Verify a Groth16 proof off-chain against the trusted verification key. */
+/**
+ * Verify a Groth16 proof off-chain against the trusted verification key.
+ * The safety net inside prove(): a proof that fails here is never handed to the chain.
+ * @param p — the proof + public signals; the VK must exist on disk.
+ * @returns True when snarkjs verification passes; false when it fails (not an exception).
+ * @throws Throws when the verification key is missing.
+ * Maps to: internal — prove (post-prove check) and src/tools/proof.ts (proof verification).
+ */
 export async function verifyLocally(p: Groth16Proof): Promise<boolean> {
   const art = verifyArtifacts();
   if (!art.ok) throw new Error(`VK missing: ${art.missing.join(", ")}`);
@@ -503,9 +589,12 @@ export async function verifyLocally(p: Groth16Proof): Promise<boolean> {
 }
 
 /**
- * Convert a Groth16 proof into the calldata shape the on-chain verifier expects:
- *   verifyProof(uint[2] a, uint[2][2] b, uint[2] c, uint[7] pubSignals)
- * Uses snarkjs.exportSolidityCallData then parses it into clean arrays.
+ * Convert a Groth16 proof into the calldata shape the on-chain verifier expects.
+ * Parses snarkjs exportSolidityCallData output into clean a/b/c arrays plus the 7 public signals.
+ * @param p — the proof + public signals.
+ * @returns { a, b, c, publicSignals } for verifyProof(uint[2], uint[2][2], uint[2], uint[7]).
+ * @throws Throws when the export yields fewer than 15 tokens (wrong proof shape).
+ * Maps to: contract Groth16Verifier.verifyProof (on-chain verification calldata).
  */
 export async function formatCalldata(p: Groth16Proof): Promise<SolidityCalldata> {
   const sn = await snarkjs();

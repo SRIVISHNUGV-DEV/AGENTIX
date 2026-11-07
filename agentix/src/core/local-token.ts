@@ -33,7 +33,16 @@ const TOKEN_PATH = join(AGENTIX_HOME, ".local-token");
 
 let _currentToken: string | null = null;
 
-/** Generate a fresh per-run token, hold it in memory, and persist it 0600. */
+/**
+ * Mint a fresh per-run localhost token and hold it in memory.
+ * Called once at server startup: the token is the loopback auth boundary, so a new
+ * run must never reuse a previous run's token.
+ * @returns The 64-hex-char token; also persisted 0600 to the token file for local discovery.
+ * @throws Never throws — file persistence failures are swallowed; the in-memory token still gates.
+ * Maps to: REST — X-Agentix-Token issuance at server startup (src/runtime/server.ts).
+ * Side effects: overwrites the in-memory token and the token file on disk.
+ * Security: 32 random bytes; file is 0600. Anyone who can read it can drive the API.
+ */
 export function ensureLocalToken(): string {
   const token = randomBytes(32).toString("hex");
   _currentToken = token;
@@ -52,7 +61,14 @@ export function ensureLocalToken(): string {
   return token;
 }
 
-/** Read the current run's token from disk (for local clients / tests). */
+/**
+ * Read the current run's token from disk, for local clients and tests.
+ * Use this only when this process did not generate the token (e.g. dashboard/CLI discovery).
+ * @returns The token string, or null when the file is missing, empty, or unreadable.
+ * @throws Never throws — all I/O failures return null.
+ * Maps to: internal — local clients discovering the run token (see ensureLocalToken).
+ * Security: returns a live credential; callers must not log or expose it.
+ */
 export function readLocalToken(): string | null {
   try {
     if (!existsSync(TOKEN_PATH)) return null;
@@ -64,8 +80,13 @@ export function readLocalToken(): string | null {
 }
 
 /**
- * Timing-safe token check. Compares against the in-memory run token when
- * this process generated one, else falls back to the token file.
+ * Timing-safe check of a presented loopback token against the run token.
+ * Call on every state-changing REST route (and sensitive GETs) before doing anything else.
+ * @param candidate — the presented value; anything non-string or empty fails closed.
+ * @returns True only on an exact match; false when no token exists for this run.
+ * @throws Never throws — comparison errors return false.
+ * Maps to: REST — token gate in src/runtime/server.ts (X-Agentix-Token header).
+ * Security: constant-time compare; falls back to the token file when this process did not mint the token.
  */
 export function verifyLocalToken(candidate: unknown): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
@@ -81,6 +102,13 @@ export function verifyLocalToken(candidate: unknown): boolean {
   }
 }
 
+/**
+ * Return the absolute path of the per-run token file.
+ * Only for diagnostics and tests that need to locate (not read) the file.
+ * @returns The token path under AGENTIX_HOME; the file may not exist yet.
+ * @throws Never throws.
+ * Maps to: internal — ensureLocalToken / readLocalToken (token file location).
+ */
 export function getLocalTokenPath(): string {
   return TOKEN_PATH;
 }

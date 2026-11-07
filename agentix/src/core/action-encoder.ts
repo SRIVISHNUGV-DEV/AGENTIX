@@ -50,7 +50,23 @@ type ArgBuilder = (p: Record<string, any>) => {
 // Integer strings are wei; decimal strings are ETH (see parseValueToWei in
 // core/owner-policy for the units rule); anything else throws, and the
 // gateway reports an encoding error instead of sending.
+/**
+ * Convert a caller-supplied value to wei, failing closed on garbage (alias for parseValueToWei).
+ * Integer strings are wei, decimal strings are ETH; anything unparseable throws instead of silently becoming 0.
+ * @param v — bigint, integer-wei string, or decimal-ETH string; null/undefined become 0n.
+ * @returns The value in wei.
+ * @throws Throws on unparseable input (never coerces to 0 — a zero-value transaction must be explicit).
+ * Maps to: internal — owner-policy parseValueToWei (units rule lives there).
+ */
 const toWei = (v: unknown): bigint => parseValueToWei(v);
+/**
+ * Fetch a required action param, failing fast when it is missing.
+ * Every ACTIONS builder uses this so a malformed intent errors at encode time, never as a half-built transaction.
+ * @param p — the action params; `k` — the required key.
+ * @returns The param value (undefined/null/"" all throw).
+ * @throws Throws `Missing required param "k"` when the value is undefined, null, or "".
+ * Maps to: internal — ACTIONS builders (every entry's required args).
+ */
 const req = (p: Record<string, any>, k: string): any => {
   const v = p[k];
   if (v === undefined || v === null || v === "") throw new Error(`Missing required param "${k}"`);
@@ -235,7 +251,14 @@ const ACTIONS: Record<string, ArgBuilder> = {
   }),
 };
 
-/** Is this action executable on-chain through the encoder? */
+/**
+ * Check whether an action name has an encoder entry in the ACTIONS registry.
+ * The admissibility test the gateway runs before attempting to encode: unknown actions are never sent blind.
+ * @param action — the gateway action name, e.g. "wallet_execute".
+ * @returns True when the action is registered; false otherwise.
+ * @throws Never throws.
+ * Maps to: internal — encodeAction (guards the same registry).
+ */
 export function isEncodableAction(action: string): boolean {
   return action in ACTIONS;
 }
@@ -245,8 +268,12 @@ const _deployed = new Map<string, boolean>();
 
 /**
  * Assert the target address has contract bytecode on the connected chain.
- * Prevents sending a transaction to an address that isn't actually deployed
- * (e.g. a stale/wrong-network config). Cached after first success.
+ * Prevents sending to a stale or wrong-network address; successes are cached per address per process.
+ * @param address — the target; compared lowercased for the cache key.
+ * @returns Nothing on success (including cached successes, which skip the RPC call).
+ * @throws Throws when the address has no code on this chain; an RPC failure is treated as "no code" and also throws.
+ * Maps to: internal — encodeAndValidate (the send-intent path that must check deployment).
+ * Side effects: one eth_getCode RPC call per uncached address; caches successes.
  */
 export async function assertDeployed(address: string): Promise<void> {
   const key = address.toLowerCase();
@@ -261,15 +288,27 @@ export async function assertDeployed(address: string): Promise<void> {
   _deployed.set(key, true);
 }
 
-/** For tests: clear the deployment cache. */
+/**
+ * Clear the deployment cache (test hook).
+ * Tests that switch chains or redeploy must call this or assertDeployed will trust a stale "deployed" entry.
+ * @returns Nothing.
+ * @throws Never throws.
+ * Maps to: internal — tests (counterpart of assertDeployed's cache).
+ * Side effects: clears the module-level _deployed cache.
+ */
 export function __resetDeploymentCache(): void {
   _deployed.clear();
 }
 
 /**
- * Encode an action+params into an address-validated, ABI-encoded transaction.
- * Does NOT check on-chain deployment (call assertDeployed separately when you
- * actually intend to send — keeps this function pure/synchronous for planning).
+ * Encode an action + params into an address-validated, ABI-encoded transaction (no signing, no sending).
+ * Deliberately synchronous and deployment-unchecked so planning can use it; call encodeAndValidate (or assertDeployed) before sending.
+ * @param action — a registered action name; unknown names throw.
+ * @param params — the action's params; missing required params throw from the builder.
+ * @returns An EncodedAction { to, data, value, contractName, functionName, chainId }.
+ * @throws Throws on unknown actions, missing params, unparseable values, or a ProxyGuard rejection (implementation / wrong proxy).
+ * Maps to: contract — the ACTIONS registry entry's contract function (e.g. AgentWallet.execute).
+ * Security: the target always resolves through ProxyGuard — never an implementation address.
  */
 export function encodeAction(action: string, params: Record<string, any>): EncodedAction {
   const builder = ACTIONS[action];
@@ -307,7 +346,13 @@ export function encodeAction(action: string, params: Record<string, any>): Encod
 }
 
 /**
- * Encode + assert deployed, returning a ready-to-sign transaction request.
+ * Encode an action and assert its target is deployed, returning a ready-to-sign transaction.
+ * The send-intent entry point: encodeAction plus the on-chain deployment check, in one call.
+ * @param action — a registered action name; `params` — the action's params.
+ * @returns The validated EncodedAction.
+ * @throws Throws on any encodeAction failure or when the target has no bytecode on the connected chain.
+ * Maps to: contract — the ACTIONS registry entry's contract function (validated send intent).
+ * Side effects: one eth_getCode RPC call per uncached target; logs the encoding.
  */
 export async function encodeAndValidate(
   action: string,

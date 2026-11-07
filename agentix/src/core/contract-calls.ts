@@ -56,6 +56,15 @@ interface FunctionFragment {
 
 const _interfaceCache = new Map<string, ethers.Interface>();
 
+/**
+ * Return the cached ethers Interface for a contract's ABI, building it on first use.
+ * ABI parsing is the hot path for every call, so the cache exists to avoid re-parsing per request.
+ * @param contractName — the ABI key, e.g. "SessionManager"; unknown names throw from the ABI lookup.
+ * @returns The Interface (same object on repeat calls).
+ * @throws Throws when no ABI is known for the contract.
+ * Maps to: internal — extractFunctions / extractEvents / callContractRead / prepareContractWrite (all ABI work).
+ * Side effects: caches the Interface in module memory.
+ */
 function getInterface(contractName: string): ethers.Interface {
   if (_interfaceCache.has(contractName)) return _interfaceCache.get(contractName)!;
   const abi = getAbiByName(contractName);
@@ -65,8 +74,12 @@ function getInterface(contractName: string): ethers.Interface {
 }
 
 /**
- * Extract all function signatures from a contract's ABI.
- * Returns an array of { name, inputs, outputs, stateMutability }.
+ * List every function signature in a contract's ABI.
+ * The introspection primitive behind the contract registry and any tooling that must know what a contract can do.
+ * @param contractName — the ABI key; unknown names throw from the ABI lookup.
+ * @returns One entry per function { name, inputs, outputs, stateMutability }, including overloads.
+ * @throws Throws when no ABI is known for the contract.
+ * Maps to: internal — getContractRegistry (dashboard Developer page).
  */
 export function extractFunctions(contractName: string): FunctionFragment[] {
   const iface = getInterface(contractName);
@@ -81,7 +94,12 @@ export function extractFunctions(contractName: string): FunctionFragment[] {
 }
 
 /**
- * Extract all event signatures from a contract's ABI.
+ * List every event signature in a contract's ABI.
+ * The introspection primitive behind the contract registry and event decoding.
+ * @param contractName — the ABI key; unknown names throw from the ABI lookup.
+ * @returns One entry per event { name, inputs[{ name, type, indexed }] }.
+ * @throws Throws when no ABI is known for the contract.
+ * Maps to: internal — getContractRegistry (dashboard Developer page).
  */
 export function extractEvents(contractName: string): { name: string; inputs: { name: string; type: string; indexed: boolean | null }[] }[] {
   const iface = getInterface(contractName);
@@ -94,7 +112,12 @@ export function extractEvents(contractName: string): { name: string; inputs: { n
 }
 
 /**
- * Get the function selector (4-byte) for a contract function.
+ * Return the 4-byte selector for one contract function.
+ * Selectors identify functions in raw calldata (token-move decoding, log matching) without the full ABI.
+ * @param contractName — the ABI key; `functionName` — must exist (overloads resolve to the first fragment).
+ * @returns The selector hex string, e.g. "0xa9059cbb".
+ * @throws Throws when the contract or the function is unknown.
+ * Maps to: internal — getContractRegistry (selector column) and calldata decoding.
  */
 export function getFunctionSelector(contractName: string, functionName: string): string {
   const iface = getInterface(contractName);
@@ -104,7 +127,12 @@ export function getFunctionSelector(contractName: string, functionName: string):
 }
 
 /**
- * Validate that a function exists on a contract and the arg count matches.
+ * Check that a function exists on a contract and the arg count matches (overload-aware).
+ * The pre-flight every read/write path runs so an ABI mismatch fails with a message, not an encoding exception.
+ * @param args — positional args; the count must match some overload of the function.
+ * @returns { valid: true } on a match; otherwise { valid: false, error } naming the mismatch.
+ * @throws Never throws — ABI/lookup failures are returned as { valid: false, error }.
+ * Maps to: internal — callContractRead / prepareContractWrite / prepareWalletWrite (pre-flight).
  */
 export function validateFunctionCall(contractName: string, functionName: string, args: any[]): { valid: boolean; error?: string } {
   try {
@@ -137,8 +165,12 @@ export function validateFunctionCall(contractName: string, functionName: string,
 // ─── Contract Address Resolution ─────────────────────────────────────────────
 
 /**
- * Get the deployed proxy address for a contract name.
- * Always goes through ProxyGuard — never returns implementation addresses.
+ * Resolve a contract name to its deployed address (proxy, or the fixed address for EntryPoint/verifier).
+ * AgentWallet has no single address and throws — use prepareWalletWrite with a per-wallet address instead.
+ * @param contractName — "AgentWallet" throws; "EntryPoint"/"IEntryPoint" return the singleton; "Groth16Verifier" returns the standalone address.
+ * @returns The deployed address.
+ * @throws Throws for AgentWallet and for unconfigured contract names.
+ * Maps to: internal — callContractRead / prepareContractWrite (target resolution).
  */
 export function getContractAddress(contractName: string): string {
   const guard = getProxyGuard();
@@ -163,7 +195,11 @@ export function getContractAddress(contractName: string): string {
 }
 
 /**
- * Get all deployed and validated contract addresses.
+ * Return every deployed and validated contract address.
+ * The one-call address dump for health checks and dashboards; it is just the ProxyGuard proxy list.
+ * @returns A map of contract key to proxy address (empty when nothing is configured).
+ * @throws Never throws.
+ * Maps to: MCP tool agentix_contracts (list all proxy contract addresses).
  */
 export function getAllContractAddresses(): Record<string, string> {
   const guard = getProxyGuard();
@@ -173,8 +209,14 @@ export function getAllContractAddresses(): Record<string, string> {
 // ─── Read Operations (view/pure) ─────────────────────────────────────────────
 
 /**
- * Call a read-only contract function.
- * Uses the provider (no signer needed).
+ * Execute a read-only contract call and decode its return value.
+ * View/pure functions only in practice: it uses provider.call, so no signer, gas, or transaction is involved.
+ * @param contractName — the ABI key; `functionName` — must exist with a matching arg count.
+ * @param args — positional ABI args; `overrideAddress` — bypasses config resolution (AgentWallet reads use this).
+ * @returns { value, raw } — value is unwrapped for single-return functions, the full Result otherwise.
+ * @throws Throws on validation failure, a rejected target address, an RPC failure, or a decode failure.
+ * Maps to: contract — <contractName>.<functionName> (read-only eth_call).
+ * Side effects: one eth_call RPC request.
  */
 export async function callContractRead<T = any>(
   contractName: string,
@@ -210,8 +252,14 @@ export async function callContractRead<T = any>(
 // ─── Write Operations (requires signer) ──────────────────────────────────────
 
 /**
- * Prepare a contract write call (returns calldata for the browser to sign).
- * Does NOT send a transaction — returns the encoded calldata + target address.
+ * Build an unsigned transaction for a contract write (calldata + target + chain) — nothing is sent.
+ * The browser-signing path: the dashboard signs the returned calldata with the owner's key.
+ * @param contractName — the ABI key; `functionName` — must exist with a matching arg count.
+ * @param args — positional ABI args (frozen into the result); `overrides.value` — hex value, default 0x0.
+ * @returns A PreparedContractCall with the target proxy address and the args frozen.
+ * @throws Throws on validation failure, a rejected target address, or ABI encoding failure.
+ * Maps to: contract — <contractName>.<functionName> (prepared, unsigned).
+ * Security: the target is validated through ProxyGuard — never an implementation address.
  */
 export function prepareContractWrite(
   contractName: string,
@@ -249,8 +297,14 @@ export function prepareContractWrite(
 }
 
 /**
- * Prepare a wallet-specific write call (for AgentWallet instances).
- * The wallet address is user-specific, so it must be provided.
+ * Build an unsigned transaction against one user's AgentWallet instance.
+ * Wallets are per-user deployments, so the address is a parameter — unlike prepareContractWrite, which resolves a proxy.
+ * @param walletAddress — the AgentWallet instance; an implementation address is rejected by the guard.
+ * @param functionName — the AgentWallet function; `args` — positional ABI args (frozen into the result).
+ * @param overrides — optional { value } in hex; defaults to 0x0.
+ * @returns A PreparedContractCall to the wallet address.
+ * @throws Throws on validation failure, a guard rejection, or ABI encoding failure.
+ * Maps to: contract AgentWallet.<functionName> (prepared, unsigned).
  */
 export function prepareWalletWrite(
   walletAddress: string,
@@ -289,9 +343,15 @@ export function prepareWalletWrite(
 // ─── Send Operations (server-side signing) ───────────────────────────────────
 
 /**
- * Send a contract transaction using the server's signer.
- * Use this for admin operations (root updates, issuer management, etc.)
- * NOT for user wallet operations — those go through the bundler.
+ * Send a contract transaction with the server's signer and wait for its receipt.
+ * Admin operations only (root updates, issuer management): user wallet operations go through the bundler, not this signer.
+ * @param contractName — the ABI key; `functionName` — must exist with a matching arg count.
+ * @param args — positional ABI args; `overrides.value` — native value in BigNumberish form.
+ * @returns { txHash, blockNumber, status } — status is true only when the receipt status is 1.
+ * @throws Throws on preparation failure, a send failure, or a null receipt after mining.
+ * Maps to: contract — <contractName>.<functionName> (server-signed send).
+ * Side effects: broadcasts a transaction and waits for it to be mined (network I/O).
+ * Security: uses the server signer — only call from trusted admin paths, never with user-supplied contract/function names.
  */
 export async function sendContractTransaction(
   contractName: string,
@@ -324,7 +384,12 @@ export async function sendContractTransaction(
 // ─── Event Decoding ──────────────────────────────────────────────────────────
 
 /**
- * Decode event logs from a transaction receipt using a contract's ABI.
+ * Decode receipt logs into named events using one contract's ABI.
+ * Logs that do not match the ABI are skipped — a receipt may mix contracts, so that is expected, not an error.
+ * @param contractName — the ABI key for decoding; `logs` — receipt logs { topics, data, address }.
+ * @returns The decoded events in log order; [] when nothing matches.
+ * @throws Never throws — per-log parse failures are skipped.
+ * Maps to: event — <contractName> events (receipt decoding).
  */
 export function decodeEvents(
   contractName: string,
@@ -362,8 +427,11 @@ export function decodeEvents(
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 /**
- * Get a summary of all contracts, their functions, and addresses.
- * Useful for the dashboard Developer page.
+ * Build the full contract catalogue: every contract with its address, functions, and events.
+ * The dashboard Developer page renders this; an unconfigured address shows as "(not configured)" rather than throwing.
+ * @returns One entry per contract { name, address, functions[{ name, inputs, outputs, stateMutability, selector }], events }.
+ * @throws Never throws — per-contract address failures degrade to "(not configured)".
+ * Maps to: dashboard — Developer page contract registry.
  */
 export function getContractRegistry() {
   const contracts = [

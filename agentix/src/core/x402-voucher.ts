@@ -89,6 +89,15 @@ const VOUCHER_TYPES = {
 
 const usedNonces = new Set<string>();
 
+/**
+ * Record a voucher nonce as used, in memory and in the DB (crash recovery).
+ * Must run BEFORE serving the response: a voucher whose nonce is not yet marked could be replayed.
+ * @param nonce — the voucher's bytes32 nonce; marking twice is a harmless no-op (INSERT OR IGNORE).
+ * @returns Nothing.
+ * @throws Throws on DB failure — callers in acceptVoucher let that propagate rather than serve an unmarked voucher.
+ * Maps to: internal — acceptVoucher (replay protection).
+ * Side effects: adds the nonce to the in-memory set and the x402_used_nonces table.
+ */
 function markNonceUsed(nonce: string): void {
   usedNonces.add(nonce);
   // Persist to DB for crash recovery
@@ -99,6 +108,15 @@ function markNonceUsed(nonce: string): void {
   );
 }
 
+/**
+ * Check whether a voucher nonce was already used (memory first, then the DB for pre-restart nonces).
+ * The replay check: a used nonce means the voucher was already accepted once.
+ * @param nonce — the voucher's bytes32 nonce.
+ * @returns True when the nonce is known-used; false otherwise (unknown nonces are fresh).
+ * @throws Throws on DB failure when the in-memory set misses (the DB lookup is not guarded).
+ * Maps to: internal — verifyVoucher (step 2: replay check).
+ * Side effects: warms the in-memory set from the DB on a hit.
+ */
 function isNonceUsed(nonce: string): boolean {
   if (usedNonces.has(nonce)) return true;
   // Check DB for nonces from before last restart
@@ -127,9 +145,14 @@ const sessionKeyCache = new Map<string, SessionKeyInfo>();
 const SESSION_KEY_CACHE_TTL = 60_000; // 1 minute
 
 /**
- * Verify that a session key is authorized for a wallet.
- * Checks the local DB first, then on-chain if needed.
- * Results are cached for 1 minute.
+ * Verify that a session key is authorised for a wallet (local DB first, 1-minute cache).
+ * The session-authorisation check behind voucher verification: only a live, unrevoked session's key may sign vouchers.
+ * @param walletAddress — the AgentWallet; `sessionKey` — the claimed signer address.
+ * @returns { valid, sessionInfo, error } — sessionInfo carries the session id, expiry, and daily spend limit/used.
+ * @throws Never throws — DB/on-chain failures resolve to { valid: false }.
+ * Maps to: internal — verifyVoucher (step 5: session authorisation).
+ * Side effects: caches successful verifications for 60s (a revocation inside the window is still honoured after expiry).
+ * Security: NOTE — the on-chain fallback in this function is a no-op (it builds the contract but never queries it); the local DB is the only real check. Do not rely on it for sessions unknown to this DB.
  */
 export async function verifySessionKey(
   walletAddress: string,
@@ -188,6 +211,14 @@ export async function verifySessionKey(
 
 // ── Voucher Signing (Agent Side) ─────────────────────────────────────────────
 
+/**
+ * Build the EIP-712 domain for payment vouchers on one chain.
+ * Domain separation is what stops a voucher signed for Sepolia being replayed on mainnet (and vice versa).
+ * @param chainId — the chain the voucher is for.
+ * @returns The domain { name: "AgentIX-PaymentVoucher", version: "1", chainId }.
+ * @throws Never throws.
+ * Maps to: internal — signVoucher / verifyVoucher (EIP-712 domain).
+ */
 export function getVoucherDomain(chainId: number): Record<string, any> {
   return {
     name: VOUCHER_DOMAIN_NAME,
@@ -197,8 +228,13 @@ export function getVoucherDomain(chainId: number): Record<string, any> {
 }
 
 /**
- * Sign a payment voucher using the session key.
- * This is called by the agent before making a paid request.
+ * Sign one EIP-712 payment voucher with the session key (agent side).
+ * Local and fast (~5ms): signing never touches the chain, which is what makes the zero-latency path possible.
+ * @param params — wallet, payTo, amount (atomic USDC string), resource, sessionKeyWallet (the signer), chainId, expirySeconds (default 300s).
+ * @returns The signed PaymentVoucher (fresh random bytes32 nonce, expiry, sessionKey = signer address).
+ * @throws Throws when the wallet cannot sign (e.g. a bad signer) or the amount is not a valid uint256.
+ * Maps to: internal — executeBatchPaid / signVoucherBatch (agent-side voucher creation).
+ * Security: the signature authorises a real USDC transfer up to `amount` — only sign vouchers the session is meant to pay.
  */
 export async function signVoucher(params: {
   wallet: string;
@@ -241,8 +277,12 @@ export async function signVoucher(params: {
 }
 
 /**
- * Sign multiple vouchers in parallel (for batch requests).
- * All vouchers are signed with the same session key but different nonces.
+ * Sign many vouchers in parallel with one session key (different nonce per voucher).
+ * The batch-signing primitive for executeBatchPaid: all payments for a batch are authorised in one local step.
+ * @param params — wallet, payments[{ payTo, amount, resource }], sessionKeyWallet, chainId, expirySeconds.
+ * @returns The signed vouchers in the same order as the payments.
+ * @throws Throws when any single voucher fails to sign (Promise.all rejects on the first failure).
+ * Maps to: internal — executeBatchPaid (step 4: sign all vouchers at once).
  */
 export async function signVoucherBatch(params: {
   wallet: string;
@@ -268,6 +308,15 @@ export async function signVoucherBatch(params: {
 
 // ── Voucher Verification (Server Side) ───────────────────────────────────────
 
+/**
+ * Verify a voucher without accepting it: expiry, nonce replay, EIP-712 signature, session key, and daily spend limit.
+ * Pure verification — it never marks the nonce used, so a verified-but-unaccepted voucher can still be presented again.
+ * @param voucher — the presented voucher; `chainId` — the chain the domain must match.
+ * @returns { valid } or { valid: false, error } naming the failed check.
+ * @throws Never throws — signature recovery failures are returned, not raised.
+ * Maps to: internal — acceptVoucher (verification step before acceptance).
+ * Security: the daily-limit check reads dailySpendUsed from the cached session info, which is initialised to "0" — treat the limit as advisory until spend tracking is wired through.
+ */
 export async function verifyVoucher(
   voucher: PaymentVoucher,
   chainId: number
@@ -326,12 +375,13 @@ export async function verifyVoucher(
 }
 
 /**
- * Assess a verified voucher against the shared bundler risk gate WITHOUT
- * executing anything (R-12). The voucher amount is a USDC token amount, so
- * it is presented to the gate as ERC-20 transfer calldata — the gate's
- * token decoding then sees the amount (as a token move, not as ETH value)
- * and the owner policy's token-action/target allowlists apply. This
- * function never sends a transaction and never touches a signer.
+ * Assess a verified voucher against the shared bundler risk gate WITHOUT executing anything.
+ * The voucher amount is presented as ERC-20 transfer calldata, so the gate's token decoding sees it as a token move and the owner policy's token-action/target allowlists apply.
+ * @param voucher — the verified voucher; only its wallet, payTo, and amount are assessed.
+ * @returns { allowed, reason } from the risk gate.
+ * @throws Throws when the risk gate itself errors — acceptVoucher treats that as a rejection, not an approval.
+ * Maps to: internal — acceptVoucher (risk assessment) and runtime bundler-risk-gate.
+ * Security: assessment never sends a transaction and never touches a signer.
  */
 export async function assessVoucherPayment(
   voucher: PaymentVoucher
@@ -350,8 +400,14 @@ export async function assessVoucherPayment(
 }
 
 /**
- * Verify a voucher and mark the nonce as used (atomic).
- * Risk-assesses via the shared gate WITHOUT executing (R-12).
+ * Verify a voucher, risk-assess it, then mark its nonce used and record it for batch settlement.
+ * The server-side acceptance entry point: fail-closed at every step (a risk-gate error rejects, it never accepts on signature alone).
+ * @param voucher — the presented voucher; `chainId` — the chain the domain must match.
+ * @returns { accepted: true } or { accepted: false, error }.
+ * @throws Never throws for verification/assessment failures — they are returned; DB failures from markNonceUsed/recordVoucher propagate.
+ * Maps to: REST — voucher acceptance in x402-seller verifyVoucherPayment.
+ * Side effects: marks the nonce used and inserts a 'pending' row in x402_vouchers.
+ * Security: the nonce is marked BEFORE the response is served, so a voucher cannot be double-spent in flight.
  */
 export async function acceptVoucher(
   voucher: PaymentVoucher,
@@ -387,6 +443,15 @@ export async function acceptVoucher(
 
 // ── Voucher Storage ──────────────────────────────────────────────────────────
 
+/**
+ * Store an accepted voucher as 'pending' for later batch settlement.
+ * The settlement queue: getPendingVouchers reads these rows, and settleVoucherBatch flips them to settled.
+ * @param voucher — the accepted voucher; all eight fields are stored (signature included for audit).
+ * @returns Nothing.
+ * @throws Throws on DB failure — callers in acceptVoucher let that propagate rather than serve an unrecorded voucher.
+ * Maps to: internal — acceptVoucher (settlement bookkeeping).
+ * Side effects: inserts one 'pending' row into x402_vouchers.
+ */
 function recordVoucher(voucher: PaymentVoucher): void {
   runExecute(
     `INSERT INTO x402_vouchers 
@@ -404,6 +469,14 @@ function recordVoucher(voucher: PaymentVoucher): void {
   );
 }
 
+/**
+ * List accepted-but-unsettled vouchers, oldest first, excluding expired ones.
+ * The settlement queue read: the periodic settler and the manual settle endpoint both drain through here.
+ * @param limit — max vouchers (default 50, MAX_BATCH_SIZE).
+ * @returns The pending vouchers as PaymentVouchers; [] when the queue is empty.
+ * @throws Throws on DB failure.
+ * Maps to: REST — pending-voucher endpoints (src/runtime/server.ts) and startPeriodicSettlement.
+ */
 export function getPendingVouchers(limit: number = MAX_BATCH_SIZE): PaymentVoucher[] {
   const rows = runQuery(
     `SELECT * FROM x402_vouchers 
@@ -424,6 +497,15 @@ export function getPendingVouchers(limit: number = MAX_BATCH_SIZE): PaymentVouch
   }));
 }
 
+/**
+ * Flip vouchers to 'settled' with the settlement transaction hash.
+ * One UPDATE per nonce: a partially-settled batch leaves the failed vouchers pending for the next run.
+ * @param nonces — the settled vouchers' nonces; `txHash` — the batch settlement tx ("" when unknown).
+ * @returns Nothing.
+ * @throws Throws on DB failure part-way through (earlier nonces are already settled — the batch is not atomic).
+ * Maps to: internal — settleVoucherBatch (post-settlement bookkeeping).
+ * Side effects: updates x402_vouchers rows to status 'settled'.
+ */
 function markVouchersSettled(nonces: string[], txHash: string): void {
   for (const nonce of nonces) {
     runExecute(
@@ -438,8 +520,12 @@ function markVouchersSettled(nonces: string[], txHash: string): void {
 // ── Batch Settlement (Server Side) ───────────────────────────────────────────
 
 /**
- * Group vouchers by wallet address for batch execution.
- * Each wallet gets one executeBatch() UserOp.
+ * Group vouchers by wallet address so each wallet gets one executeBatch() UserOp.
+ * Batch settlement is per-wallet: one wallet's UserOp cannot spend another wallet's funds.
+ * @param vouchers — the vouchers to settle; grouping is case-insensitive on the wallet address.
+ * @returns A map from lowercased wallet address to its vouchers (empty map for empty input).
+ * @throws Never throws.
+ * Maps to: internal — settleVoucherBatch (per-wallet settlement).
  */
 export function groupVouchersByWallet(vouchers: PaymentVoucher[]): Map<string, PaymentVoucher[]> {
   const groups = new Map<string, PaymentVoucher[]>();
@@ -452,8 +538,12 @@ export function groupVouchersByWallet(vouchers: PaymentVoucher[]): Map<string, P
 }
 
 /**
- * Build executeBatch() calldata for a group of vouchers from the same wallet.
- * Encodes multiple USDC.transfer() calls into a single executeBatch().
+ * Build the executeBatch() arguments (targets, values, data) that settle one wallet's vouchers.
+ * Every voucher becomes one USDC.transfer(payTo, amount) with zero native value, all to the chain's USDC contract.
+ * @param vouchers — one wallet's vouchers (mixing wallets would build a batch no single wallet can execute).
+ * @returns { targets, values, data } — parallel arrays for AgentWallet.executeBatch.
+ * @throws Throws when a voucher amount is not a valid uint256 (ABI encoding failure).
+ * Maps to: contract AgentWallet.executeBatch (batch settlement calldata).
  */
 export function buildBatchCalldata(vouchers: PaymentVoucher[]): {
   targets: string[];
@@ -480,9 +570,15 @@ export function buildBatchCalldata(vouchers: PaymentVoucher[]): {
 }
 
 /**
- * Execute a batch settlement via the local bundler.
- * This submits a single UserOp that calls executeBatch() on the agent's wallet,
- * transferring USDC to all merchants at once.
+ * Settle a batch of accepted vouchers on-chain: one executeBatch() UserOp per wallet via the local bundler.
+ * The delayed half of the zero-latency flow: servers serve instantly on vouchers and settle later, in bulk.
+ * @param vouchers — the vouchers to settle; [] returns success with settledCount 0.
+ * @param bundlerPrivateKey — overrides the signing key (defaults to the first voucher's session key per wallet).
+ * @returns { success, txHash, userOpHash, settledCount, totalAmount, error } — success is false when any wallet's batch failed.
+ * @throws Never throws for per-wallet failures (they are collected); unexpected errors inside a wallet's attempt are caught per wallet.
+ * Maps to: REST — manual settle endpoint (src/runtime/server.ts) and startPeriodicSettlement.
+ * Side effects: broadcasts one UserOp per wallet (USDC transfers) and marks settled vouchers in the DB.
+ * Security: settlement spends real USDC from the agent wallets — only run with vouchers that passed acceptVoucher.
  */
 export async function settleVoucherBatch(
   vouchers: PaymentVoucher[],
@@ -558,6 +654,15 @@ export async function settleVoucherBatch(
 let _settlementTimer: NodeJS.Timeout | null = null;
 const SETTLEMENT_INTERVAL_MS = 30_000; // Settle every 30 seconds
 
+/**
+ * Start the background timer that settles pending vouchers on a schedule.
+ * Idempotent — a second call while the timer exists does nothing; each tick settles whatever is pending at that moment.
+ * @param intervalMs — the tick interval (default 30,000ms).
+ * @returns Nothing.
+ * @throws Never throws — per-tick settlement failures are logged, not raised.
+ * Maps to: internal — server startup (background settlement loop).
+ * Side effects: starts a repeating timer that reads the queue and broadcasts settlement UserOps.
+ */
 export function startPeriodicSettlement(intervalMs?: number): void {
   if (_settlementTimer) return;
 
@@ -574,6 +679,14 @@ export function startPeriodicSettlement(intervalMs?: number): void {
   }, interval);
 }
 
+/**
+ * Stop the background settlement timer (a settlement already in flight runs to completion).
+ * Call at graceful shutdown so the process can exit.
+ * @returns Nothing; a no-op when the timer was never started.
+ * @throws Never throws.
+ * Maps to: internal — graceful shutdown (counterpart of startPeriodicSettlement).
+ * Side effects: clears the interval timer.
+ */
 export function stopPeriodicSettlement(): void {
   if (_settlementTimer) {
     clearInterval(_settlementTimer);
@@ -583,12 +696,27 @@ export function stopPeriodicSettlement(): void {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Format USDC atomic units as a dollar string (6 decimals, 4 shown).
+ * Display-only: never use the rounded string for on-chain amounts or limit math.
+ * @param atomicUnits — USDC atomic units (number; large values lose precision past 2^53).
+ * @returns The amount as "$X.XXXX".
+ * @throws Never throws.
+ * Maps to: internal — x402-voucher logging and stats (voucher display).
+ */
 function formatUsd(atomicUnits: number): string {
   return `$${(atomicUnits / 10 ** USDC_DECIMALS).toFixed(4)}`;
 }
 
 // ── Voucher Stats ────────────────────────────────────────────────────────────
 
+/**
+ * Summarise the voucher queue: pending/settled counts and amounts.
+ * Amounts are formatted dollars; counts are raw numbers; an empty store returns zeros, not an error.
+ * @returns { pending, settled, pendingAmount, settledAmount }.
+ * @throws Throws on DB failure.
+ * Maps to: REST — voucher stats endpoint (src/runtime/server.ts).
+ */
 export function getVoucherStats(): {
   pending: number;
   settled: number;

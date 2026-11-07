@@ -442,6 +442,14 @@ CREATE TABLE IF NOT EXISTS x402_used_nonces (
 
 let _db: Database.Database | null = null;
 
+/**
+ * Return the shared SQLite connection, opening and migrating it on first use.
+ * WAL mode, foreign keys OFF, and the full schema are applied here; the connection is a process-wide singleton.
+ * @returns The better-sqlite3 Database handle (same object on every call).
+ * @throws Throws when the DB file cannot be opened or the schema/migration fails.
+ * Maps to: internal — runQuery / runSingle / runExecute / runTransaction (every DB access).
+ * Side effects: creates the DB directory/file, runs schema + migrateOldSchema, sets schema_version metadata.
+ */
 export function getDatabase(): Database.Database {
   if (_db) return _db;
 
@@ -470,6 +478,15 @@ export function getDatabase(): Database.Database {
   return _db;
 }
 
+/**
+ * Bring a pre-existing database up to the current schema (additive column/table migrations).
+ * Idempotent and best-effort per step: a failed step logs a warning and the rest still run, so an old DB is never left half-migrated by one bad ALTER.
+ * @param db — the open database to migrate; tables are rebuilt (not ALTERed) only when their SQL still contains a FOREIGN KEY.
+ * @returns Nothing.
+ * @throws Never throws — every step is wrapped in try/catch; failures are logged as warnings.
+ * Maps to: internal — getDatabase (runs once per process start, after the schema exec).
+ * Side effects: ALTER TABLE / CREATE TABLE / data copies on the live database file.
+ */
 function migrateOldSchema(db: Database.Database): void {
   const tablesToCheck = [
     "credential_roots", "revocation_roots", "sessions",
@@ -483,7 +500,11 @@ function migrateOldSchema(db: Database.Database): void {
         logger.info("database", `Migrating ${table}: removing FOREIGN KEY constraint`);
         db.exec(`CREATE TABLE IF NOT EXISTS ${table}_new AS SELECT * FROM ${table}`);
         db.exec(`DROP TABLE IF EXISTS ${table}`);
-        const createSql = SCHEMA.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\([^)]+\\)`, "i"))?.[0];
+        // NB: [^)]+ cannot match these CREATEs — every one contains
+        // DEFAULT (unixepoch()), whose inner ')' truncates the match and leaves
+        // an unexecutable statement (table already dropped above). Match through
+        // the closing paren on its own line instead.
+        const createSql = SCHEMA.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\([\\s\\S]*?\\n\\)`, "i"))?.[0];
         if (createSql) {
           db.exec(createSql);
           db.exec(`INSERT INTO ${table} SELECT * FROM ${table}_new`);
@@ -634,6 +655,14 @@ function migrateOldSchema(db: Database.Database): void {
   }
 }
 
+/**
+ * Close the shared SQLite connection and drop the cached handle.
+ * The next getDatabase call reopens the file; call at graceful shutdown so WAL data is checkpointed.
+ * @returns Nothing; a no-op when no connection is open.
+ * @throws Never throws (better-sqlite3 close on an open handle).
+ * Maps to: internal — shutdown / tests (counterpart of getDatabase).
+ * Side effects: closes the DB file handle.
+ */
 export function closeDatabase() {
   if (_db) {
     _db.close();
@@ -641,31 +670,84 @@ export function closeDatabase() {
   }
 }
 
+/**
+ * Run a SELECT and return all matching rows.
+ * The read primitive for the whole runtime: every list/query path goes through here (and the camelCase variants).
+ * @param sql — the statement; `params` — positional bind values (always bind, never interpolate).
+ * @returns The rows as T[]; [] when nothing matches.
+ * @throws Throws on SQL errors (bad table/column, bad binding) — callers must not assume an empty result means "no rows".
+ * Maps to: internal — src/tools, src/mcp/server, src/runtime/server (all read paths).
+ * Security: params are bound, not interpolated — but the `sql` string itself is caller-controlled, so never build it from user input.
+ */
 export function runQuery<T = any>(sql: string, ...params: any[]): T[] {
   const db = getDatabase();
   return db.prepare(sql).all(...params) as T[];
 }
 
+/**
+ * Run a SELECT and return the first row, if any.
+ * The single-row read primitive: lookups by id/address and aggregate queries (COUNT/SUM) use this.
+ * @param sql — the statement; `params` — positional bind values.
+ * @returns The first row as T, or undefined when nothing matches.
+ * @throws Throws on SQL errors.
+ * Maps to: internal — src/tools, src/mcp/server, src/runtime/server (single-row lookups).
+ * Security: params are bound, not interpolated — but the `sql` string itself is caller-controlled, so never build it from user input.
+ */
 export function runSingle<T = any>(sql: string, ...params: any[]): T | undefined {
   const db = getDatabase();
   return db.prepare(sql).get(...params) as T | undefined;
 }
 
+/**
+ * Run a write statement (INSERT/UPDATE/DELETE) and return its result.
+ * The write primitive for the whole runtime; for multi-statement atomicity use runTransaction instead.
+ * @param sql — the statement; `params` — positional bind values.
+ * @returns The RunResult { changes, lastInsertRowid }.
+ * @throws Throws on SQL errors (constraint violations, bad table/column).
+ * Maps to: internal — src/tools, src/mcp/server, src/runtime/server (all write paths).
+ * Side effects: mutates the database file (not atomic across calls — see runTransaction).
+ * Security: params are bound, not interpolated — but the `sql` string itself is caller-controlled, so never build it from user input.
+ */
 export function runExecute(sql: string, ...params: any[]): Database.RunResult {
   const db = getDatabase();
   return db.prepare(sql).run(...params);
 }
 
+/**
+ * Run a callback inside a single SQLite transaction (all-or-nothing).
+ * Use whenever two or more writes must land together; a throw inside fn rolls everything back.
+ * @param fn — the work, receiving the raw Database handle for direct prepare/run calls.
+ * @returns Whatever fn returns.
+ * @throws Re-throws fn's error after rolling back; also throws on transaction setup failure.
+ * Maps to: internal — multi-write flows that need atomicity (see runExecute for single writes).
+ * Side effects: the writes fn performs, committed or rolled back as one unit.
+ */
 export function runTransaction<T>(fn: (db: Database.Database) => T): T {
   const db = getDatabase();
   const tx = db.transaction(() => fn(db));
   return tx();
 }
 
+/**
+ * Convert one snake_case identifier to camelCase (first segment unchanged, later segments capitalised).
+ * The key-mapping step that lets the DB speak snake_case while the code speaks camelCase.
+ * @param str — a snake_case name; strings without underscores come back unchanged.
+ * @returns The camelCase name.
+ * @throws Never throws.
+ * Maps to: internal — convertKeys (row-key conversion).
+ */
 function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
+/**
+ * Return a shallow copy of a row with every key converted from snake_case to camelCase.
+ * Values are passed through untouched — only top-level keys are renamed.
+ * @param obj — a raw DB row; an empty object returns an empty object.
+ * @returns The converted row (the input is not mutated).
+ * @throws Never throws.
+ * Maps to: internal — runQueryCamel / runSingleCamel (camelCase read variants).
+ */
 function convertKeys(obj: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(obj)) {
@@ -674,11 +756,27 @@ function convertKeys(obj: Record<string, any>): Record<string, any> {
   return result;
 }
 
+/**
+ * Run a SELECT and return all rows with camelCase keys.
+ * The read primitive for modules that model rows as camelCase interfaces (owner-policy, bundler-service).
+ * @param sql — the statement; `params` — positional bind values.
+ * @returns The rows as T[] with converted keys; [] when nothing matches.
+ * @throws Throws on SQL errors.
+ * Maps to: internal — owner-policy getOwnerPolicy / checkPolicy and bundler-service reads.
+ */
 export function runQueryCamel<T = any>(sql: string, ...params: any[]): T[] {
   const rows = runQuery<Record<string, any>>(sql, ...params);
   return rows.map(convertKeys) as T[];
 }
 
+/**
+ * Run a SELECT and return the first row with camelCase keys, if any.
+ * The single-row camelCase read primitive; see runSingle for the snake_case form.
+ * @param sql — the statement; `params` — positional bind values.
+ * @returns The first row as T, or undefined when nothing matches.
+ * @throws Throws on SQL errors.
+ * Maps to: internal — owner-policy getOwnerPolicy / checkPolicy (single-row lookups).
+ */
 export function runSingleCamel<T = any>(sql: string, ...params: any[]): T | undefined {
   const row = runSingle<Record<string, any>>(sql, ...params);
   return row ? (convertKeys(row) as T) : undefined;

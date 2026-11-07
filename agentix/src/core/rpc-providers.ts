@@ -95,15 +95,26 @@ export const RPC_PROVIDERS: RpcProvider[] = [
   },
 ];
 
+/**
+ * Look up a well-known RPC provider by id (alchemy, infura, ankr, quicknode).
+ * The registry is the only place provider URL formats live; add a provider here, not inline.
+ * @param id — the provider id; unknown ids return undefined (callers must fall back to public RPCs).
+ * @returns The provider entry, or undefined when the id is not registered.
+ * @throws Never throws.
+ * Maps to: internal — buildRpcUrl (resolves the id to a concrete endpoint).
+ */
 export function getProvider(id: string): RpcProvider | undefined {
   return RPC_PROVIDERS.find((p) => p.id === id);
 }
 
 /**
- * Build a concrete RPC URL from a provider id + user-supplied secret.
- * For key-based providers this fills the `{KEY}` template; for url-based
- * providers (QuickNode) the secret IS the full endpoint URL.
- * Returns null if the input is empty (caller should fall back to public).
+ * Build a concrete RPC URL from a provider id plus the user's secret.
+ * Key providers substitute {KEY} into the template; url providers (QuickNode) take the secret as the full endpoint.
+ * @param secret — API key or full endpoint URL; empty means "no key" (Ankr falls back to its public endpoint, others return null).
+ * @returns A usable HTTPS URL, or null when the provider is unknown or the secret is invalid/empty.
+ * @throws Never throws — invalid input returns null.
+ * Maps to: internal — setup wizard (CLI init --rpc) that stores the chosen endpoint in config.
+ * Security: the returned URL embeds the API key — never log it; it is stored in local config only.
  */
 export function buildRpcUrl(providerId: string, secret: string): string | null {
   const trimmed = (secret || "").trim();
@@ -123,6 +134,14 @@ export function buildRpcUrl(providerId: string, secret: string): string | null {
   return provider.urlTemplate!.replace("{KEY}", encodeURIComponent(trimmed));
 }
 
+/**
+ * Check whether a string parses as an http(s) URL.
+ * Gate for user-pasted QuickNode endpoints: anything else must be rejected before it reaches config.
+ * @param url — the candidate; empty or malformed strings return false.
+ * @returns True for http: or https: URLs (note: http is accepted, not just https).
+ * @throws Never throws.
+ * Maps to: internal — buildRpcUrl (validates url-kind provider secrets).
+ */
 export function isValidHttpsUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -133,9 +152,14 @@ export function isValidHttpsUrl(url: string): boolean {
 }
 
 /**
- * Probe an RPC endpoint with an eth_chainId call. Resolves to the numeric
- * chain id on success, or null on any failure/timeout. Uses global fetch
- * (Node 18+). Never throws.
+ * Probe an RPC endpoint with a single eth_chainId call.
+ * The liveness check behind endpoint selection: a responding endpoint is not yet a correct-chain endpoint.
+ * @param url — the endpoint to probe; any string, including unreachable hosts.
+ * @param timeoutMs — abort budget per probe (default 5000ms).
+ * @returns The numeric chain id on success, or null on any failure or timeout.
+ * @throws Never throws — every failure mode resolves null.
+ * Maps to: internal — resolveWorkingRpc (tries candidates in order).
+ * Side effects: one JSON-RPC POST (network I/O).
  */
 export async function probeRpc(url: string, timeoutMs = 5000): Promise<number | null> {
   const controller = new AbortController();
@@ -161,10 +185,14 @@ export async function probeRpc(url: string, timeoutMs = 5000): Promise<number | 
 }
 
 /**
- * Given a preferred URL (may be null), return the first endpoint that responds
- * with the expected chain id. Tries the preferred URL first, then each public
- * fallback. Returns the working URL, or the official public endpoint if every
- * probe fails (so the runtime is never left without an RPC configured).
+ * Return the first endpoint that answers with the expected chain id, preferred URL first.
+ * The runtime must never be left without an RPC: when every probe fails it still returns the official public endpoint, unverified.
+ * @param preferred — the user's configured URL, or null to use public endpoints only.
+ * @param expectedChainId — the chain the endpoint must report (default 84532, Base Sepolia).
+ * @returns { url, verified, source } — verified is false only on the all-failed fallback; source names the winning endpoint.
+ * @throws Never throws — probe failures are absorbed per candidate.
+ * Maps to: internal — setup wizard (CLI init --rpc) that persists the resolved endpoint.
+ * Side effects: one eth_chainId probe per candidate until one verifies (network I/O).
  */
 export async function resolveWorkingRpc(
   preferred: string | null,
