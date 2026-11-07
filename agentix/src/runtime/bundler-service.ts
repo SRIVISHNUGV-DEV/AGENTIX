@@ -53,6 +53,18 @@ const EP_ABI = [
 
 // ── Bundler EOA Management ──────────────────────────────────────
 
+/**
+ * Loads the bundler relay EOA private key from disk, creating and persisting one on first use.
+ * The relay needs a funded EOA to pay handleOps gas; a stable on-disk key keeps its address (and
+ * therefore its funding/deposit) the same across restarts instead of minting a fresh unfunded key.
+ * @returns The raw private key as a hex string (never log it — only the address is logged).
+ * @throws On unreadable/unwritable key file or directory creation failure.
+ * Maps to: internal — getBundlerWallet (its only caller).
+ * Side effects: creates ~/.agentix/config/bundler-key (mode 0600) on first run; tightens an existing
+ *   key file to 0600 on load (best-effort on non-POSIX platforms).
+ * Security note: raw private key for the gas-paying EOA — handle in memory only, never persist
+ *   or transmit it elsewhere; the file must stay 0600.
+ */
 function loadOrCreateBundlerKey(): string {
   const dir = dirname(BUNDLER_KEY_PATH);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -75,6 +87,16 @@ function loadOrCreateBundlerKey(): string {
   return wallet.privateKey;
 }
 
+/**
+ * Returns a signer for the bundler relay EOA connected to the configured provider.
+ * Call this per submission rather than caching a wallet, so a rotated key file or provider
+ * change is picked up on the next call.
+ * @returns An ethers Wallet bound to the provider; its address is the handleOps beneficiary.
+ * @throws If the key cannot be loaded or the provider is misconfigured.
+ * Maps to: internal — submitUserOp and getBundlerStatus.
+ * Security note: the returned wallet can spend the bundler EOA's ETH — only hand it to the
+ *   EntryPoint submission path, never to caller-controlled code.
+ */
 function getBundlerWallet(): ethers.Wallet {
   const pk = loadOrCreateBundlerKey();
   const provider = getProvider();
@@ -83,6 +105,15 @@ function getBundlerWallet(): ethers.Wallet {
 
 // ── Queue Management ────────────────────────────────────────────
 
+/**
+ * Persists a signed UserOp to the bundler queue as pending and returns its queue record.
+ * Decouples relay intake from on-chain submission so a burst of ops is drained by
+ * flushPendingOps instead of each caller paying for its own handleOps round-trip.
+ * @returns The queued op with a generated `bop_<ms>_<hex>` id, status "pending", and createdAt in epoch seconds.
+ * @throws On a DB insert failure — the op is not queued and the caller must retry or report the error.
+ * Maps to: REST POST /api/bundler/send queue path (via the runtime) and MCP/CLI bundler submission.
+ * Side effects: INSERTs one row into bundler_queue; logs the queue id and action.
+ */
 export function queueUserOp(params: {
   userOpHash: string;
   signedUserOp: any;
@@ -118,6 +149,14 @@ export function queueUserOp(params: {
   return op;
 }
 
+/**
+ * Returns every still-pending queued UserOp, oldest first.
+ * Flush order matters: FIFO keeps an early op from starving behind later ones and preserves
+ * the nonce order the EntryPoint expects for a given sender.
+ * @returns Pending ops with signedUserOp parsed from JSON; empty array when the queue is drained.
+ * @throws On a DB read failure or a corrupt signed_user_op JSON row.
+ * Maps to: internal — flushPendingOps (its only caller).
+ */
 function getPendingOps(): PendingUserOp[] {
   const rows = runQueryCamel<any>(
     "SELECT * FROM bundler_queue WHERE status = 'pending' ORDER BY created_at ASC"
@@ -128,6 +167,18 @@ function getPendingOps(): PendingUserOp[] {
   }));
 }
 
+/**
+ * Updates one queued op's status (and tx hash / error / timestamps) in place.
+ * The queue's audit trail: without it a submitted op would look pending forever and flush would
+ * resubmit it, double-spending gas and possibly replaying the op.
+ * @param status free-form string; callers use "submitted" | "completed" | "failed".
+ * @param extra.txHash recorded on completion; extra.error on failure. Other keys are ignored.
+ * @returns Nothing. Silently does nothing visible if the id does not exist (no row matched).
+ * @throws On a DB update failure.
+ * Maps to: internal — flushPendingOps (its only caller).
+ * Side effects: UPDATEs bundler_queue; stamps submitted_at on "submitted" and completed_at on
+ *   "completed"/"failed", in epoch seconds.
+ */
 function updateOpStatus(id: string, status: string, extra?: Record<string, any>): void {
   const updates = ["status = ?"];
   const values: any[] = [status];
@@ -158,6 +209,21 @@ function updateOpStatus(id: string, status: string, extra?: Record<string, any>)
 
 // ── Core: Submit to EntryPoint ───────────────────────────────────
 
+/**
+ * Submits one signed UserOp to the EntryPoint via handleOps and waits for its receipt.
+ * The single-op on-chain step of the relay: pre-flight checks (bundler gas, wallet deposit,
+ * live nonce) run first so a doomed op is refused before any gas is spent.
+ * @param signedUserOp the packed op; its nonce is OVERWRITTEN in place with the live EntryPoint
+ *   nonce and its sender must already hold an EntryPoint deposit.
+ * @returns { success, txHash, userOpHash } on success; { success: false, error } when the bundler
+ *   is under the 0.001 ETH gas floor, the wallet has zero deposit, or handleOps fails.
+ * @throws On provider/RPC failure or a rejected handleOps transaction (no receipt) — callers
+ *   (flushPendingOps) catch this per-op and mark the op failed rather than aborting the batch.
+ * Maps to: contract EntryPoint.handleOps; REST POST /api/bundler/send via flushPendingOps.
+ * Side effects: mutates signedUserOp.nonce; spends bundler ETH on gas; emits a WalletExecuted event on success.
+ * Security note: submits whatever op it is handed — caller must have run assessBundlerOp first;
+ *   this function performs no policy, session, or risk check of its own.
+ */
 export async function submitUserOp(signedUserOp: any): Promise<{
   success: boolean;
   txHash?: string;
@@ -219,6 +285,17 @@ export async function submitUserOp(signedUserOp: any): Promise<{
 
 // ── Batch Submission ─────────────────────────────────────────────
 
+/**
+ * Drains the pending queue, submitting each op in FIFO order and recording its outcome.
+ * The batch worker for the relay: one op's failure must not block the rest, so each op is
+ * submitted and marked independently and the run always returns a full per-op summary.
+ * @returns { submitted, failed, results } with one entry per drained op (txHash on success,
+ *   error on failure); all zeros with an empty results array when the queue is empty.
+ * @throws Never for per-op failures (they are counted, not thrown); a DB read failure in
+ *   getPendingOps propagates to the caller.
+ * Maps to: internal — the bundler flush trigger (REST/CLI); contract EntryPoint.handleOps per op.
+ * Side effects: UPDATEs each op to submitted then completed/failed; spends bundler gas per op.
+ */
 export async function flushPendingOps(): Promise<{
   submitted: number;
   failed: number;
@@ -260,6 +337,16 @@ export async function flushPendingOps(): Promise<{
 
 // ── Status ───────────────────────────────────────────────────────
 
+/**
+ * Returns the relay's live health snapshot: bundler address, ETH balance, and queue counts.
+ * The dashboard/status read for the relay — it answers "can the bundler afford the next op"
+ * without submitting anything.
+ * @returns BundlerStatus; counts are 0 (not null) when a queue state has no rows. Note
+ *   totalSubmitted counts only ops still in "submitted" state, not completed/failed ones.
+ * @throws On provider failure (balance read) or a DB count failure.
+ * Maps to: REST GET bundler status (dashboard); contract EntryPoint.balanceOf for the deposit view.
+ * Side effects: none — read-only (balance + COUNT queries).
+ */
 export async function getBundlerStatus(): Promise<BundlerStatus> {
   const bundler = getBundlerWallet();
   const provider = getProvider();
