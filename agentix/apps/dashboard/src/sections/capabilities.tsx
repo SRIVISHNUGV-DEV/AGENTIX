@@ -5,10 +5,22 @@ import { Layers, RefreshCw, Shield, ShieldOff, ExternalLink } from 'lucide-react
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Skeleton } from '@/components/ui';
 import { fetchJSON, truncate } from '@/lib/api';
 
+/**
+ * Capabilities page: on-chain capabilities registered by the protocol owner (capability id, action, revoked/active, expiry).
+ * @returns The capabilities table; a loading skeleton while fetching, an empty state when none are registered.
+ * Maps to: REST GET /api/capabilities; Maps to: contract CapabilityRegistry.
+ */
 export function CapabilitiesPage() {
   const [capabilities, setCapabilities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads capabilities from /api/capabilities (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/capabilities.
+   * Side effects: sets capabilities/loading state.
+   */
   const fetchCapabilities = async () => {
     setLoading(true);
     try {

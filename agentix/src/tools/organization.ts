@@ -15,6 +15,18 @@ export interface OrgResult {
   error?: string;
 }
 
+/**
+ * Register an organization on-chain and mirror it locally.
+ * The org id is keccak(name + owner + Date.now()), so every call creates a
+ * distinct org even for the same name/owner; the numeric id is a separate
+ * sequential integer used by the ZK circuit.
+ * @param name - Display name; @param ownerAddress - Owner address, validated by ProxyGuard first (implementation addresses are rejected).
+ * @returns OrgResult with organizationId, name, owner, credentialAnchor, active and txHash; success:false + error when validation fails or the tx reverts.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract OrganizationRegistry.registerOrganization.
+ * Side effects: on-chain transaction (gas) + local DB insert (INSERT OR REPLACE).
+ * Security: the owner address is validated against implementation addresses before any tx is sent.
+ */
 export async function createOrganization(
   name: string,
   ownerAddress: string
@@ -67,6 +79,16 @@ export async function createOrganization(
   }
 }
 
+/**
+ * One organization by id, read on-chain (no local DB fallback).
+ * Use for authoritative state — active flag and credential anchor come from the
+ * contract, so a locally deactivated org that is still active on-chain reads active here.
+ * @param orgId - keccak id from createOrganization; unknown ids make the contract call revert, surfaced as success:false.
+ * @returns OrgResult with name, owner, credentialAnchor and active; success:false + error on failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_org_get.
+ * Side effects: read-only contract call.
+ */
 export async function getOrganization(orgId: string): Promise<OrgResult> {
   try {
     const contract = getReadonlyContract("OrganizationRegistry");
@@ -85,6 +107,15 @@ export async function getOrganization(orgId: string): Promise<OrgResult> {
   }
 }
 
+/**
+ * All organizations, newest first, from the local DB.
+ * Local mirror only — orgs registered on-chain but never mirrored locally do not
+ * appear, and the list reflects the last local write, not current chain state.
+ * @returns OrgResult[] (empty when none); a DB failure yields [{success:false, error}].
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_org_list.
+ * Side effects: read-only DB query.
+ */
 export async function listOrganizations(): Promise<OrgResult[]> {
   try {
     const rows = runQuery<{ id: string; name: string; owner_address: string; credential_anchor: string; active: number }>(
@@ -104,6 +135,16 @@ export async function listOrganizations(): Promise<OrgResult[]> {
   }
 }
 
+/**
+ * Deactivate an organization on-chain and mirror the flag locally.
+ * Deactivation is on-chain first: if the tx reverts, the local row is left
+ * untouched, so the two stay in agreement.
+ * @param orgId - keccak id from createOrganization.
+ * @returns OrgResult with organizationId, active:false and txHash; success:false + error on revert or DB failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract OrganizationRegistry.deactivateOrganization.
+ * Side effects: on-chain transaction (gas) + local DB update.
+ */
 export async function deactivateOrganization(orgId: string): Promise<OrgResult> {
   try {
     const contract = getContract("OrganizationRegistry");
@@ -118,6 +159,16 @@ export async function deactivateOrganization(orgId: string): Promise<OrgResult> 
   }
 }
 
+/**
+ * Reactivate a deactivated organization on-chain and mirror the flag locally.
+ * Mirror of deactivateOrganization — same ordering (chain first, then local) so a
+ * reverted tx leaves the local row unchanged.
+ * @param orgId - keccak id from createOrganization.
+ * @returns OrgResult with organizationId, active:true and txHash; success:false + error on revert or DB failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract OrganizationRegistry.reactivateOrganization.
+ * Side effects: on-chain transaction (gas) + local DB update.
+ */
 export async function reactivateOrganization(orgId: string): Promise<OrgResult> {
   try {
     const contract = getContract("OrganizationRegistry");

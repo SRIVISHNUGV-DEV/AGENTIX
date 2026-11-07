@@ -5,10 +5,22 @@ import { User, RefreshCw, Shield, ShieldOff, ExternalLink } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Skeleton } from '@/components/ui';
 import { fetchJSON, truncate, explorerAddress } from '@/lib/api';
 
+/**
+ * Identities page: on-chain agent identities, resolved per wallet (first 20 wallets only) via /api/identity/<wallet>.
+ * @returns The identities table; a loading skeleton while fetching, an empty state when no wallet has an identity.
+ * Maps to: REST GET /api/wallets and GET /api/identity/:wallet; Maps to: contract AgentIdentity.
+ */
 export function IdentitiesPage() {
   const [identities, setIdentities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Loads wallets, then resolves each one's identity in parallel (first 20 wallets; a per-wallet failure yields `{ wallet, identityId: null }` instead of failing the whole list).
+   * @returns void; on failure of the wallet list itself, logs the error and leaves the previous list in place.
+   * @throws Never — errors are caught and logged.
+   * Maps to: REST GET /api/wallets and GET /api/identity/:wallet.
+   * Side effects: sets identities/loading state; fans out up to 20 parallel identity requests.
+   */
   const fetchIdentities = async () => {
     setLoading(true);
     try {

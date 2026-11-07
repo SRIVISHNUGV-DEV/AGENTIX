@@ -48,6 +48,20 @@ const DELEGATION_ABI = [
 
 // ── Wallet ─────────────────────────────────────────────────────────────
 
+/**
+ * Deploy an AgentWallet via the factory and record it locally (fast path).
+ * The quick path skips the tools/wallet.ts harness checks and talks to the
+ * factory ABI directly; the wallet address comes from the WalletCreated event.
+ * If no event is parsed it falls back to a walletCount-based derivation that
+ * calls getAddress — which is NOT in FACTORY_ABI — so a missing event makes
+ * the returned address unreliable; treat it as suspect.
+ * @param ownerAddress - Defaults to the runtime signer's address when omitted.
+ * @returns {success, walletAddress, owner, txHash, entryPoint}; throws (not success:false) when the factory call, receipt wait or DB insert fails.
+ * @throws Throws on factory/receipt/DB failure; also throws from the event-less fallback path.
+ * Maps to: contract AgentWalletFactory.createWallet; event WalletCreated.
+ * Side effects: on-chain deployment (gas) + local DB insert + WalletCreated event-bus emit.
+ * Security: the runtime signer pays deployment gas and the owner becomes the wallet's owner — verify the owner address before calling.
+ */
 export async function quickCreateWallet(ownerAddress?: string): Promise<any> {
   const config = loadConfig();
   const guard = getProxyGuard();
@@ -92,18 +106,47 @@ export async function quickCreateWallet(ownerAddress?: string): Promise<any> {
   };
 }
 
+/**
+ * One wallet by address, from the local DB (no on-chain read).
+ * @param walletAddress - Exact address stored by quickCreateWallet.
+ * @returns The raw DB row with success:true, or {success:false, error:"Wallet not found in local DB"}.
+ * @throws Throws if the DB cannot be read.
+ * Maps to: MCP tool agentix_wallet_list (single-row read behind the list/get path).
+ * Side effects: read-only DB query.
+ */
 export function quickGetWallet(walletAddress: string): any {
   const wallet = runSingle<any>("SELECT * FROM wallets WHERE wallet_address = ?", walletAddress);
   if (!wallet) return { success: false, error: "Wallet not found in local DB" };
   return { success: true, ...wallet };
 }
 
+/**
+ * All locally recorded wallets, newest first.
+ * @returns Raw DB rows (empty array when none); throws on DB failure.
+ * Maps to: MCP tool agentix_wallet_list.
+ * Side effects: read-only DB query.
+ */
 export function quickListWallets(): any[] {
   return runQuery("SELECT * FROM wallets ORDER BY created_at DESC") || [];
 }
 
 // ── Lightweight Sessions ───────────────────────────────────────────────
 
+/**
+ * Create a lightweight session on-chain (fast path, owner-signed, no ZK proof).
+ * The owner signature covers (chainId, sessionManager, wallet, sessionId,
+ * sessionKey, dailySpendLimit, dailyTxLimit, expiry); token selectors are
+ * DENIED on-chain unless their token contracts are in allowedTargets — an empty
+ * allowlist still allows non-token targets but denies every token move.
+ * @param walletAddress - Wallet the session is bound to; @param sessionKey - Agent address allowed to act under the session.
+ * @param dailySpendLimit - Wei as a decimal string; @param dailyTxLimit - Max tx per day; @param expirySeconds - Lifetime from now, in seconds.
+ * @param allowedTargets - Token contracts this session may pay with; default [] (no token moves).
+ * @returns {success, sessionId, walletAddress, sessionKey, limits, expiry, txHash}; throws on contract/DB failure.
+ * @throws Throws on owner lookup, signing, contract or DB failure.
+ * Maps to: contract SessionManager.createLightweightSession; event SessionCreated.
+ * Side effects: on-chain transaction (gas) + local DB insert + SessionCreated event-bus emit.
+ * Security: the session key is the agent's address — anyone holding that key can spend up to the limits until expiry or revocation.
+ */
 export async function quickCreateSession(
   walletAddress: string,
   sessionKey: string,
@@ -164,6 +207,18 @@ export async function quickCreateSession(
   };
 }
 
+/**
+ * On-chain check: is this session valid for this signer, value, target and calldata.
+ * Target is required — the 5-arg validator denies zero/protocol targets and token
+ * selectors on non-allowlisted targets, so a target-less check would answer a
+ * different question; no dummy target is passed.
+ * @param sessionId - Session to check; @param signer - Session-key address; @param value - Wei as a decimal string.
+ * @param target - Contract address the session would call (required); @param data - Calldata, defaults to "0x".
+ * @returns {success, valid} (valid:false + error when target is missing); a reverted validation returns success:false, not valid:false.
+ * @throws Never throws: contract failures are returned as success:false.
+ * Maps to: MCP tool agentix_session_validate.
+ * Side effects: read-only contract call.
+ */
 export async function quickValidateSession(
   sessionId: string, signer: string, value: string,
   // Target is required: the 5-arg validator denies zero/protocol targets
@@ -187,6 +242,16 @@ export async function quickValidateSession(
   }
 }
 
+/**
+ * Revoke a lightweight session on-chain and mark it revoked locally.
+ * Revocation is immediate on-chain — the session key stops working as soon as
+ * the tx confirms, regardless of remaining limits or expiry.
+ * @param sessionId - Session to revoke; @param walletAddress - Wallet the session belongs to.
+ * @returns {success, sessionId, txHash}; throws on contract/DB failure.
+ * @throws Throws on contract or DB failure.
+ * Maps to: contract SessionManager.revokeLightweightSession; event SessionRevoked.
+ * Side effects: on-chain transaction (gas) + local DB update + SessionRevoked event-bus emit.
+ */
 export async function quickRevokeSession(sessionId: string, walletAddress: string): Promise<any> {
   const guard = getProxyGuard();
   const signer = getSigner();
@@ -201,6 +266,13 @@ export async function quickRevokeSession(sessionId: string, walletAddress: strin
   return { success: true, sessionId, txHash: receipt.hash };
 }
 
+/**
+ * All locally recorded sessions for one wallet, newest first.
+ * @param walletAddress - Wallet whose sessions to list; unknown wallets yield an empty list.
+ * @returns Raw DB rows (empty array when none); throws on DB failure.
+ * Maps to: MCP tool agentix_session_list (wallet filter).
+ * Side effects: read-only DB query.
+ */
 export function quickListSessions(walletAddress: string): any[] {
   return runQuery("SELECT * FROM sessions WHERE wallet_address = ? ORDER BY created_at DESC", walletAddress) || [];
 }
@@ -212,6 +284,18 @@ export function quickListSessions(walletAddress: string): any[] {
 // for exactly that reason. This helper therefore fails explicitly instead
 // of calling a nonexistent function and surfacing a confusing revert.
 // Authorization is handled by SessionManager (session allowlists).
+/**
+ * Always fails: AgentWallet has NO whitelist feature.
+ * Neither setWhiteListedSelector nor setWhiteListedParty exists on the contract
+ * (verified against the fresh ABI), so this returns an explicit error instead of
+ * sending a call that would revert confusingly. Authorization lives in
+ * SessionManager session allowlists.
+ * @param walletAddress - Wallet (echoed in the error); @param target - Intended whitelisted address (echoed); @param selector - Intended function selector (echoed).
+ * @returns Always {success:false, error} explaining the missing feature and pointing at setSessionTargets / allowedTargets.
+ * @throws Never throws.
+ * Maps to: internal — SessionManager session allowlists (setSessionTargets / allowedTargets at creation).
+ * Side effects: none — no contract call is made.
+ */
 export async function quickWhitelist(walletAddress: string, target: string, selector: string): Promise<any> {
   return {
     success: false,
@@ -224,6 +308,17 @@ export async function quickWhitelist(walletAddress: string, target: string, sele
 
 // ── Execute ────────────────────────────────────────────────────────────
 
+/**
+ * Execute one call through the wallet as its owner (fast path, no session limits).
+ * The owner signature path — this bypasses session spend/tx limits entirely, so
+ * it is the owner's direct execution, not an agent action under a session.
+ * @param walletAddress - Wallet to execute from; @param target - Call destination; @param value - ETH as a decimal string ("0" allowed); @param data - Calldata, "0x" for a plain transfer.
+ * @returns {success, txHash, target, value}; throws on contract failure.
+ * @throws Throws on contract failure (including a revert from the target call).
+ * Maps to: contract AgentWallet.execute; event ActionExecuted.
+ * Side effects: on-chain transaction (gas + value transferred) + ActionExecuted event-bus emit.
+ * Security: value transfer with the owner's authority — the target and data are executed exactly as passed, with no policy check in this path.
+ */
 export async function quickExecute(walletAddress: string, target: string, value: string, data: string): Promise<any> {
   const guard = getProxyGuard();
   const signer = getSigner();
@@ -239,6 +334,18 @@ export async function quickExecute(walletAddress: string, target: string, value:
 
 // ── Delegation ─────────────────────────────────────────────────────────
 
+/**
+ * Propose a delegation root on-chain (fast path, no org) and store the row as inactive.
+ * Same timelock rule as tools/delegation.ts: this PROPOSES only — the delegation
+ * becomes effective after the 2-day timelock AND an acceptDelegationRoot() call,
+ * and the result says "proposed", never "created".
+ * @param delegatorAddress - Address granting the scope; @param delegateeAddress - Address receiving it; @param scope - Free-form scope string, hashed on-chain.
+ * @param expirySeconds - Lifetime from now, in seconds.
+ * @returns {success, status:"proposed", message, scopeHash, leaf, expiry, txHash}; throws on contract/DB failure.
+ * @throws Throws on contract or DB failure.
+ * Maps to: contract DelegationManager.proposeDelegationRoot; event DelegationCreated.
+ * Side effects: on-chain transaction (gas) + local DB insert (active=0, empty organization_id) + DelegationCreated event-bus emit.
+ */
 export async function quickCreateDelegation(
   delegatorAddress: string,
   delegateeAddress: string,
@@ -287,6 +394,16 @@ export async function quickCreateDelegation(
   };
 }
 
+/**
+ * On-chain check: does this delegation leaf verify under an empty (single-leaf) Merkle proof.
+ * Verifies a single-leaf tree (root == leaf), which is the shape
+ * quickCreateDelegation publishes — a delegation inside a larger tree needs a real proof and will not verify here.
+ * @param delegationLeaf - Leaf hash to verify; @param delegatorAddress - Delegator the leaf commits to; @param scope - Scope string, hashed on-chain; @param expiry - Unix timestamp (seconds) the leaf commits to.
+ * @returns {success, valid}; a reverted verification returns success:false, not valid:false.
+ * @throws Never throws: contract failures are returned as success:false.
+ * Maps to: MCP tool agentix_delegation_verify.
+ * Side effects: read-only contract call.
+ */
 export async function quickVerifyDelegation(
   delegationLeaf: string,
   delegatorAddress: string,
@@ -311,6 +428,17 @@ export async function quickVerifyDelegation(
 
 // ── Balance / Deposit ──────────────────────────────────────────────────
 
+/**
+ * Fund a wallet's EntryPoint deposit (gas for sponsored UserOps).
+ * Sends ETH with the call — the amount is value, not a parameter to the contract
+ * — and the deposit is what the bundler draws on for the wallet's UserOps.
+ * @param walletAddress - Wallet to fund; @param amount - ETH as a decimal string.
+ * @returns {success, amount, txHash}; throws on contract failure.
+ * @throws Throws on contract failure.
+ * Maps to: contract AgentWallet.addDeposit.
+ * Side effects: on-chain transaction moving `amount` ETH into the EntryPoint deposit.
+ * Security: value transfer — verify the wallet address; a deposit to the wrong wallet is only recoverable via withdrawGas by that wallet's owner.
+ */
 export async function quickDeposit(walletAddress: string, amount: string): Promise<any> {
   const guard = getProxyGuard();
   const signer = getSigner();
@@ -322,6 +450,16 @@ export async function quickDeposit(walletAddress: string, amount: string): Promi
   return { success: true, amount, txHash: receipt.hash };
 }
 
+/**
+ * A wallet's ETH balance and EntryPoint deposit, read on-chain.
+ * Two different numbers: the wallet's own ETH (spendable via execute) and its
+ * EntryPoint deposit (gas for UserOps) — do not confuse them.
+ * @param walletAddress - Wallet to query.
+ * @returns {success, walletAddress, ethBalance, entryPointDeposit} as ETH decimal strings; throws on RPC/contract failure.
+ * @throws Throws on RPC or contract failure.
+ * Maps to: MCP tool agentix_wallet_balance.
+ * Side effects: read-only RPC + contract calls (parallel).
+ */
 export async function quickBalance(walletAddress: string): Promise<any> {
   const guard = getProxyGuard();
   const provider = getProvider();

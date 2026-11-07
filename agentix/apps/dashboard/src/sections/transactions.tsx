@@ -5,11 +5,23 @@ import { ScrollText, RefreshCw, ExternalLink, CheckCircle2, XCircle, Clock, Data
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Skeleton } from '@/components/ui';
 import { fetchJSON, truncate, explorerTx, explorerAddress } from '@/lib/api';
 
+/**
+ * Transactions page: on-chain transaction history from indexed contract events, auto-refreshed every 15s.
+ * @returns The transactions table; a loading skeleton while fetching, an error card on fetch failure, an empty state when none exist.
+ * Maps to: REST GET /api/transactions.
+ */
 export function TransactionsPage() {
   const [txs, setTxs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Reloads transactions from /api/transactions (accepts a bare array or `data.value`).
+   * @returns void; on failure stores the error message; loading is cleared in all cases (finally).
+   * @throws Never — fetch errors are caught into `error` state.
+   * Maps to: REST GET /api/transactions.
+   * Side effects: sets txs/error/loading state.
+   */
   const fetchTxs = async () => {
     try {
       const data = await fetchJSON<any>('/api/transactions');
@@ -28,6 +40,12 @@ export function TransactionsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  /**
+   * Status icon for a transaction: check for 'confirmed', X for 'failed', clock for anything else (including pending/unknown).
+   * @param status - The transaction status string.
+   * @returns The icon element.
+   * Maps to: internal — TransactionsPage status column.
+   */
   const statusIcon = (status: string) => {
     if (status === 'confirmed') return <CheckCircle2 className="w-3.5 h-3.5 text-success" />;
     if (status === 'failed') return <XCircle className="w-3.5 h-3.5 text-destructive" />;

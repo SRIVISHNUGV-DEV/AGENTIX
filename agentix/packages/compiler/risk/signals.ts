@@ -17,6 +17,18 @@ import { RiskSignal, RiskSeverity } from '../types/risk';
 
 const ONE_ETH = 1_000_000_000_000_000_000n;
 
+/**
+ * Build one RiskSignal, clamping its score to 0–100.
+ * Why: every assessor constructs signals through this one helper so the score invariant holds everywhere and no assessor can emit an out-of-range score.
+ * @param code - signal code (e.g. 'VALUE_NOTIONAL'); downstream overrides and suggestions match on it.
+ * @param dimension - risk dimension the signal belongs to.
+ * @param severity - severity band.
+ * @param score - 0–100 contribution within its dimension; clamped, never throws.
+ * @param reason - human-readable explanation.
+ * @param evidence - optional key/value evidence attached to the signal.
+ * @returns The constructed RiskSignal.
+ * Maps to: internal — all assess* functions in risk/signals.ts.
+ */
 function sig(
   code: string,
   dimension: RiskSignal['dimension'],
@@ -30,6 +42,13 @@ function sig(
 
 // ── 1. Value / economic magnitude ────────────────────────────────────────────
 
+/**
+ * Score the economic magnitude: USD-notional tiers when a price is known (≥$100k critical), ETH tiers otherwise (>$100 ETH critical), plus a batch-size bonus.
+ * Why: value is the most direct proxy for blast radius — the same action at 0.01 ETH and 100 ETH must not score alike.
+ * @param input - normalized risk input; only the economic view is read.
+ * @returns Signals; VALUE_NONE (score 0) when no value moves. Never returns an empty array.
+ * Maps to: policy rule spend-cap (value vs maxValue is scored separately in assessPolicy).
+ */
 export function assessValue(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const { valueWei, valueEth, notionalUsd, isBatch, batchSize } = input.economic;
@@ -77,6 +96,13 @@ export function assessValue(input: RiskInput): RiskSignal[] {
 
 // ── 2. Counterparty trust ────────────────────────────────────────────────────
 
+/**
+ * Score counterparty trust from per-target reputation tiers, plus a fan-out flag when ≥3 untrusted targets are paid at once.
+ * Why: who receives the value matters as much as how much — a first-seen address and a drain-style fan-out are the classic exfiltration shapes.
+ * @param input - normalized risk input; targets and reputation map are read.
+ * @returns Signals; CP_NONE (score 8) when the intent names no counterparty. Targets missing from the reputation map are skipped.
+ * Maps to: event COMP_BLOCKED (blocked tier is scored in assessCompliance, not here).
+ */
 export function assessCounterparty(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
 
@@ -141,6 +167,13 @@ const AUTHORITY_ACTIONS: Record<string, { score: number; reason: string }> = {
   session_create_lightweight:{ score: 24,  reason: 'Creates a lightweight session key' },
 };
 
+/**
+ * Score the control-plane sensitivity of the action from the AUTHORITY_ACTIONS table (ownership transfer 100 down to lightweight session 24).
+ * Why: some actions change who controls what — an ownership transfer is irreversible in a way a read never is, and the score must reflect that before value is even considered.
+ * @param input - normalized risk input; only the normalized action and behavior (first-ever owner change) are read.
+ * @returns Signals; AUTH_BENIGN (score 8) for actions absent from the table.
+ * Maps to: contract SessionManager.createSession / AgentWallet.changeOwner (authority actions).
+ */
 export function assessAuthority(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const action = input.intent.normalizedAction;
@@ -170,6 +203,13 @@ export function assessAuthority(input: RiskInput): RiskSignal[] {
 
 // ── 4. Behavioral deviation (velocity + anomaly) ─────────────────────────────
 
+/**
+ * Score deviation from the agent's own baseline: activity velocity (>3× daily average, ≥5 actions), value anomaly (>3× historical max, >5× mean), new counterparty for value, and failure clustering (≥3 failures/24h).
+ * Why: an agent's own history is the best anomaly detector — a burst or an out-of-character transfer is the signal that credentials may be misused.
+ * @param input - normalized risk input; behavior profile and economic view are read.
+ * @returns Signals; BEHAV_NO_HISTORY (22) when there is no baseline, BEHAV_NORMAL (6) when nothing deviates.
+ * Maps to: internal — buildBehavioralProfile (history source).
+ */
 export function assessBehavioral(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const b = input.behavior;
@@ -229,6 +269,13 @@ export function assessBehavioral(input: RiskInput): RiskSignal[] {
 
 // ── 5. Policy proximity / breach ─────────────────────────────────────────────
 
+/**
+ * Score proximity to and breach of effective policy limits: value over maxValue (critical 95), value ≥90% of ceiling, targets off the allowlist (80), batch over cap (70), unresolved conflicts.
+ * Why: policy is the operator's stated boundary — crossing it is not a heuristic, it is a violation, and nearing it deserves a warning before the breach happens.
+ * @param input - normalized risk input; policy.effectiveLimits is read.
+ * @returns Signals; POLICY_NONE (20) when no policy resolved, POLICY_WITHIN (8) when comfortably inside.
+ * Maps to: policy rule spend-cap / target allowlist / batch cap.
+ */
 export function assessPolicy(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const limits = input.policy?.effectiveLimits;
@@ -288,6 +335,13 @@ export function assessPolicy(input: RiskInput): RiskSignal[] {
 
 // ── 6. Simulation outcome ────────────────────────────────────────────────────
 
+/**
+ * Score the dry-run outcome: a predicted revert is critical (100), an unconfirmed simulation is high (60), skipped/absent simulation is low (18–20), gas >2M is medium (35).
+ * Why: a transaction the chain says will revert must never be approved on hope — simulation is the only pre-execution ground truth.
+ * @param input - normalized risk input; simulation result is read.
+ * @returns Signals; SIM_OK (5) when simulation succeeded cleanly.
+ * Maps to: contract eth_call dry-run (stage-7 simulation).
+ */
 export function assessSimulation(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const sim = input.simulation;
@@ -338,6 +392,13 @@ export function assessSimulation(input: RiskInput): RiskSignal[] {
 
 // ── 7. Temporal / replay ─────────────────────────────────────────────────────
 
+/**
+ * Score intent age and expiry: >900s old is medium (55, replay/state-drift risk), >300s low (30), an already-past expiry is high (60).
+ * Why: a stale intent may execute against state that no longer matches what was approved — age is a replay vector.
+ * @param input - normalized risk input; nowUnix vs requestedAt and limits.expiry are read.
+ * @returns Signals; TEMP_FRESH (4) for intents ≤300s old. Always returns at least one signal.
+ * Maps to: internal — RiskEngineCore.assess (nowUnix).
+ */
 export function assessTemporal(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const age = input.nowUnix - input.intent.requestedAt;
@@ -363,6 +424,13 @@ export function assessTemporal(input: RiskInput): RiskSignal[] {
 
 // ── 8. Capability coverage ───────────────────────────────────────────────────
 
+/**
+ * Score capability coverage: missing required capabilities are high (70), actions needing delegation are medium (40).
+ * Why: a plan the agent is not authorized to run should not reach an approver as if it were ready — missing capability is a readiness failure, not a detail.
+ * @param input - normalized risk input; capabilities.canExecute/missingExplicit/mustDelegate are read.
+ * @returns Signals; CAP_OK (6) when fully covered, CAP_PARTIAL (35) when uncovered but nothing is explicitly missing.
+ * Maps to: contract CredentialRegistry / CapabilityRegistry (grant source).
+ */
 export function assessCapability(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
   const caps = input.capabilities;
@@ -391,6 +459,13 @@ export function assessCapability(input: RiskInput): RiskSignal[] {
 
 // ── 9. Compliance / structuring ──────────────────────────────────────────────
 
+/**
+ * Score compliance: a blocked counterparty is a hard critical stop (100), and value just under a round threshold ($1k/$10k) amid bursty activity flags structuring (45).
+ * Why: sanctions are not a scoring nuance — a blocked counterparty forces DENY via the scoring override, and structuring is the evasion shape that thresholds alone miss.
+ * @param input - normalized risk input; targets/reputation, notional and behavior are read.
+ * @returns Signals; COMP_CLEAR (3) when no flag fires.
+ * Maps to: event COMP_BLOCKED (scoring override forces DENY).
+ */
 export function assessCompliance(input: RiskInput): RiskSignal[] {
   const out: RiskSignal[] = [];
 

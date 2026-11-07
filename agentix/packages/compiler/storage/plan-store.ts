@@ -3,6 +3,14 @@ import { RiskCategory, RiskAssessment } from '../types/risk';
 import { runQuery, runSingle, runExecute } from '@agentix/database';
 
 export class PlanStore {
+  /**
+   * Persist an execution plan (insert or replace by plan id), serializing its sub-graphs to JSON columns.
+   * Why: plans are the durable approval artifact — every lifecycle step reads back what was saved here.
+   * @param plan - execution plan to store.
+   * @param compiledBy - optional wallet address of the compiler, stored for audit; null when omitted.
+   * Side effects: one INSERT OR REPLACE into execution_plans.
+   * Maps to: internal — ExecutionPlanGenerator.generate.
+   */
   save(plan: ExecutionPlan, compiledBy?: string): void {
     const now = Math.floor(Date.now() / 1000);
     runExecute(
@@ -29,6 +37,13 @@ export class PlanStore {
     );
   }
 
+  /**
+   * Fetch a plan by id.
+   * Why: the read path for approval/execution flows.
+   * @param planId - plan id.
+   * @returns The deserialized plan, or null when unknown.
+   * Maps to: internal — ExecutionPlanGenerator.get.
+   */
   get(planId: string): ExecutionPlan | null {
     const row = runSingle(
       'SELECT * FROM execution_plans WHERE plan_id = ?',
@@ -38,6 +53,13 @@ export class PlanStore {
     return this._deserialize(row);
   }
 
+  /**
+   * Fetch the newest plan with a given content hash.
+   * Why: content-hash lookup powers cache/dedup — an identical recompile finds its predecessor here.
+   * @param contentHash - plan content hash.
+   * @returns The newest matching plan, or null when none exists.
+   * Maps to: internal — ExecutionPlanGenerator.getByHash.
+   */
   getByHash(contentHash: string): ExecutionPlan | null {
     const row = runSingle(
       'SELECT * FROM execution_plans WHERE content_hash = ? ORDER BY created_at DESC LIMIT 1',
@@ -47,6 +69,14 @@ export class PlanStore {
     return this._deserialize(row);
   }
 
+  /**
+   * List plans in one status, newest first.
+   * Why: status queues (e.g. APPROVAL_REQUIRED) are how operators triage.
+   * @param status - plan status filter.
+   * @param limit - max rows; defaults to 50.
+   * @returns Plans newest first; empty array when none match.
+   * Maps to: internal — PipelineOrchestrator.listPlans.
+   */
   listByStatus(status: PlanStatus, limit: number = 50): ExecutionPlan[] {
     const rows = runQuery(
       'SELECT * FROM execution_plans WHERE status = ? ORDER BY created_at DESC LIMIT ?',
@@ -55,6 +85,13 @@ export class PlanStore {
     return rows.map((r) => this._deserialize(r));
   }
 
+  /**
+   * List all plans newest first.
+   * Why: the history view with no status filter.
+   * @param limit - max rows; defaults to 50.
+   * @returns Plans newest first; empty array when the store is empty.
+   * Maps to: internal — PipelineOrchestrator.listPlans.
+   */
   listRecent(limit: number = 50): ExecutionPlan[] {
     const rows = runQuery(
       'SELECT * FROM execution_plans ORDER BY created_at DESC LIMIT ?',
@@ -63,6 +100,15 @@ export class PlanStore {
     return rows.map((r) => this._deserialize(r));
   }
 
+  /**
+   * Update a plan's status plus optional tx hash / rejection reason.
+   * Why: lifecycle transitions persist through here — the in-memory plan object and the row must agree.
+   * @param planId - plan id; unknown ids update zero rows silently.
+   * @param status - new status.
+   * @param extra - optional txHash (on completion) and/or rejectionReason (on reject/fail); undefined fields are left untouched.
+   * Side effects: one UPDATE on execution_plans.
+   * Maps to: internal — ExecutionPlanGenerator lifecycle methods.
+   */
   updateStatus(planId: string, status: PlanStatus, extra?: { txHash?: string; rejectionReason?: string }): void {
     const updates: string[] = ['status = ?'];
     const values: unknown[] = [status];
@@ -80,6 +126,13 @@ export class PlanStore {
     runExecute(`UPDATE execution_plans SET ${updates.join(', ')} WHERE plan_id = ?`, values);
   }
 
+  /**
+   * Fail every non-terminal plan whose expiresAt has passed.
+   * Why: expired plans must never become executable later — expiry is enforced by sweeping them to FAILED, not by hoping callers check.
+   * @returns Number of rows updated (0 when nothing expired, or when the driver does not report a count).
+   * Side effects: UPDATEs execution_plans rows in DRAFT/COMPILED/SIMULATED/APPROVED/APPROVAL_REQUIRED with expires_at in the past.
+   * Maps to: internal — plan expiry sweep (no caller in the pipeline yet; run on a schedule).
+   */
   expirePlans(): number {
     const now = Math.floor(Date.now() / 1000);
     const result = runExecute(
@@ -89,6 +142,14 @@ export class PlanStore {
     return typeof result === 'number' ? result : 0;
   }
 
+  /**
+   * Rebuild an ExecutionPlan from a DB row, parsing the JSON columns.
+   * Why: plans are stored shredded (JSON blobs + scalar risk columns) and must come back as one object — this is the single deserialization path.
+   * @param row - raw execution_plans row.
+   * @returns The plan; missing simulation JSON becomes a failed-simulation placeholder, missing explanation becomes '', requiredSignatures are always [] (they are not persisted).
+   * @throws Propagates JSON.parse failures on corrupt rows — callers must not assume a stored row is well-formed.
+   * Maps to: internal — PlanStore.get / getByHash / listByStatus / listRecent.
+   */
   private _deserialize(row: Record<string, unknown>): ExecutionPlan {
     return {
       planId: row.plan_id as string,
@@ -114,9 +175,11 @@ export class PlanStore {
   }
 
   /**
-   * Restore the full multi-dimensional risk assessment from `risk_json`. Falls
-   * back to the legacy score/category columns for plans persisted before the
-   * risk_json column existed, so old rows still render without crashing.
+   * Restore the full risk assessment from risk_json, falling back to legacy score/category columns.
+   * Why: plans persisted before risk_json existed still render — the fallback keeps old rows readable without a migration.
+   * @param row - raw execution_plans row.
+   * @returns The parsed RiskAssessment when risk_json is present and well-formed with a numeric score, otherwise a minimal LOW assessment (score from risk_score, or 0) with empty factors/warnings/suggestions and requiresApproval false.
+   * Maps to: internal — PlanStore._deserialize.
    */
   private _deserializeRisk(row: Record<string, unknown>): RiskAssessment {
     const raw = row.risk_json as string | undefined;

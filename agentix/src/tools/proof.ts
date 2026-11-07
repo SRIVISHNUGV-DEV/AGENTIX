@@ -36,18 +36,20 @@ export interface ProofResult {
 
 /**
  * Generate a REAL Groth16 proof for the credential_V1 circuit.
- *
- * This replaces the old fake keccak-of-JSON pseudo-proof with the actual
- * ZK proof that verifies on-chain against the deployed Groth16Verifier.
- *
- * Flow:
- *   1. Load credential (agentId, orgId, budgetLimit, expiry, secret, wallet) from DB
- *   2. Compute commitment = Poseidon7(agentId, orgId, budgetLimit, wallet, expiry, credVersion, secret)
- *   3. Get active-tree Merkle proof (pathElements, pathIndices) for the commitment
- *   4. Compute revocationKey = Poseidon2(secret, 0) mod 2^64
- *   5. Get SMT non-membership proof (siblings, oldKey, oldValue, isOld0) from revoked tree
- *   6. Build the witness and call snarkjs.groth16.fullProve
- *   7. Verify locally, then format as Solidity calldata
+ * Replaces the old fake keccak-of-JSON pseudo-proof with the actual ZK proof
+ * that verifies on-chain against the deployed Groth16Verifier. Flow: integrity
+ * preflight on the circuit artifacts, load credential, recompute the Poseidon(7)
+ * commitment, fetch the active-tree Merkle proof and the revoked-SMT
+ * non-membership proof, build the witness, fullProve, verify locally, format
+ * Solidity calldata, then store the proof record.
+ * @param organizationId - Org id; @param agentId - Agent id within the org; @param walletAddress - Wallet the session will execute from (must match the credential).
+ * @param sessionExpiry - Session expiry as a unix timestamp (seconds); @param sessionNonce - Per-session nonce bound into the nullifier — reuse across sessions breaks nullifier uniqueness.
+ * @param maxValue - Optional per-session spend cap in wei as a decimal string; defaults to the credential's budget limit.
+ * @returns ProofResult with proofHash, nullifier, both roots, calldata and the full proof; success:false + error when artifacts fail integrity, no active credential exists, the commitment is missing from the tree, the credential is revoked, or local verification fails.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: circuit credential_V1 (Groth16) + trees ActiveTree / RevokedTree.
+ * Side effects: reads DB and both trees; inserts a row in the proofs table; CPU-heavy (snarkjs fullProve, seconds).
+ * Security: the proof is only as sound as the artifact integrity preflight — a corrupt proving key fails fast here instead of producing a bad proof.
  */
 export async function generateProof(
   organizationId: string,
@@ -212,7 +214,15 @@ export async function generateProof(
 }
 
 /**
- * Verify a Groth16 proof against the on-chain verification key (off-chain).
+ * Verify a stored proof by hash — Groth16 re-verification when the proof data is present, root comparison otherwise.
+ * The fallback matters: legacy proofs with no Groth16 data are only "valid" if the
+ * stored roots still equal the current tree roots, which fails after any later
+ * issue/revoke — a root-comparison "invalid" does not prove the original proof was bad.
+ * @param proofHash - keccak id returned by generateProof.
+ * @returns ProofResult with valid:true/false plus the stored roots and verifiedVia ("groth16" or "root-comparison"); success:false + "Proof not found" when the hash has no row.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_proof_verify.
+ * Side effects: read-only DB read + local Groth16 verification (CPU) or tree-root reads for the fallback.
  */
 export async function verifyProof(proofHash: string): Promise<ProofResult> {
   try {
@@ -283,8 +293,16 @@ export async function verifyProof(proofHash: string): Promise<ProofResult> {
 }
 
 /**
- * Legacy alias — the old generateLocalProof produced a fake keccak-of-JSON hash.
- * It now delegates to generateProof with sensible defaults.
+ * Legacy alias for generateProof with a random session nonce.
+ * The old generateLocalProof produced a fake keccak-of-JSON hash; it now delegates
+ * to the real Groth16 generateProof. The _nullifier and secret parameters are
+ * accepted for signature compatibility and IGNORED — the secret is re-read from the DB.
+ * @param organizationId - Org id; @param agentId - Agent id; @param _nullifier - Ignored (legacy signature); @param secret - Ignored (legacy signature).
+ * @param walletAddress - Wallet the session will execute from; @param sessionExpiry - Session expiry as a unix timestamp (seconds).
+ * @returns Same ProofResult as generateProof.
+ * @throws Never throws: failures are returned as success:false (from generateProof).
+ * Maps to: internal — generateProof (legacy callers).
+ * Side effects: same as generateProof (DB insert + proving work).
  */
 export async function generateLocalProof(
   organizationId: string,
@@ -299,6 +317,16 @@ export async function generateLocalProof(
   return generateProof(organizationId, agentId, walletAddress, sessionExpiry, sessionNonce);
 }
 
+/**
+ * Recent proofs, newest first — optionally filtered to one session.
+ * The session filter reads proofs.session_id, which generateProof never
+ * populates, so filtering by sessionId currently always returns an empty list.
+ * @param sessionId - Omit for the latest 50 proofs overall.
+ * @returns ProofResult[] (empty when none); a DB failure yields [{success:false, error}].
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_proof_list.
+ * Side effects: read-only DB query.
+ */
 export async function listProofs(sessionId?: string): Promise<ProofResult[]> {
   try {
     let rows: any[];

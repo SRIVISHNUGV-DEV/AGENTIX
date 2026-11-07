@@ -15,6 +15,15 @@ export interface ActivityPoint {
 const CHART_H = 220;
 const PAD = { top: 16, right: 12, bottom: 28, left: 40 };
 
+/**
+ * Single-series activity area chart: event volume per day with a hover crosshair and tooltip.
+ * Why it exists: the overview needs real event volume at a glance, without the previous-period overlay or range switcher of the shell's RevenueChart pattern.
+ * @param points - One { label, value } per day, in display order.
+ * @param title - Chart title, used in the svg aria-label.
+ * @returns The SVG area chart with axis ticks and a hover tooltip; an empty-state message when the total is 0 (no fake data is drawn).
+ * Maps to: component Sparkline / niceMax (kpi-sparkline); Maps to: internal — OverviewPage activity card.
+ * Side effects: measures its container with ResizeObserver to size the chart.
+ */
 export function ActivityChart({ points, title }: { points: ActivityPoint[]; title: string }) {
   const plotRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -43,13 +52,29 @@ export function ActivityChart({ points, title }: { points: ActivityPoint[]; titl
   const innerW = w - PAD.left - PAD.right;
   const innerH = CHART_H - PAD.top - PAD.bottom;
   const max = niceMax(Math.max(...points.map((p) => p.value)));
+  /**
+   * Maps a point index to its x pixel coordinate. Divides by max(points.length - 1, 1) so a single point does not divide by zero.
+   * @returns The x coordinate in px.
+   * Maps to: internal — ActivityChart.
+   */
   const x = (i: number) => PAD.left + (i / Math.max(points.length - 1, 1)) * innerW;
+  /**
+   * Maps a value to its y pixel coordinate (0 at the bottom of the plot area, `max` at the top).
+   * @returns The y coordinate in px.
+   * Maps to: internal — ActivityChart.
+   */
   const y = (v: number) => PAD.top + innerH - (v / max) * innerH;
   const pts = points.map((p, i) => [x(i), y(p.value)]);
   const line = smoothPath(pts);
   const area = `${line} L ${x(points.length - 1)} ${PAD.top + innerH} L ${x(0)} ${PAD.top + innerH} Z`;
   const ticks = [0, 0.5, 1].map((f) => Math.round(max * f));
 
+  /**
+   * Hover handler: converts the mouse x position to the nearest point index and shows its crosshair/tooltip.
+   * @returns void; no-op when the plot ref has no bounding rect.
+   * Maps to: internal — ActivityChart.
+   * Side effects: sets hover state.
+   */
   const onMove = (e: React.MouseEvent) => {
     const rect = plotRef.current?.getBoundingClientRect();
     if (!rect) return;

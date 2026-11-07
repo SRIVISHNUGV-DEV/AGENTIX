@@ -105,13 +105,51 @@ const C = {
   gray: "\x1b[90m",
 };
 
+/**
+ * Prints one line to stdout wrapped in an ANSI colour code.
+ * The primitive every CLI printer is built on; an empty message prints a blank coloured line.
+ * Maps to: internal — CLI output helpers (ok, err, info, warn, label).
+ * Side effects: stdout write.
+ */
 function log(msg = "", color = C.reset) { console.log(`${color}${msg}${C.reset}`); }
+/**
+ * Prints a green check-mark success line.
+ * Maps to: internal — CLI command handlers reporting success.
+ * Side effects: stdout write.
+ */
 function ok(msg: string) { log(`  ${C.green}✓${C.reset} ${msg}`); }
+/**
+ * Prints a red cross error line.
+ * Maps to: internal — CLI command handlers reporting failure.
+ * Side effects: stdout write.
+ */
 function err(msg: string) { log(`  ${C.red}✗${C.reset} ${msg}`); }
+/**
+ * Prints a blue info line.
+ * Maps to: internal — CLI command handlers reporting neutral information.
+ * Side effects: stdout write.
+ */
 function info(msg: string) { log(`  ${C.blue}ℹ${C.reset} ${msg}`); }
+/**
+ * Prints a yellow warning line.
+ * Maps to: internal — CLI command handlers reporting warnings.
+ * Side effects: stdout write.
+ */
 function warn(msg: string) { log(`  ${C.yellow}⚠${C.reset} ${msg}`); }
+/**
+ * Prints a bold `key: value` line.
+ * Maps to: internal — printResult and CLI command handlers showing fields.
+ * Side effects: stdout write.
+ */
 function label(k: string, v: string) { log(`  ${C.bold}${k}${C.reset}:  ${v}`); }
 
+/**
+ * Prints a tool result as labelled fields (nested objects flattened one level, arrays shown as counts, values truncated to 80 chars).
+ * A result with success === false prints only its error line and returns — the fields are never shown for a failure.
+ * @param title - Optional heading printed with an underline; @param result - Any object; `success` and `error` keys are never printed as fields.
+ * Maps to: internal — CLI command handlers presenting tool results.
+ * Side effects: stdout writes.
+ */
 function printResult(result: any, title?: string) {
   if (title) { log(`\n  ${C.bold}${title}${C.reset}`); log("  " + "─".repeat(title.length)); }
   if (result.success === false) {
@@ -133,6 +171,12 @@ function printResult(result: any, title?: string) {
   log();
 }
 
+/**
+ * Prints the health-check result with a coloured status banner and one line per check.
+ * The banner colour follows the overall status (HEALTHY green, DEGRADED yellow, anything else red).
+ * Maps to: CLI 'agentix health'.
+ * Side effects: stdout writes.
+ */
 function printHealth(result: any) {
   const icon = result.status === "HEALTHY" ? C.green : result.status === "DEGRADED" ? C.yellow : C.red;
   log(`\n  ${C.bold}AgentIX Health Check${C.reset} — ${icon}${result.status}${C.reset}\n`);
@@ -145,6 +189,12 @@ function printHealth(result: any) {
   log();
 }
 
+/**
+ * Prints the full diagnostics result, one section at a time with its items.
+ * Section/item colours follow their status (OK green, WARNING yellow, ERROR red, anything else dim).
+ * Maps to: CLI 'agentix diagnostics' and 'agentix doctor'.
+ * Side effects: stdout writes.
+ */
 function printDiagnostics(result: any) {
   log(`\n  ${C.bold}AgentIX Diagnostics${C.reset}\n`);
   for (const section of result.sections) {
@@ -163,6 +213,13 @@ function printDiagnostics(result: any) {
 //   - bundled (esbuild): __dirname = dist-publish/, package.json is at ./package.json
 // A hardcoded fallback guarantees `--version` never crashes the process even if the
 // manifest can't be located (e.g. a partial install).
+/**
+ * Resolves the CLI version from the nearest package.json (bundled dist, source tree, or repo root), with a hardcoded '1.0.0' fallback.
+ * The fallback guarantees `--version` never crashes the process even on a partial install where no manifest is found.
+ * @returns The version string from the first manifest that parses with a string version, or '1.0.0'.
+ * Maps to: internal — CLI program version (commander `.version()`).
+ * Side effects: filesystem reads (a missing or unparsable manifest is skipped silently).
+ */
 function resolveVersion(): string {
   const path = require("path");
   const fs = require("fs");

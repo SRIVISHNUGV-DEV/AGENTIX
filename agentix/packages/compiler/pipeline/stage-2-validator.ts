@@ -15,6 +15,16 @@ export interface ValidationResult {
 }
 
 export class IntentValidator {
+  /**
+   * Validate a parsed intent: zod schema, identity/wallet/org/session existence, target addresses, expiry.
+   * Why: stage 2 is the last cheap gate before capability resolution — everything here is local/DB, no chain calls.
+   * @param intent - parsed intent; its validationErrors field is overwritten with the errors found here.
+   * @param context - optional caller wallet/session ids used when the intent itself carries none.
+   * @returns { valid, errors, warnings }: valid is false on any schema, identity, org, session, address or expiry error; a missing wallet row is a warning, not an error.
+   * @throws Never for bad input; a DB failure surfaces as an error only if a check throws — callers must treat a false valid as the signal.
+   * Security note: this validates shape and existence only — it is not an authorization check; capability/policy stages still gate execution.
+   * Maps to: internal — PipelineOrchestrator.compile (stage 2).
+   */
   validate(intent: ParsedIntent, context?: { walletAddress?: string; sessionId?: string }): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -84,6 +94,13 @@ export class IntentValidator {
     };
   }
 
+  /**
+   * Collect every address the intent could touch, de-duplicated.
+   * Why: validation must check all of them — targets hide in typed fields and in the loose params bag (target/targets/recipient/delegatee/ownerAddress/walletAddress).
+   * @param intent - parsed intent.
+   * @returns Unique address strings (unchecked format; callers validate each with isValidAddress).
+   * Maps to: internal — IntentValidator.validate.
+   */
   private _extractTargets(intent: ParsedIntent): string[] {
     const targets: string[] = [];
 

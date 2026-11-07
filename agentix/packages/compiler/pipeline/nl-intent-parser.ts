@@ -336,6 +336,13 @@ export const ACTION_CATALOG: ActionSpec[] = [
 
 // ── Classification prompt returned to the agent ────────────────────────────
 
+/**
+ * Render the LLM classification prompt: action catalog, param schemas, examples, rules.
+ * Why: the connected agent IS the NLU layer — the MCP server hands it this prompt
+ * and the agent classifies free text into a StructuredIntent, so no separate model call is needed.
+ * @returns The full prompt text; regenerated from ACTION_CATALOG on every call, so catalog edits are picked up immediately.
+ * Maps to: MCP tool agentix_parse_intent.
+ */
 export function buildClassificationPrompt(): string {
   const actionList = ACTION_CATALOG.map((spec) => {
     const paramLines = Object.entries(spec.params)
@@ -380,6 +387,12 @@ Return a JSON object matching this schema:
 
 // ── Param schema for StructuredIntent (used by compile_intent) ──────────────
 
+/**
+ * Return the JSON schema for a StructuredIntent (action enum + params + source).
+ * Why: the MCP server publishes this schema so agents return well-formed intents for compile_intent.
+ * @returns A fresh schema object each call; action enum is derived from KNOWN_ACTIONS.
+ * Maps to: MCP tool agentix_compile_intent (input schema).
+ */
 export function getStructuredIntentSchema(): Record<string, unknown> {
   return {
     type: 'object',
@@ -406,6 +419,13 @@ export function getStructuredIntentSchema(): Record<string, unknown> {
 
 // ── Get action spec by name ─────────────────────────────────────────────────
 
+/**
+ * Look up an action's spec by canonical name or alias.
+ * Why: validation and prompt-building both resolve through the same catalog, so aliases stay consistent.
+ * @param action - canonical action name or one of its aliases; case-sensitive.
+ * @returns The ActionSpec, or undefined when the action is unknown.
+ * Maps to: internal — validateExtractedParams.
+ */
 export function getActionSpec(action: string): ActionSpec | undefined {
   return ACTION_CATALOG.find(
     (s) => s.action === action || s.aliases.includes(action)
@@ -414,6 +434,15 @@ export function getActionSpec(action: string): ActionSpec | undefined {
 
 // ── Validate extracted params against action spec ───────────────────────────
 
+/**
+ * Check LLM-extracted params against the action spec: required params present, address-shaped values well-formed.
+ * Why: the LLM is untrusted input — this is the gate that catches missing params and malformed addresses before compile.
+ * @param action - action name (canonical or alias).
+ * @param params - extracted params bag.
+ * @returns { valid, missing, warnings }: valid is false when a required param is missing or the action is unknown; address-format problems are warnings, not failures.
+ * Security note: address values are format-checked here, but on-chain authorization still happens at execution — never treat this as an auth check.
+ * Maps to: internal — IntentParser.parse via stage-2 validation (validateIntent).
+ */
 export function validateExtractedParams(
   action: string,
   params: Record<string, unknown>

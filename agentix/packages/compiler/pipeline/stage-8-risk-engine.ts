@@ -21,20 +21,26 @@ import { RiskEngineCore } from '../risk/engine';
 export class RiskEngine {
   private core: RiskEngineCore;
 
+  /**
+   * Build the stage-8 adapter over the modular risk engine.
+   * Why: the pipeline keeps its historical assess() signature while the real scoring lives in ../risk; the adapter just wires config + plugins into RiskEngineCore.
+   * @param plugins - registry consulted for 'risk-rule' plugins.
+   * @param config - compiler config; config.risk carries thresholds, weights and address lists.
+   * Maps to: internal — RiskEngineCore constructor.
+   */
   constructor(private plugins: PluginRegistry, private config: CompilerConfig) {
     this.core = new RiskEngineCore(config.risk, plugins);
   }
 
   /**
-   * Assess the risk of a parsed intent.
-   *
-   * @param intent        the parsed intent
-   * @param capabilities  resolved capabilities for the acting agent
-   * @param policy        (optional) the optimized policy graph — enables the
-   *                      policy dimension (value-ceiling proximity, allowlist,
-   *                      batch caps, conflicts)
-   * @param simulation    (optional) the simulation result — enables the
-   *                      simulation dimension (revert prediction, gas anomaly)
+   * Assess the risk of a parsed intent via the modular risk engine.
+   * Why: the pipeline keeps this historical assess(intent, capabilities) signature so existing callers do not break, while the optional policy and simulation arguments unlock the policy and simulation dimensions.
+   * @param intent - the parsed intent.
+   * @param capabilities - resolved capabilities for the acting agent.
+   * @param policy - optional optimized policy; enables the policy dimension (value-ceiling proximity, allowlist, batch caps, conflicts).
+   * @param simulation - optional simulation result; enables the simulation dimension (revert prediction, gas anomaly).
+   * @returns The full RiskAssessment (score, category, decision, signals, controls); never throws for bad input — assessor failures degrade to neutral signals.
+   * Maps to: internal — RiskEngineCore.assess.
    */
   async assess(
     intent: ParsedIntent,

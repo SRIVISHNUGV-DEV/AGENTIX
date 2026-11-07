@@ -13,10 +13,22 @@ const ICONS: Record<string, React.ReactNode> = {
   'Credential mismatch': <Shield className="w-4 h-4" />,
 };
 
+/**
+ * Anomalies page: automated system anomaly detection (severity, description + fix, affected resource, detected time, resolved/active).
+ * @returns The anomalies table; a loading skeleton while fetching, an empty state when none are detected.
+ * Maps to: REST GET /api/anomalies.
+ */
 export function AnomaliesPage() {
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads anomalies from /api/anomalies (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/anomalies.
+   * Side effects: sets anomalies/loading state.
+   */
   const fetchAnomalies = async () => {
     setLoading(true);
     try {
@@ -28,6 +40,12 @@ export function AnomaliesPage() {
 
   useEffect(() => { fetchAnomalies(); }, []);
 
+  /**
+   * Maps a severity string to a Badge variant: HIGH/high → danger, MEDIUM/medium → warning, anything else (including LOW/unknown) → default.
+   * @param s - Severity string; matched exactly (case variants only for HIGH/MEDIUM).
+   * @returns The Badge variant.
+   * Maps to: internal — AnomaliesPage columns.
+   */
   const severityColor = (s: string) => {
     if (s === 'HIGH' || s === 'high') return 'danger' as const;
     if (s === 'MEDIUM' || s === 'medium') return 'warning' as const;

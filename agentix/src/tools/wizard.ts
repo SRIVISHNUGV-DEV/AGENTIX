@@ -56,6 +56,16 @@ export interface InitResult {
   harnessesConnected: number;
 }
 
+/**
+ * Full doctor run: all twelve subsystem checks, rolled up into sections, a flattened checks list, and an overall verdict.
+ * The `agentix doctor` implementation — read-only, never repairs. The flattened
+ * checks[] is derived from the same sections[] the CLI renders, so dashboard
+ * and CLI can never drift; INFO/OK items both map to PASS in checks[].
+ * @returns DiagnosticResult with timestamp, sections, checks, overall (OK/WARNING/ERROR), repairable count and a one-line summary.
+ * @throws Never throws: check functions catch their own failures (a check that throws outside its try would propagate — none do today).
+ * Maps to: CLI 'agentix doctor' / MCP tool agentix_diagnostics (via diagnostics.ts runDiagnostics, which covers a subset).
+ * Side effects: read-only (config/DB/filesystem reads, one npm version exec, harness scan); no writes or chain calls.
+ */
 export async function runFullDiagnostics(): Promise<DiagnosticResult> {
   const sections: DiagnosticSection[] = [];
   let repairable = 0;
@@ -108,6 +118,13 @@ export async function runFullDiagnostics(): Promise<DiagnosticResult> {
   return { timestamp: Date.now(), sections, checks, overall, repairable, summary };
 }
 
+/**
+ * Node.js version check: major >= 18 passes.
+ * @returns DiagnosticSection "Node.js" — ERROR with a nodejs.org repair hint when below 18, otherwise OK.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: none (reads process.version).
+ */
 async function checkNodeJS(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   const version = process.version;
@@ -121,6 +138,13 @@ async function checkNodeJS(): Promise<DiagnosticSection> {
   return { name: "Node.js", status: items.some((i) => i.status === "ERROR") ? "ERROR" : "OK", items };
 }
 
+/**
+ * npm availability check via `npm --version`.
+ * @returns DiagnosticSection "NPM" — OK with the version, or ERROR ("Not found") with an install repair hint.
+ * @throws Never throws: exec failures are caught.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: spawns `npm --version` (child process, no network).
+ */
 async function checkNPM(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
@@ -132,6 +156,15 @@ async function checkNPM(): Promise<DiagnosticSection> {
   return { name: "NPM", status: items.some((i) => i.status === "ERROR") ? "ERROR" : "OK", items };
 }
 
+/**
+ * better-sqlite3 availability check via require.resolve.
+ * Resolution only — the module is never loaded here, so a present-but-broken
+ * native binding still reports OK and fails later at DB open.
+ * @returns DiagnosticSection "SQLite" — OK when resolvable, ERROR with an install repair hint otherwise.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: none (module resolution only).
+ */
 async function checkSQLite(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
@@ -143,6 +176,13 @@ async function checkSQLite(): Promise<DiagnosticSection> {
   return { name: "SQLite", status: items.some((i) => i.status === "ERROR") ? "ERROR" : "OK", items };
 }
 
+/**
+ * Runtime config check: does agentix.config.json exist under ~/.agentix.
+ * @returns DiagnosticSection "Runtime" — OK when the config exists, WARNING with a "Run: agentix init" repair hint otherwise.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only filesystem check.
+ */
 async function checkRuntime(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   const configExists = existsSync(join(AGENTIX_HOME, "config", "agentix.config.json"));
@@ -155,6 +195,15 @@ async function checkRuntime(): Promise<DiagnosticSection> {
   return { name: "Runtime", status: items.some((i) => i.status === "ERROR") ? "ERROR" : items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
 }
 
+/**
+ * Database check: table count and DB file size (<100MB OK, larger is WARNING).
+ * Note the section status ignores the size warning — it is OK unless the DB
+ * open itself fails, so callers must read the item status for the size signal.
+ * @returns DiagnosticSection "Database" — ERROR with an init repair hint when the DB cannot be opened.
+ * @throws Never throws: DB failures are caught into an item.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only DB query + file stat (may create the DB file if getDatabase initializes it).
+ */
 async function checkDatabase(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
@@ -175,6 +224,16 @@ async function checkDatabase(): Promise<DiagnosticSection> {
   return { name: "Database", status: items.some((i) => i.status === "ERROR") ? "ERROR" : "OK", items };
 }
 
+/**
+ * Data-directory check: all 16 dirs from ensureDirectories() exist.
+ * The list must match core/config.ts exactly — the 16th dir ("keys", the session
+ * keystore home) was previously unchecked, which is why doctor once reported
+ * 15/15 while the runtime owned a 16th directory.
+ * @returns DiagnosticSection "Storage" — OK when all 16 are present, WARNING with an init repair hint otherwise.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only filesystem checks.
+ */
 async function checkDirectories(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   // Must match ensureDirectories() in core/config.ts exactly (16 dirs).
@@ -199,6 +258,15 @@ async function checkDirectories(): Promise<DiagnosticSection> {
   return { name: "Storage", status: missing === 0 ? "OK" : "WARNING", items };
 }
 
+/**
+ * RPC configuration check: primary URL, fallback URL and network/chain display.
+ * Config presence only — no endpoint is probed here, so a configured-but-dead
+ * URL still reports OK.
+ * @returns DiagnosticSection "Network" — WARNING when no primary URL is set, otherwise OK (a missing fallback is INFO, not a warning).
+ * @throws Throws if loadConfig() fails — no try/catch here.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only config read.
+ */
 async function checkRPC(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   const config = loadConfig();
@@ -217,6 +285,15 @@ async function checkRPC(): Promise<DiagnosticSection> {
   return { name: "Network", status: items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
 }
 
+/**
+ * Contract-address check: every address in config.contracts set and non-zero.
+ * Note the section status is always "OK" — missing addresses only show as a
+ * WARNING item, so callers must read the item status.
+ * @returns DiagnosticSection "Contracts" — item "Contract Addresses" is WARNING with a "<n> configured" value when any are missing.
+ * @throws Throws if the config cannot be loaded.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only config read.
+ */
 async function checkContracts(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   const config = loadConfig();
@@ -231,6 +308,16 @@ async function checkContracts(): Promise<DiagnosticSection> {
   return { name: "Contracts", status: "OK", items };
 }
 
+/**
+ * Dashboard-app check: is apps/dashboard present in the checkout.
+ * The dashboard is intentionally NOT in the published npm package, so "absent"
+ * is INFO (not applicable), not a warning — a clean published install must not
+ * report a false problem.
+ * @returns DiagnosticSection "Dashboard" — always status OK; items report Found/Missing or Not applicable.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only filesystem checks (four candidate paths).
+ */
 async function checkDashboard(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   // The dashboard is a repo-checkout feature — it is intentionally NOT part of
@@ -255,6 +342,15 @@ async function checkDashboard(): Promise<DiagnosticSection> {
   return { name: "Dashboard", status: "OK", items };
 }
 
+/**
+ * MCP-server availability check across all install shapes (published bundle mcp.js, compiled dist, raw TS source).
+ * Any one candidate found is enough — the check exists so doctor does not
+ * false-negative on a valid install of a different shape.
+ * @returns DiagnosticSection "MCP Server" — OK when a candidate exists, WARNING with a build/reinstall repair hint otherwise.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only filesystem checks.
+ */
 async function checkMCP(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   // MCP ships in several shapes depending on how AgentIX is running:
@@ -280,6 +376,15 @@ async function checkMCP(): Promise<DiagnosticSection> {
   return { name: "MCP Server", status: items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
 }
 
+/**
+ * Backup-directory check: does ~/.agentix/backups exist.
+ * Note the section status is always "OK" — a missing dir only shows as a
+ * WARNING item, so callers must read the item status.
+ * @returns DiagnosticSection "Backups" — item WARNING ("Not created") when the dir is absent.
+ * @throws Never throws.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: read-only filesystem check.
+ */
 async function checkBackups(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   const backupDir = join(AGENTIX_HOME, "backups");
@@ -288,6 +393,15 @@ async function checkBackups(): Promise<DiagnosticSection> {
   return { name: "Backups", status: "OK", items };
 }
 
+/**
+ * AI-harness check: scan for installed harnesses and their connection state.
+ * Note the section status is always "OK" — a detected-but-unconnected harness
+ * only shows as a WARNING item, so callers must read the item statuses.
+ * @returns DiagnosticSection "AI Harnesses" — one item per detected harness plus a totals item; a missing harness module is an INFO item, not an error.
+ * @throws Never throws: scan failures are caught into an INFO item.
+ * Maps to: internal — runFullDiagnostics.
+ * Side effects: scans the machine for harness installs (read-only).
+ */
 async function checkHarnesses(): Promise<DiagnosticSection> {
   const items: DiagnosticItem[] = [];
   try {
@@ -313,14 +427,20 @@ async function checkHarnesses(): Promise<DiagnosticSection> {
 }
 
 /**
- * @param rpcUrl            optional RPC endpoint to persist
- * @param connectHarnesses  when true, writes the AgentIX MCP entry into every
- *                          detected IDE/agent config. Default false — detection
- *                          is read-only, but *connecting* mutates external tool
- *                          configs on the user's machine, which must be an
- *                          explicit choice (e.g. `agentix init --connect-harnesses`
- *                          or the `agentix connect` command), never a silent
- *                          side effect of a plain `init`.
+ * Full runtime initialization: directories, DB, config, harness detect/connect, event bus, health.
+ * The `agentix init` implementation. Steps run in order and each records
+ * done/skip/error; the run succeeds unless a step errors. Connecting harnesses
+ * is OFF by default — detection is read-only, but connecting mutates external
+ * IDE/agent configs, so it needs an explicit opt-in (`init --connect-harnesses`
+ * or `agentix connect`), never a silent side effect of a plain init. Note the
+ * returned databaseReady/directoriesCreated flags are always true; check steps[]
+ * for per-step errors.
+ * @param rpcUrl - Optional RPC endpoint to persist; omit for the default public endpoints (no probe on plain init).
+ * @param connectHarnesses - When true, writes the AgentIX MCP entry into every detected harness config. Default false.
+ * @returns InitResult with success, per-step results, loaded config, harness counts; success is false when any step errored.
+ * @throws Never throws: step failures are recorded as error steps (an unexpected throw inside runStep would propagate — none do today).
+ * Maps to: CLI 'agentix init'.
+ * Side effects: creates dirs + DB, persists config (via tools/deployment initializeAgentix), optionally writes external harness configs, initializes the event bus.
  */
 export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = false): Promise<InitResult> {
   const steps: InitStep[] = [];

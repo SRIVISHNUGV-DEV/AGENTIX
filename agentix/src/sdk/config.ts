@@ -16,6 +16,15 @@ const REQUIRED_DEFAULTS: Partial<AgentIXConfig> = {
   agentIdentityAddress: '0xaF20A4CF58CF8E3DF6bF2545Ed9371d39E97cD71',
 };
 
+/**
+ * Builds the effective SDK config: built-in Base Sepolia defaults, then env vars, then explicit overrides.
+ * Call once per SDK instance; every contract address and the RPC URL flow from here, so a wrong value here breaks everything downstream.
+ * @param overrides - Explicit values win over env vars and defaults; a partial object is fine.
+ * @returns A complete AgentIXConfig with all required addresses filled.
+ * @throws ConfigurationError when any required address or rpcUrl is still empty after merging.
+ * Maps to: internal — AgentIX constructor (and CLI 'agentix config').
+ * Side effects: reads process.env AGENTIX_* variables.
+ */
 export function loadConfig(overrides?: Partial<AgentIXConfig>): AgentIXConfig {
   const fromEnv: Partial<AgentIXConfig> = {};
 

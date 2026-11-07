@@ -26,6 +26,13 @@ const ARTIFACT_PATHS = {
   vk: "circuits/build/verification_key.json",
 };
 
+/**
+ * Walk up from this file to find the repo root holding circuits/.
+ * Artifact paths are root-relative, so setup must work from both source and compiled layouts.
+ * @returns The first ancestor containing the final zkey (max 8 levels up); a best-guess path when none is found.
+ * @throws Never throws — the fallback path may simply not exist, which checkArtifacts then reports.
+ * Maps to: internal — checkArtifacts / setupArtifacts (artifact path resolution).
+ */
 function findRepoRoot(): string {
   let dir = __dirname;
   for (let i = 0; i < 8; i++) {
@@ -39,6 +46,13 @@ function findRepoRoot(): string {
   return resolve(__dirname, "..", "..", "..");
 }
 
+/**
+ * Check that the three ZK proving artifacts (zkey, wasm, verification key) exist on disk.
+ * Read-only preflight: run before proving so a missing artifact fails fast with paths, not mid-proof.
+ * @returns { ok, paths, missing } — ok is true only when all three exist; missing lists "key: full-path" entries.
+ * @throws Never throws — missing files are reported, not raised.
+ * Maps to: internal — setupArtifacts (decides whether setup work is needed).
+ */
 export function checkArtifacts(): { ok: boolean; paths: Record<string, string>; missing: string[] } {
   const root = findRepoRoot();
   const paths: Record<string, string> = {};
@@ -55,6 +69,13 @@ export function checkArtifacts(): { ok: boolean; paths: Record<string, string>; 
   return { ok: missing.length === 0, paths, missing };
 }
 
+/**
+ * Verify the ZK artifacts exist and report how to build them when they do not.
+ * This is a check-and-report entry point, not a downloader: it never fetches artifacts over the network.
+ * @returns { ok, message } — ok is true when all artifacts are present; otherwise message carries build instructions.
+ * @throws Never throws — every failure mode is a returned message.
+ * Maps to: CLI — setup-zk-artifacts (bun src/core/setup-zk-artifacts.ts; exit 1 on failure).
+ */
 export function setupArtifacts(): { ok: boolean; message: string } {
   const check = checkArtifacts();
   if (check.ok) {

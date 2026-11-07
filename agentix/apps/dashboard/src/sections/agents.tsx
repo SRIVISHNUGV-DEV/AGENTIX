@@ -19,6 +19,12 @@ const LOGO_MAP: Record<string, string> = {
   'openclaude': '/provider-logos/openclaude.svg',
 };
 
+/**
+ * Agents page: the harness → wallet → identity → credentials → sessions workflow.
+ * Left column lists detected AI harnesses; middle deploys/links the harness wallet and shows its identity; right creates lightweight sessions, issues credentials, and executes via the bundler.
+ * @returns The agents page; harness list, wallet, identity, sessions, and credentials all load together on mount.
+ * Maps to: REST GET /api/onboarding/harnesses, /api/wallets, /api/sessions/all, /api/credentials, /api/credentials/orgs; Maps to: lib/tx-sender (wallet/session flows).
+ */
 export function AgentsPage() {
   const { address, isConnected, openModal } = useWalletCtx();
   const [harnesses, setHarnesses] = useState<any[]>([]);
@@ -48,6 +54,14 @@ export function AgentsPage() {
   const [sessionKey, setSessionKey] = useState('');
   const [sessionTargets, setSessionTargets] = useState('');
 
+  /**
+   * Reloads harnesses, wallets, sessions, credentials, and orgs in parallel; each may fail independently (Promise.allSettled).
+   * The server's wallet list is the source of truth for the harness→wallet map: it rebuilds the map from server data and drops stale localStorage entries.
+   * @returns void; on failure logs the error and leaves previous state in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/onboarding/harnesses, /api/wallets, /api/sessions/all, /api/credentials, /api/credentials/orgs.
+   * Side effects: sets harnesses/wallets/sessions/credentials/orgs/loading state and the harness-wallet map.
+   */
   const fetchAll = async () => {
     setLoading(true);
     try {
@@ -116,6 +130,14 @@ export function AgentsPage() {
     setIdentity(null);
   }, [selectedHarness, harnessWalletMap, wallets]);
 
+  /**
+   * Loads the on-chain identity for one wallet address into state.
+   * @param walletAddr - The wallet address to look up.
+   * @returns void; on failure sets identity to null (shown as "Checking..." forever is avoided — a null identity renders the no-identity message).
+   * @throws Never — fetch errors are caught.
+   * Maps to: REST GET /api/identity/:wallet.
+   * Side effects: sets identity state.
+   */
   const fetchIdentity = async (walletAddr: string) => {
     try {
       const id = await fetchJSON<any>(`/api/identity/${walletAddr}`);
@@ -124,6 +146,14 @@ export function AgentsPage() {
   };
 
   // Generate a session keypair client-side for the agent
+  /**
+   * Generates a fresh agent session keypair client-side (ethers Wallet.createRandom) and stores it in state + sessionStorage, showing the private key once in the secret banner.
+   * @returns The `{ address, privateKey }` keypair; on failure returns `{ address: <connected address or ''>, privateKey: '' }` — callers must check `agent.address` before using it.
+   * @throws Never — generation errors are caught.
+   * Maps to: internal — setAgentKey (lib/storage); Maps to: lib ethers Wallet.createRandom.
+   * Side effects: writes the keypair to sessionStorage; shows the secret key banner.
+   * Security: the private key is displayed once and sent to the local API server only when relaying through the bundler (transient, not stored server-side per the UI copy).
+   */
   const generateAgentKey = async () => {
     try {
       const { ethers } = await import('ethers');
@@ -139,6 +169,14 @@ export function AgentsPage() {
   };
 
   // Execute a transaction via the local bundler using the agent's session key
+  /**
+   * Executes a transaction via the local bundler using the agent's session key (target/value/data from the dialog, first non-revoked session for the active wallet).
+   * @returns void; no-op when there is no active wallet, agent key, or open bundler dialog. Sets an error when no active session exists or execution fails, success with the tx hash otherwise.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender bundleAgentExecute; Maps to: REST POST /api/bundler/send.
+   * Side effects: on-chain execution via a UserOperation; sets executing/error/success state.
+   * Security: the agent's private key is sent to the local server for relay signing.
+   */
   const handleAgentExecute = async () => {
     if (!activeWallet || !agentKey || !showBundlerExec) return;
     setExecuting(true); setError(null);
@@ -156,6 +194,14 @@ export function AgentsPage() {
   };
 
   // Create wallet + identity + generate agent key for the selected harness
+  /**
+   * Deploys the agent wallet for the selected harness: generates the agent keypair, deploys the ERC-4337 wallet on-chain (1:1 harness binding), records the mapping, and loads the identity.
+   * @returns void; opens the wallet modal when not connected; refuses (with an error) when the harness already has a wallet. A user-rejected transaction (code 4001) is silently ignored.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender sendAndWaitForWalletCreation; Maps to: contract AgentWalletFactory.createWallet.
+   * Side effects: on-chain wallet deployment; writes the harness→wallet map; shows the agent secret key once.
+   * Security: the agent private key is generated client-side and shown once — losing it means losing the agent key.
+   */
   const setupAgent = async () => {
     if (!isConnected || !selectedHarness) { openModal(); return; }
     // Prevent duplicate: check if this harness already has a wallet
@@ -186,6 +232,13 @@ export function AgentsPage() {
   };
 
   // Create a lightweight session with user-provided parameters
+  /**
+   * Creates a lightweight session for the active wallet with the dialog's limits (spend/tx/expiry/allowed targets), signed by the owner.
+   * @returns void; no-op when not connected or when there is no active wallet. On success shows a confirmation and reloads; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender sendCreateLightweightSession; Maps to: contract SessionManager.createLightweightSession.
+   * Side effects: owner signature + on-chain session creation; reloads all page data.
+   */
   const handleCreateSession = async () => {
     if (!isConnected || !activeWallet) return;
     setShowCreateSession(false);
@@ -210,6 +263,14 @@ export function AgentsPage() {
 
   // Issue credential under an org
   const [credOrgId, setCredOrgId] = useState('');
+  /**
+   * Issues a credential under the selected org for the active wallet (fixed 0.1 ETH budget, 30-day expiry) and shows the issued secret once.
+   * @returns void; no-op when not connected, when there is no active wallet, or when no org is selected. On success closes the dialog and reloads; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: REST POST /api/credentials.
+   * Side effects: creates a credential server-side; shows the credential secret once in the secret banner.
+   * Security: the credential secret is shown once — it is needed for ZK proof generation and cannot be recovered from the dashboard later.
+   */
   const handleIssueCred = async () => {
     if (!isConnected || !activeWallet || !credOrgId) return;
     setError(null); setSuccess(null);
@@ -229,6 +290,14 @@ export function AgentsPage() {
   };
 
   // Link an existing unlinked wallet to the selected harness
+  /**
+   * Links an existing unlinked wallet (owned by the connected address) to the selected harness, instead of deploying a new one.
+   * @param walletAddress - The wallet to link.
+   * @returns void; no-op when no harness is selected. On success updates the harness→wallet map and reloads; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: REST POST /api/wallets/link.
+   * Side effects: server-side harness binding; updates the harness-wallet map.
+   */
   const linkWallet = async (walletAddress: string) => {
     if (!selectedHarness) return;
     try {

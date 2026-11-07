@@ -23,6 +23,13 @@ export class ProxyGuard {
   private implAddresses: Set<string>;
   private proxyAddresses: Map<string, string>;
 
+  /**
+   * Snapshot the configured proxy and implementation addresses into lookup sets.
+   * Built once per process via getProxyGuard; a config change after construction is NOT picked up.
+   * @returns A guard whose sets are keyed by lowercase address.
+   * @throws Throws if loadConfig fails (missing config is fatal at startup).
+   * Maps to: internal — getProxyGuard singleton (used by every contract-call path).
+   */
   constructor() {
     const config = loadConfig();
     this.implAddresses = new Set(
@@ -36,14 +43,41 @@ export class ProxyGuard {
     }
   }
 
+  /**
+   * Check whether an address is a known implementation contract.
+   * The core safety predicate: implementation addresses must never receive transactions.
+   * @param address — any hex address; comparison is case-insensitive.
+   * @returns True when the address is a configured implementation, false otherwise (unknown addresses are not implementations).
+   * @throws Never throws.
+   * Maps to: internal — validate / warnIfImplementation (the block decision).
+   * Security: a false negative (unlisted implementation) is not caught here — config must list every implementation.
+   */
   isImplementation(address: string): boolean {
     return this.implAddresses.has(address.toLowerCase());
   }
 
+  /**
+   * Check whether an address is a known deployed proxy.
+   * The positive counterpart of isImplementation; unknown addresses return false either way.
+   * @param address — any hex address; comparison is case-insensitive.
+   * @returns True when the address is a configured proxy (groth16Verifier and agentWalletImplementation excluded).
+   * @throws Never throws.
+   * Maps to: internal — callers that need an explicit proxy-membership test.
+   */
   isProxy(address: string): boolean {
     return this.proxyAddresses.has(address.toLowerCase());
   }
 
+  /**
+   * Decide whether a transaction may target an address, and which proxy it should be.
+   * The last line of defence before signing: blocks implementations outright and rejects a wrong proxy for a known contract type.
+   * @param address — the target; any casing, compared lowercased.
+   * @param contractType — when given, the address must equal that contract's configured proxy.
+   * @returns { valid: true } when safe; otherwise { valid: false, error } with a human-readable reason — callers must throw on invalid.
+   * @throws Never throws — failures are returned, not raised.
+   * Maps to: internal — encodeAction / prepareContractWrite / prepareWalletWrite (pre-sign gate).
+   * Security: this is an auth boundary for value transfer — never skip it or catch-and-ignore its verdict.
+   */
   validate(address: string, contractType?: string): { valid: boolean; error?: string } {
     const lower = address.toLowerCase();
 
@@ -69,6 +103,14 @@ export class ProxyGuard {
     return { valid: true };
   }
 
+  /**
+   * Resolve a contract type to its deployed proxy address from config.
+   * Accepts camelCase or PascalCase keys; falls back to a case-insensitive scan of config.contracts.
+   * @param contractType — e.g. "SessionManager" or "sessionManager"; unknown types throw.
+   * @returns The proxy address exactly as configured.
+   * @throws Throws when no proxy address is configured for the type.
+   * Maps to: internal — encodeAction / prepareContractCall (target resolution).
+   */
   getProxyAddress(contractType: string): string {
     const config = loadConfig();
     const key = IMPL_KEYS[contractType] || contractType;
@@ -83,6 +125,15 @@ export class ProxyGuard {
     throw new Error(`No proxy address found for contract type: ${contractType}`);
   }
 
+  /**
+   * Resolve a contract type to its implementation address from config.
+   * Read-only lookup for diagnostics: the address it returns must never be a transaction target.
+   * @param contractType — the key in config.implementations; unknown keys throw.
+   * @returns The implementation address exactly as configured.
+   * @throws Throws when no implementation is configured for the type.
+   * Maps to: internal — diagnostics / ProxyGuard construction (never a send target).
+   * Security: the returned address is for display only — sending to it bypasses the proxy and breaks upgrade safety.
+   */
   getImplementationAddress(contractType: string): string {
     const config = loadConfig();
     const addr = config.implementations[contractType];
@@ -90,6 +141,13 @@ export class ProxyGuard {
     return addr;
   }
 
+  /**
+   * List every configured proxy address by contract key.
+   * Excludes the agentWalletImplementation and groth16Verifier entries, which are not proxies.
+   * @returns A fresh object mapping contract key to proxy address (empty when nothing is configured).
+   * @throws Never throws.
+   * Maps to: MCP tool agentix_contracts (list all proxy contract addresses).
+   */
   listAllProxies(): Record<string, string> {
     const config = loadConfig();
     const proxies: Record<string, string> = {};
@@ -101,6 +159,14 @@ export class ProxyGuard {
     return proxies;
   }
 
+  /**
+   * Print a loud console warning when an address is a known implementation.
+   * A diagnostic aid only — it does not block anything; validate() is the enforcement point.
+   * @param address — any hex address; non-implementations print nothing.
+   * @returns Nothing.
+   * @throws Never throws.
+   * Maps to: internal — diagnostics paths that want a visible warning without failing.
+   */
   warnIfImplementation(address: string): void {
     if (this.isImplementation(address)) {
       console.error(`\x1b[31mCRITICAL WARNING: ${address} is an IMPLEMENTATION contract address.\x1b[0m`);
@@ -112,6 +178,13 @@ export class ProxyGuard {
 
 let _guard: ProxyGuard | null = null;
 
+/**
+ * Return the process-wide ProxyGuard singleton, building it on first use.
+ * All proxy/implementation decisions must go through this one instance so the snapshot is consistent.
+ * @returns The shared ProxyGuard (same object on every call).
+ * @throws Throws on first call if loadConfig fails.
+ * Maps to: internal — every contract-call path (encodeAction, prepareContractWrite, tx-builder).
+ */
 export function getProxyGuard(): ProxyGuard {
   if (!_guard) _guard = new ProxyGuard();
   return _guard;

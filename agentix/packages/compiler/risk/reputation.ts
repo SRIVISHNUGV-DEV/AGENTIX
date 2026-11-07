@@ -16,9 +16,10 @@ import { AddressReputation, BehavioralProfile } from './context';
 import { RiskEngineConfig } from '../types/compilation';
 
 /**
- * AgentIX core contract addresses are resolved lazily from the runtime config so
- * the compiler package stays decoupled from a specific deployment. Falls back to
- * an empty set when the runtime config module isn't resolvable (e.g. unit tests).
+ * Resolve AgentIX core contract addresses from the runtime config into a lowercase set.
+ * Why: system contracts are tier 'system' (score 0) — the compiler stays decoupled from a deployment by resolving them lazily instead of hard-coding.
+ * @returns Lowercase system addresses; empty set when the config module is unresolvable (e.g. unit tests).
+ * Maps to: internal — systemAddresses (cached accessor).
  */
 function loadSystemAddresses(): Set<string> {
   const set = new Set<string>();
@@ -38,6 +39,13 @@ function loadSystemAddresses(): Set<string> {
 }
 
 let _systemCache: { at: number; set: Set<string> } | null = null;
+/**
+ * Return the cached system-address set, refreshing it at most once per minute.
+ * Why: config reads are cheap but not free — a 60s cache bounds them while still picking up redeploys quickly.
+ * @returns The cached (or freshly loaded) lowercase address set.
+ * Side effects: refreshes the module-level _systemCache when stale.
+ * Maps to: internal — ReputationResolver constructor.
+ */
 function systemAddresses(): Set<string> {
   if (_systemCache && Date.now() - _systemCache.at < 60_000) return _systemCache.set;
   const set = loadSystemAddresses();
@@ -45,7 +53,13 @@ function systemAddresses(): Set<string> {
   return set;
 }
 
-/** For tests: force the system-address set. */
+/**
+ * Force the system-address set (test hook — the __ prefix marks it as test-only).
+ * Why: tests need deterministic 'system' tiers without a real runtime config on disk.
+ * @param addrs - addresses to treat as system contracts; lowercased on store.
+ * Side effects: overwrites the module-level _systemCache.
+ * Maps to: internal — systemAddresses.
+ */
 export function __setSystemAddressesForTest(addrs: string[]): void {
   _systemCache = { at: Date.now(), set: new Set(addrs.map((a) => a.toLowerCase())) };
 }
@@ -55,12 +69,26 @@ export class ReputationResolver {
   private trusted: Set<string>;
   private blocked: Set<string>;
 
+  /**
+   * Build the resolver with system addresses plus the operator's trust/block lists.
+   * Why: the tier order (blocked > system > trusted > seen > unknown) is the policy — it must be fixed at construction, not re-decided per address.
+   * @param config - risk config; trustedAddresses/blockedAddresses are lowercased copies.
+   * Maps to: internal — RiskEngineCore.assess (reputation step).
+   */
   constructor(config: RiskEngineConfig) {
     this.system = systemAddresses();
     this.trusted = new Set((config.trustedAddresses || []).map((a) => a.toLowerCase()));
     this.blocked = new Set((config.blockedAddresses || []).map((a) => a.toLowerCase()));
   }
 
+  /**
+   * Judge one address into a trust tier and 0–100 risk score.
+   * Why: the counterparty dimension is built from these verdicts — a blocked address (100) is a hard DENY downstream.
+   * @param address - address to judge (case-insensitive).
+   * @param behavior - behavioral profile; seenTargets decides the 'seen' tier (25).
+   * @returns AddressReputation; unknown first-seen addresses score 60 pending on-chain enrichment.
+   * Maps to: internal — RiskEngineCore.assess; event COMP_BLOCKED when tier is 'blocked'.
+   */
   resolve(address: string, behavior: BehavioralProfile): AddressReputation {
     const addr = address.toLowerCase();
 
@@ -91,8 +119,12 @@ export class ReputationResolver {
   }
 
   /**
-   * Best-effort on-chain refinement of an 'unknown' reputation using code size
-   * and nonce. Never throws — returns the base reputation on any failure.
+   * Refine an 'unknown' reputation on-chain via code size and nonce: contracts score 65 (unverified), fresh EOAs 70, EOAs with history 45.
+   * Why: shape heuristics separate a dormant fresh account from an established one — the base 60 is only a placeholder until this runs.
+   * @param base - reputation to refine; non-'unknown' tiers and missing providers return it unchanged.
+   * @returns The refined reputation, or the base on any failure. Never throws.
+   * Side effects: getCode + getTransactionCount RPCs.
+   * Maps to: internal — RiskEngineCore.enrichReputation.
    */
   async enrich(base: AddressReputation): Promise<AddressReputation> {
     if (base.tier !== 'unknown') return base;
@@ -127,6 +159,12 @@ export class ReputationResolver {
   }
 }
 
+/**
+ * Lazily require the runtime provider.
+ * Why: enrichment is best-effort — no provider means the base reputation stands, not a crash.
+ * @returns The provider, or null when the module cannot be resolved.
+ * Maps to: internal — ReputationResolver.enrich.
+ */
 function getProvider(): any | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

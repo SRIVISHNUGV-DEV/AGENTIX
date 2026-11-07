@@ -54,6 +54,14 @@ const KNOWN_CONTRACTS: Record<string, { name: string; functions: string[] }> = {
 };
 
 export class ContractResolver {
+  /**
+   * Map a normalized action to its contract, address and function list.
+   * Why: stage 6 is where an intent becomes concrete on-chain calls — the action-to-contract table (KNOWN_CONTRACTS) is the single source of truth.
+   * @param intent - parsed intent; only normalizedAction is consulted.
+   * @param contractAddresses - optional per-contract overrides, checked before config defaults. Anchor actions instead take their per-instance address from params.anchorAddress.
+   * @returns { contracts, errors }: one ResolvedContract per function; errors is non-empty (and contracts empty) when the action is unmapped or no address resolves.
+   * Maps to: contract AgentWalletFactory / AgentWallet / SessionManager / CredentialRegistry / OrganizationRegistry / CapabilityRegistry / DelegationManager / AgentIdentity.
+   */
   resolve(intent: ParsedIntent, contractAddresses?: Record<string, string>): ContractResolution {
     const errors: string[] = [];
     const contracts: ResolvedContract[] = [];
@@ -93,6 +101,14 @@ export class ContractResolver {
     return { contracts, errors };
   }
 
+  /**
+   * Resolve an intent into the sequential execution nodes the plan will run.
+   * Why: the plan needs nodes with retry/timeout/dependency metadata, not just contract addresses — this is the shape the executor consumes.
+   * @param intent - parsed intent; its whole params bag is passed as the single call arg of every node.
+   * @param contractAddresses - optional address overrides.
+   * @returns { nodes, errors }: nodes are chained step_0..step_n with dependsOn on the previous node, 3 attempts with 1s→2x backoff, 30s timeout, 500000 gas; empty nodes plus errors on resolution failure.
+   * Maps to: contract SessionManager.createSession et al. via the per-action function table.
+   */
   resolveExecutionNodes(intent: ParsedIntent, contractAddresses?: Record<string, string>): { nodes: ExecutionNode[]; errors: string[] } {
     const resolution = this.resolve(intent, contractAddresses);
     if (resolution.errors.length > 0) {
@@ -124,6 +140,13 @@ export class ContractResolver {
     return { nodes, errors: [] };
   }
 
+  /**
+   * Read a contract's deployed address from the runtime config (agentix/src/core/config).
+   * Why: resolution falls back to config only after explicit overrides and anchor params — config is the deployment's address book.
+   * @param name - contract name as in KNOWN_CONTRACTS.
+   * @returns The configured address, or undefined when the config is unresolvable or the contract has no key (e.g. OrganizationCredentialAnchor, which has no singleton).
+   * Maps to: internal — ContractResolver.resolve.
+   */
   private _getDefaultAddress(name: string): string | undefined {
     try {
       // Runtime config lives at agentix/src/core/config — from
@@ -147,6 +170,14 @@ export class ContractResolver {
     }
   }
 
+  /**
+   * Compute the 4-byte function selector for a contract function name.
+   * Why: selectors identify the call on-chain; the full canonical signature is used (not the bare name) so overloaded or differently-typed functions never collide.
+   * @param func - function name as listed in KNOWN_CONTRACTS (may already carry a signature, e.g. 'revokeSession(bytes32,address)').
+   * @returns The 0x-prefixed 4-byte selector (10 chars). Unknown functions fall back to `func(...)`, which still yields a deterministic (but wrong) selector — callers must only pass known functions.
+   * @throws Propagates if the ethers `id` helper cannot be required.
+   * Maps to: contract AgentWallet / SessionManager / CredentialRegistry function selectors.
+   */
   private _computeSelector(func: string): string {
     const { id } = require('ethers');
     // Use full canonical signature for accurate selectors

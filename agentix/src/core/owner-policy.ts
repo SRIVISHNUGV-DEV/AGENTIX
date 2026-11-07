@@ -45,27 +45,25 @@ const DEFAULT_FORBIDDEN = [
 ];
 
 /**
- * Normalise an action name for policy comparison: lowercase, dots to
- * underscores, trimmed. Policy storage historically uses dot-names
- * (`wallet.execute`, `erc20.transfer`) while the gateway uses underscores
- * (`wallet_execute`); comparing them raw meant a default-shaped policy
- * denied gateway actions it meant to allow, and vice versa.
+ * Normalise an action name for policy comparison (lowercase, dots to underscores, trimmed).
+ * Storage historically uses dot-names (wallet.execute) while the gateway uses underscores (wallet_execute); raw comparison denied actions it meant to allow.
+ * @param action — any action spelling, e.g. "Wallet.Execute".
+ * @returns The normalised name, e.g. "wallet_execute".
+ * @throws Never throws.
+ * Maps to: internal — checkPolicy (allowlist/forbidden matching).
  */
 export function normalizePolicyAction(action: string): string {
   return action.toLowerCase().trim().replace(/\./g, '_');
 }
 
 /**
- * Parse a value string into wei. FAIL-CLOSED: unparseable input throws
- * instead of silently becoming 0 (the pre-fix `BigInt()` + empty catch, and
- * `toWei`'s coerce-to-0, both turned garbage into "free").
- *
- * Units rule (documented because callers disagree): an integer string is
- * wei (the on-chain unit — this is what the bundler, the tests, and the
- * stored limits use); a decimal string is ETH (the human unit — this is
- * what the default limits "0.1"/"0.05" use, and what the CLI `--value`
- * flag documents). Anything else throws, and every caller treats a throw
- * as DENY.
+ * Parse a value into wei, failing closed on unparseable input.
+ * Units rule: an integer string is wei (the on-chain/bundler unit); a decimal string is ETH (the human unit the default limits use).
+ * @param v — bigint, integer-wei string, decimal-ETH string, or null/undefined (both become 0n); anything else throws.
+ * @returns The value in wei.
+ * @throws Throws `Unparseable value ...` when the input is neither integer wei nor decimal ETH — every caller treats a throw as DENY.
+ * Maps to: policy rule — per-tx / daily spend-cap (limits are compared in wei).
+ * Security: fail-closed by design — the old coerce-to-0 turned garbage into "free".
  */
 export function parseValueToWei(v: unknown): bigint {
   if (v === undefined || v === null) return 0n;
@@ -102,11 +100,12 @@ export interface TokenMove {
 }
 
 /**
- * Decode the three ERC-20 value-moving selectors from wallet_execute
- * calldata. Returns null for anything else (unknown selectors are NOT
- * claimed to be token moves — the target allowlist below is the backstop
- * for those). Selectors: transfer 0xa9059cbb, approve 0x095ea7b3,
- * transferFrom 0x23b872dd.
+ * Decode an ERC-20 transfer/approve/transferFrom out of wallet_execute calldata, if it is one.
+ * The policy check needs the effective token action, not the wallet_execute wrapper: a policy allowing wallet_execute does NOT authorise token moves.
+ * @param target — the token contract (params.target); `data` — the calldata; anything non-hex/short returns null.
+ * @returns The TokenMove { kind, token, to, amount }, or null for any other selector or undecodable data.
+ * @throws Never throws — decode failures return null (unknown selectors fall back to the target allowlist).
+ * Maps to: internal — checkPolicy (effective-action resolution).
  */
 export function decodeTokenMove(target: string, data: unknown): TokenMove | null {
   if (typeof data !== 'string' || !data.startsWith('0x') || data.length < 10) return null;
@@ -130,6 +129,16 @@ export function decodeTokenMove(target: string, data: unknown): TokenMove | null
   return null;
 }
 
+/**
+ * Store (replacing any existing) the owner policy for one wallet.
+ * The caller must have verified the owner's signature first: this function itself is trusted-internal and performs no auth.
+ * @param params — the full policy: walletAddress, daily/per-tx limits (integer-wei or decimal-ETH strings), allowlists, sessionExpiry, autoCreateSessions, signedBy, signature.
+ * @returns The freshly stored policy as read back from the DB.
+ * @throws Throws on DB failure; also throws (via the non-null assertion) if the read-back finds nothing.
+ * Maps to: REST POST /api/policy (after EIP-191 signature verification).
+ * Side effects: deletes the wallet's prior policy, inserts the new one (DEFAULT_FORBIDDEN always appended), emits PolicyUpdated on the event bus.
+ * Security: no signature check here — only call from the verified REST handler, the local-owner CLI, or the dashboard-gated MCP path.
+ */
 export async function setOwnerPolicy(params: {
   walletAddress: string;
   dailyLimit: string;
@@ -175,6 +184,14 @@ export async function setOwnerPolicy(params: {
   return getOwnerPolicy(params.walletAddress)!;
 }
 
+/**
+ * Load the latest owner policy for a wallet.
+ * The read side of the policy store; checkPolicy calls this on every state-changing action.
+ * @param walletAddress — the wallet to look up; unknown wallets return null (which checkPolicy treats as deny).
+ * @returns The policy with its JSON list fields parsed, or null when no policy exists.
+ * @throws Throws on DB failure or corrupt stored JSON (JSON.parse is unguarded).
+ * Maps to: REST GET /api/policy/:walletAddress.
+ */
 export function getOwnerPolicy(walletAddress: string): OwnerPolicy | null {
   const row = runSingleCamel<any>(
     'SELECT * FROM owner_policies WHERE wallet_address = ? ORDER BY created_at DESC LIMIT 1',
@@ -199,6 +216,16 @@ export function getOwnerPolicy(walletAddress: string): OwnerPolicy | null {
   };
 }
 
+/**
+ * Decide whether a state-changing action may run under the wallet's owner policy.
+ * Fail-closed throughout: no policy, empty allowlist, unparseable value/limit, or any limit breach all deny — and token moves need their token action explicitly allowed.
+ * @param walletAddress — the wallet whose policy applies; `action` — the gateway action name.
+ * @param params — target/recipient/data/value; `params.value` is parsed as wei-or-ETH (see parseValueToWei).
+ * @returns { allowed, reason, category } — category is within_policy, exceeds_limit, forbidden_target, forbidden_action, or no_policy.
+ * @throws Never throws — limit parse failures are returned as denies, not raised.
+ * Maps to: policy rule — spend-cap / allowlist enforcement (REST POST /api/policy/check; bundler-risk-gate).
+ * Security: token amounts are deliberately NOT summed into the ETH daily limit — different assets must not be conflated; token moves are gated by action + target allowlists instead.
+ */
 export function checkPolicy(walletAddress: string, action: string, params: Record<string, unknown>): PolicyCheck {
   const policy = getOwnerPolicy(walletAddress);
 
@@ -304,6 +331,15 @@ export function checkPolicy(walletAddress: string, action: string, params: Recor
   return { allowed: true, category: 'within_policy' };
 }
 
+/**
+ * Delete the owner policy for a wallet.
+ * After deletion checkPolicy denies everything for the wallet (no_policy) until a new policy is set.
+ * @param walletAddress — the wallet whose policy to remove; unknown wallets are a silent no-op.
+ * @returns Nothing.
+ * @throws Throws on DB failure.
+ * Maps to: internal — REST policy handlers (policy removal).
+ * Side effects: deletes the wallet's row(s) from owner_policies.
+ */
 export function deleteOwnerPolicy(walletAddress: string): void {
   runExecute('DELETE FROM owner_policies WHERE wallet_address = ?', walletAddress);
 }
@@ -311,13 +347,12 @@ export function deleteOwnerPolicy(walletAddress: string): void {
 // ── Policy-set signature verification (R-3) ────────────────────────────────
 
 /**
- * Canonical payload an owner signs (EIP-191 personal_sign) to authorise a
- * policy set. Array order is normalised (sorted) so the dashboard and the
- * server construct identical payloads regardless of UI ordering. The REST
- * handler verifies this signature against the wallet's registered owner
- * BEFORE calling setOwnerPolicy; setOwnerPolicy itself stays a trusted
- * internal function and must only be called from a verified boundary
- * (REST handler after verification, CLI local-owner, MCP dashboard-gate).
+ * Build the canonical string an owner signs (EIP-191) to authorise a policy set.
+ * Array order is normalised (sorted) so the dashboard and the server construct identical payloads regardless of UI ordering.
+ * @param policy — the policy fields; arrays are sorted before joining, so input order does not change the payload.
+ * @returns The colon-joined payload starting with "agentix-policy".
+ * @throws Never throws.
+ * Maps to: internal — verifyPolicySignature (the payload that is verified).
  */
 export function buildPolicySignaturePayload(policy: {
   walletAddress: string;
@@ -329,6 +364,14 @@ export function buildPolicySignaturePayload(policy: {
   sessionExpiry: number;
   autoCreateSessions: boolean;
 }): string {
+  /**
+   * Serialise a string list in sorted order so the signed payload is order-independent.
+   * The copy-then-sort keeps the caller's array untouched.
+   * @param xs — the list to normalise.
+   * @returns The JSON array string of the sorted copy.
+   * @throws Never throws.
+   * Maps to: internal — buildPolicySignaturePayload (canonical payload construction).
+   */
   const sorted = (xs: string[]) => JSON.stringify([...xs].sort());
   return [
     'agentix-policy',
@@ -344,10 +387,14 @@ export function buildPolicySignaturePayload(policy: {
 }
 
 /**
- * Verify an EIP-191 signature over the canonical policy payload by the
- * expected signer (the wallet's registered owner). Empty, placeholder
- * ('0x'), and malformed signatures all fail — a stored-but-never-verified
- * signature field is theater, and this is the verification that removes it.
+ * Verify an EIP-191 signature over the canonical policy payload by the expected signer.
+ * Empty, placeholder ('0x'), and malformed signatures all fail — a stored-but-never-verified signature would be theater.
+ * @param policy — the policy fields (must match what was signed); `signature` — the EIP-191 signature.
+ * @param expectedSigner — the wallet's registered owner; the recovered address must equal it (case-insensitive).
+ * @returns True only when the signature recovers to the expected signer; false otherwise.
+ * @throws Never throws — recovery failures return false.
+ * Maps to: REST POST /api/policy (verified before setOwnerPolicy is called).
+ * Security: this is the auth boundary for policy changes — a false positive here lets anyone rewrite a wallet's limits.
  */
 export function verifyPolicySignature(
   policy: {

@@ -40,6 +40,11 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'settings', label: 'Settings', icon: Settings, group: 'Operations' },
 ];
 
+/**
+ * Inline activity (pulse-line) SVG icon for the Events nav item — lucide has no matching icon, so this is drawn by hand.
+ * @returns The 16x16 SVG; `className` is passed through to the svg element.
+ * Maps to: internal — NAV_ITEMS (the Events entry).
+ */
 function ActivityIcon({ className }: { className?: string }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
@@ -59,6 +64,16 @@ interface SidebarProps {
   onCloseDrawer: () => void;
 }
 
+/**
+ * App sidebar: a collapsible desktop rail plus a mobile overlay drawer, both rendering the same SidebarContent.
+ * @param activePage - Id of the currently active page (highlights its link).
+ * @param onNavigate - Called with the page id when a link is clicked; in the drawer the drawer also closes.
+ * @param collapsed - When true the desktop rail shrinks to a 64px icon rail.
+ * @param drawerOpen - Whether the mobile overlay drawer is shown.
+ * @param onCloseDrawer - Called when the drawer backdrop or close button is used.
+ * @returns The desktop <aside> (md+ only) and, when `drawerOpen`, the mobile drawer overlay; renders nothing visible below md when the drawer is closed.
+ * Maps to: component SidebarContent; Maps to: internal — DashboardInner (which owns all of this state).
+ */
 export function Sidebar({ activePage, onNavigate, theme, onToggleTheme, collapsed, onToggleCollapsed, drawerOpen, onCloseDrawer }: SidebarProps) {
   return (
     <>
@@ -101,6 +116,14 @@ export function Sidebar({ activePage, onNavigate, theme, onToggleTheme, collapse
   );
 }
 
+/**
+ * The shared sidebar body used by both the desktop rail and the mobile drawer: logo, grouped nav links, collapse toggle, theme toggle, and wallet status.
+ * @param activePage - Id of the currently active page (highlights its link).
+ * @param collapsed - When true, labels are hidden and links become icon-only with title tooltips.
+ * @param onCloseDrawer - Present only in the drawer variant; renders the X button and closes the drawer after navigation.
+ * @returns The sidebar content fragment (logo + nav + footer); shows the connected wallet address or "No wallet connected" in the footer.
+ * Maps to: component Sidebar; Maps to: internal — useWalletCtx (wallet status in the footer).
+ */
 function SidebarContent({
   activePage,
   onNavigate,
@@ -127,6 +150,13 @@ function SidebarContent({
     return acc;
   }, {});
 
+  /**
+   * Renders one nav link button for a NAV_ITEMS entry, marking it active when it matches `activePage`.
+   * @param item - The nav item (id, label, icon, group).
+   * @returns The button element; when collapsed it is icon-only with the label as a title tooltip.
+   * Maps to: internal — SidebarContent.
+   * Side effects: clicking calls onNavigate(item.id).
+   */
   const link = (item: NavItem) => (
     <button
       key={item.id}

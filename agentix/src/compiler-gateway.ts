@@ -88,10 +88,24 @@ const AUTHORITY_ONLY_ACTIONS = new Set([
 export class CompilerGateway {
   private compiler: Compiler;
 
+  /**
+   * Creates the gateway around the compiler singleton.
+   * The gateway is normally obtained via getCompilerGateway() (process singleton), not constructed directly.
+   * Maps to: internal — getCompilerGateway.
+   */
   constructor() {
     this.compiler = Compiler.getInstance();
   }
 
+  /**
+   * Runs one intent through the full gauntlet: input validation, action normalisation, owner/authority gates, owner-policy check, 10-stage compilation, risk gating, and on-chain execution.
+   * The order is the security model: gates run on the NORMALISED action name (aliases and case variants cannot bypass the owner-only check), the wallet scope comes from params only (never a caller-supplied context), and authority writes (delegation/credential roots) never auto-execute — they return requiresApproval.
+   * @param action - Raw action name (any alias/case; normalised internally); @param params - Structured params object (must be a non-array object); @param source - Where the intent came from (default 'mcp'); @param context - Compiler context (wallet scope is NOT taken from here — see step 5).
+   * @returns GatewayResult: success with txHash on execution, requiresApproval with the plan when a human must decide, or success:false with errors. Read-only (agent-free) actions return success:true immediately with no plan.
+   * Maps to: MCP tools agentix_wallet_create / agentix_wallet_execute (and the REST /api/execute handler); policy rule owner policy (core/owner-policy).
+   * Side effects: may sign and broadcast an on-chain transaction; writes agent_actions rows and plan state; emits a WalletExecuted event on success.
+   * Security: this is the agent-execution choke point — the R-1/R-2/R-4 gates here are what stop an agent from spending or escalating authority without the owner. A plan built outside executeIntent must still pass _executePlanOnChain's re-check.
+   */
   async executeIntent(
     action: string,
     params: Record<string, unknown>,
@@ -261,6 +275,13 @@ export class CompilerGateway {
     }
   }
 
+  /**
+   * Returns an agent's capability envelope for a wallet: budget, session, allowed/forbidden actions, network.
+   * Read-only summary for the agent to understand what it may do — the numbers come from the live chain balance, the EntryPoint deposit, and the owner's stored policy.
+   * @param sessionId - Optional session id; when given it is reported as a lightweight session — the type is NOT verified against the chain, so do not rely on it for authorization.
+   * @returns The envelope object (wallet, budget with total/remaining/deposit/daily/per-tx limits, session or null, allowed/forbidden lists, network, chainId, hasPolicy).
+   * Maps to: MCP tool agentix_capability_envelope.
+   */
   async getCapabilityEnvelope(
     walletAddress: string,
     sessionId?: string
@@ -302,22 +323,53 @@ export class CompilerGateway {
     };
   }
 
+  /**
+   * Lists recent execution plans, optionally filtered by status.
+   * @returns The plans (newest first, per the compiler's ordering); an empty array when none match.
+   * Maps to: MCP tool agentix_list_plans; CLI 'agentix plans'.
+   */
   listPlans(status?: string, limit?: number): ExecutionPlan[] {
     return this.compiler.listPlans(status, limit);
   }
 
+  /**
+   * Returns one execution plan by id.
+   * @returns The plan, or null when the id is unknown.
+   * Maps to: MCP tool agentix_get_plan; CLI 'agentix plan <plan-id>'.
+   */
   getPlan(planId: string): ExecutionPlan | null {
     return this.compiler.getPlan(planId);
   }
 
+  /**
+   * Marks a plan APPROVED — it does NOT execute it on-chain.
+   * NOTE: approval here is a plain status flip with no owner attestation; the attested path is the MCP agentix_approve_plan handler (EIP-191 owner signature). Do not expose this method to untrusted callers.
+   * @returns The updated plan, or null when the id is unknown or not in an approvable state.
+   * Maps to: internal — CompilerGateway.executeIntent (auto-approve of within-policy plans); CLI 'agentix execute-plan'.
+   * Security: no attestation is checked — approval authority is the caller's, not the owner's.
+   */
   approvePlan(planId: string): ExecutionPlan | null {
     return this.compiler.approvePlan(planId);
   }
 
+  /**
+   * Marks a plan REJECTED with a reason, so it can never execute.
+   * @returns The updated plan, or null when the id is unknown or not in a rejectable state.
+   * Maps to: internal — plan review flows (dashboard/CLI).
+   */
   rejectPlan(planId: string, reason: string): ExecutionPlan | null {
     return this.compiler.rejectPlan(planId, reason);
   }
 
+  /**
+   * Executes an approved plan's action on-chain via the signer (the last code before funds move).
+   * Defense in depth (R-1): the normalised action is re-checked HERE, so a plan built outside executeIntent (e.g. via /api/compile) can never auto-execute an owner-only or authority action. Encoding goes through the single encodeAndValidate path (proxy-guard address resolution + deployment check); unencodable actions fail closed.
+   * @returns GatewayResult with txHash on success, or success:false with errors (approval-required, no encoder, encoding/validation failure, or send failure).
+   * @throws Nothing — all failures are returned as GatewayResult errors.
+   * Maps to: internal — CompilerGateway.executeIntent (step 11); contract — the plan action's target function.
+   * Side effects: signs and broadcasts a transaction; emits a WalletExecuted event on success.
+   * Security: the signer's key is used directly — the plan's params must already have passed policy and risk gates.
+   */
   private async _executePlanOnChain(plan: ExecutionPlan): Promise<GatewayResult> {
     // R-1 defense in depth: re-check the normalised name HERE, at the last
     // code before the signer sends. A plan built outside executeIntent
@@ -383,6 +435,13 @@ export class CompilerGateway {
     }
   }
 
+  /**
+   * Appends one agent-action row (tool, intent, risk, tx hash, success, metadata) to the agent_actions table.
+   * The value is stored WEI-NORMALISED inside metadata (parseValueToWei) because the daily-limit query sums it as an integer — a raw decimal like "0.1" would silently sum as 0. Unparseable values fall back to the raw string so the attempt is still recorded.
+   * @param rawAction - The caller's original spelling (recorded only when it differs from the normalised action).
+   * Maps to: internal — CompilerGateway.executeIntent (compiled/completed/failed logging); policy rule owner-policy daily-limit query.
+   * Side effects: DB INSERT; failures are swallowed with a warning log (logging must never fail the action).
+   */
   private _logAction(
     action: string,
     params: Record<string, unknown>,
@@ -437,6 +496,12 @@ export class CompilerGateway {
 
 let _gateway: CompilerGateway | null = null;
 
+/**
+ * Returns the process-global CompilerGateway, creating it on first use.
+ * Every entry point (MCP, REST, CLI) shares the one gateway — and therefore the one compiler and plan store.
+ * @returns The singleton CompilerGateway.
+ * Maps to: internal — MCP server, REST server, and CLI compile/execute paths.
+ */
 export function getCompilerGateway(): CompilerGateway {
   if (!_gateway) _gateway = new CompilerGateway();
   return _gateway;

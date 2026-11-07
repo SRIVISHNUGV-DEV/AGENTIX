@@ -17,6 +17,14 @@ let _cachedPrice: number | null = null;
 let _cacheTimestamp: number = 0;
 const CACHE_TTL_MS = 30_000;
 
+/**
+ * Fetch the ETH/USD price from CoinGecko's public API (last-resort source).
+ * Called only after Chainlink and Binance fail; a null here means every source is down.
+ * @returns The price in USD, or null on any HTTP, parse, or timeout failure (10s abort).
+ * @throws Never throws — all failures log a warning and return null.
+ * Maps to: internal — getEthUsdPrice (third fallback).
+ * Side effects: one HTTPS request to api.coingecko.com (network I/O).
+ */
 async function fetchPriceFromCoinGecko(): Promise<number | null> {
   try {
     const res = await fetch(
@@ -37,6 +45,14 @@ async function fetchPriceFromCoinGecko(): Promise<number | null> {
   }
 }
 
+/**
+ * Fetch the ETH/USD price from Binance's public ticker (second source).
+ * Called when Chainlink has no feed or fails for this chain; no API key needed.
+ * @returns The ETHUSDT price in USD, or null on any HTTP, parse, or timeout failure (8s abort).
+ * @throws Never throws — all failures log a warning and return null.
+ * Maps to: internal — getEthUsdPrice (second fallback).
+ * Side effects: one HTTPS request to api.binance.com (network I/O).
+ */
 async function fetchPriceFromBinance(): Promise<number | null> {
   try {
     const res = await fetch(
@@ -57,6 +73,15 @@ async function fetchPriceFromBinance(): Promise<number | null> {
   }
 }
 
+/**
+ * Read the ETH/USD price from the on-chain Chainlink feed for this chain.
+ * Preferred source: trust-minimised (on-chain) and chain-native, when a feed exists.
+ * @param chainId — the chain to price on; returns null immediately when no feed is mapped for it.
+ * @returns The price in USD (answer scaled by feed decimals), or null when the feed is unknown or the read fails.
+ * @throws Never throws — RPC failures log a warning and return null.
+ * Maps to: internal — getEthUsdPrice (first source).
+ * Side effects: two on-chain read calls (latestRoundData, decimals) via the shared provider.
+ */
 async function fetchPriceFromChainlink(chainId: number): Promise<number | null> {
   const feedAddress = CHAINLINK_ETH_USD_FEED[chainId];
   if (!feedAddress) return null;
@@ -78,6 +103,14 @@ async function fetchPriceFromChainlink(chainId: number): Promise<number | null> 
   }
 }
 
+/**
+ * Return the current ETH/USD price, trying Chainlink, then Binance, then CoinGecko.
+ * Results are cached 30s; when every source fails it returns the stale cache, and only 0 when there is none.
+ * @returns USD per ETH; 0 means no price is available at all — callers must treat 0 as "unknown", not free.
+ * @throws Never throws — all source failures degrade to stale cache or 0.
+ * Maps to: MCP tool agentix_cred_oracle (ETH price in the credential oracle state).
+ * Side effects: caches the price in module memory for 30s; network/RPC I/O on a cache miss.
+ */
 export async function getEthUsdPrice(): Promise<number> {
   if (_cachedPrice && Date.now() - _cacheTimestamp < CACHE_TTL_MS) {
     return _cachedPrice;
@@ -115,12 +148,30 @@ export async function getEthUsdPrice(): Promise<number> {
   return 0;
 }
 
+/**
+ * Convert an ETH amount to a USD string at a given price.
+ * Pure formatting helper for display; never use its output for on-chain amounts.
+ * @param ethAmount — ETH as a number or decimal string; unparseable input returns "0.00".
+ * @param ethPrice — USD per ETH; a stale or 0 price yields a meaningless result — validate it first.
+ * @returns USD with exactly 2 decimals ("0.00" on bad input).
+ * @throws Never throws.
+ * Maps to: internal — getEthUsdPrice consumers (dashboard / oracle display).
+ */
 export function ethToUsd(ethAmount: string | number, ethPrice: number): string {
   const eth = typeof ethAmount === "string" ? parseFloat(ethAmount) : ethAmount;
   if (isNaN(eth)) return "0.00";
   return (eth * ethPrice).toFixed(2);
 }
 
+/**
+ * Convert a USD amount to an ETH string at a given price.
+ * Pure formatting helper for display; never use its output for on-chain amounts.
+ * @param usdAmount — USD as a number or decimal string; unparseable input returns "0".
+ * @param ethPrice — USD per ETH; must be > 0, otherwise returns "0" (avoids divide-by-zero).
+ * @returns ETH with exactly 6 decimals ("0" on bad input or non-positive price).
+ * @throws Never throws.
+ * Maps to: internal — getEthUsdPrice consumers (dashboard / oracle display).
+ */
 export function usdToEth(usdAmount: string | number, ethPrice: number): string {
   const usd = typeof usdAmount === "string" ? parseFloat(usdAmount) : usdAmount;
   if (isNaN(usd) || ethPrice <= 0) return "0";

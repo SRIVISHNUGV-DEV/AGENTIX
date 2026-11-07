@@ -5,6 +5,12 @@ import { DollarSign, TrendingUp, Shield, Globe, RefreshCw, Settings, ArrowUpRigh
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Skeleton, StatCard, Input } from '@/components/ui';
 import { fetchJSON, postJSON, truncate } from '@/lib/api';
 
+/**
+ * x402 Payments page: ERC-4337 agentic-commerce payments via the x402 protocol, in four tabs (overview, outgoing/buyer, incoming/seller, policy).
+ * Loads buyer/seller stats, policy, payments, and seller routes together on mount; the USDC balance is fetched separately once the policy (agent wallet) is known.
+ * @returns A loading skeleton until the first load finishes, then the tabbed page; the policy tab renders nothing when no policy has loaded yet.
+ * Maps to: REST GET /api/x402/stats, /api/x402/seller/stats, /api/x402/policy, /api/x402/payments, /api/x402/seller/routes, /api/x402/balance.
+ */
 export function X402Page() {
   const [stats, setStats] = useState<any>(null);
   const [sellerStats, setSellerStats] = useState<any>(null);
@@ -15,6 +21,13 @@ export function X402Page() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'buyer' | 'seller' | 'policy'>('overview');
 
+  /**
+   * Reloads x402 stats, seller stats, policy, payments, and seller routes in parallel; each may fail independently (Promise.allSettled).
+   * @returns void; a failed policy fetch leaves the previous policy (and USDC balance) in place; the whole load never throws.
+   * @throws Never — fetch errors are caught and ignored.
+   * Maps to: REST GET /api/x402/stats, /api/x402/seller/stats, /api/x402/policy, /api/x402/payments?limit=100, /api/x402/seller/routes, /api/x402/balance?wallet=...
+   * Side effects: sets stats/sellerStats/policy/payments/routes/usdcBalance/loading state.
+   */
   const fetchData = async () => {
     try {
       const [s, ss, p, pay, r] = await Promise.allSettled([
@@ -44,6 +57,14 @@ export function X402Page() {
 
   useEffect(() => { fetchData(); }, []);
 
+  /**
+   * Saves the edited x402 payment policy (wallet, session key, limits, blocked domains) to the server.
+   * @returns void; success and failure are both silent — there is no confirmation and no error message, so a failed save looks identical to a successful one.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/x402/policy.
+   * Side effects: writes the payment policy server-side.
+   * Security: the policy form can carry a session-key private key — it is sent to the server (which never returns the stored key) and must never be pasted anywhere else.
+   */
   const savePolicy = async () => {
     try {
       await postJSON('/api/x402/policy', policy);

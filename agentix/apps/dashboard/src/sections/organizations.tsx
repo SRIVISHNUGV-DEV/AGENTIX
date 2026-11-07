@@ -21,6 +21,12 @@ const LOGO_MAP: Record<string, string> = {
 
 type Tab = 'overview' | 'agents' | 'runtimes' | 'credentials' | 'sessions';
 
+/**
+ * Organizations hub: org list + pending requests on the left; the selected org's detail on the right with tabs (overview, agents, runtimes, credentials, sessions).
+ * Loads orgs, requests, harnesses, wallets, sessions, credentials, and runtimes together on mount.
+ * @returns The org hub; a loading skeleton while fetching, a "select an organization" card when none is selected.
+ * Maps to: REST GET /api/organizations, /api/organizations/requests, /api/onboarding/harnesses, /api/wallets, /api/sessions/all, /api/credentials, /api/runtimes.
+ */
 export function OrganizationsPage() {
   const { address, isConnected, openModal } = useWalletCtx();
   const [orgs, setOrgs] = useState<any[]>([]);
@@ -70,6 +76,13 @@ export function OrganizationsPage() {
 
   useEffect(() => { saveHarnessWallets(harnessWalletMap); }, [harnessWalletMap]);
 
+  /**
+   * Reloads orgs, requests, harnesses, wallets, sessions, credentials, and runtimes in parallel; each may fail independently (Promise.allSettled).
+   * @returns void; on failure logs the error and leaves previous state in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/organizations, /api/organizations/requests, /api/onboarding/harnesses, /api/wallets, /api/sessions/all, /api/credentials, /api/runtimes.
+   * Side effects: sets all page state + loading.
+   */
   const fetchAll = async () => {
     setLoading(true);
     try {
@@ -98,6 +111,13 @@ export function OrganizationsPage() {
 
   useEffect(() => { fetchAll(); }, []);
 
+  /**
+   * Submits a new organization request (name + connected owner address) and reloads on success.
+   * @returns void; no-op when the name is blank or no wallet is connected. On failure shows the error message; on success clears the form and closes the dialog.
+   * @throws Never — errors are caught into `message` state.
+   * Maps to: REST POST /api/organizations/requests.
+   * Side effects: creates a pending org request server-side; reloads all page data.
+   */
   const submitRequest = async () => {
     if (!name.trim() || !address) return;
     setSubmitting(true); setMessage(null);
@@ -109,12 +129,37 @@ export function OrganizationsPage() {
     setSubmitting(false);
   };
 
+  /**
+   * Approves a pending organization request and reloads.
+   * @param id - The request id.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/organizations/requests/:id { action: 'approve' }.
+   * Side effects: approves the request server-side; reloads all page data.
+   */
   const approveRequest = async (id: string) => { try { await postJSON(`/api/organizations/requests/${id}`, { action: 'approve' }); fetchAll(); } catch {} };
+  /**
+   * Rejects a pending organization request and reloads.
+   * @param id - The request id.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/organizations/requests/:id { action: 'reject' }.
+   * Side effects: rejects the request server-side; reloads all page data.
+   */
   const rejectRequest = async (id: string) => { try { await postJSON(`/api/organizations/requests/${id}`, { action: 'reject' }); fetchAll(); } catch {} };
 
   // Runtime CRUD
   const orgRuntimes = runtimes.filter((r: any) => r.organization_id === selectedOrg?.id);
 
+  /**
+   * Registers a model runtime (name + endpoint + model + API key) under the selected org and reloads on success.
+   * The API key is base64-encoded (btoa) before sending — that is transport encoding, not hashing or encryption, despite the field name `apiKeyHash`.
+   * @returns void; no-op when the name/endpoint is blank or no org is selected. On failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: REST POST /api/runtimes.
+   * Side effects: creates a runtime server-side; clears the form; reloads all page data.
+   * Security: the API key is only base64-encoded, not encrypted — anyone who can read the stored value can decode it.
+   */
   const addRuntime = async () => {
     if (!rtName.trim() || !rtEndpoint.trim() || !selectedOrg) return;
     try {
@@ -132,10 +177,26 @@ export function OrganizationsPage() {
     } catch (e: any) { setError(e.message); }
   };
 
+  /**
+   * Deletes a registered runtime (no confirmation dialog) and reloads.
+   * @param id - The runtime id.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST DELETE /api/runtimes { id }.
+   * Side effects: deletes the runtime server-side; reloads all page data.
+   */
   const deleteRuntime = async (id: string) => {
     try { await deleteJSON('/api/runtimes', { id }); fetchAll(); } catch {}
   };
 
+  /**
+   * Health-checks one runtime via the server and reports its status, then reloads.
+   * @param rt - The runtime row (needs id, endpoint, name).
+   * @returns void; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: REST POST /api/runtimes/health.
+   * Side effects: server-side health probe; shows a success banner with the status; reloads all page data.
+   */
   const checkRuntimeHealth = async (rt: any) => {
     try {
       const result = await postJSON<any>('/api/runtimes/health', { id: rt.id, endpoint: rt.endpoint });
@@ -150,6 +211,16 @@ export function OrganizationsPage() {
   const orgSessions = sessions;
 
   // Agent setup
+  /**
+   * Deploys an agent wallet for one harness (org-scoped variant): generates the agent keypair, deploys the ERC-4337 wallet on-chain, records the harness→wallet mapping, and shows the secret key once.
+   * Unlike the Agents page variant, this one does not pass a harnessId to the wallet creation call — the 1:1 harness binding is only the local map entry.
+   * @param harness - The harness object (needs id and name).
+   * @returns void; opens the wallet modal when not connected; refuses (with an error) when the harness already has a wallet. A user-rejected transaction (code 4001) is silently ignored.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender sendAndWaitForWalletCreation; Maps to: contract AgentWalletFactory.createWallet.
+   * Side effects: on-chain wallet deployment; writes the harness→wallet map; shows the agent secret key once.
+   * Security: the agent private key is generated client-side and shown once — losing it means losing the agent key.
+   */
   const setupAgent = async (harness: any) => {
     if (!isConnected) { openModal(); return; }
     if (harnessWalletMap[harness.id]) { setError(`${harness.name} already has a wallet`); return; }
@@ -172,6 +243,14 @@ export function OrganizationsPage() {
   };
 
   // Session creation
+  /**
+   * Creates a lightweight session for one wallet with the dialog's limits (spend/tx/expiry/allowed targets), signed by the owner.
+   * @param walletAddr - The wallet the session binds to. Note the session dialog's Create button passes orgWallets[0] — the first wallet in the list, not a wallet the user picked in the dialog.
+   * @returns void; no-op when not connected. On success shows a confirmation and reloads; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender sendCreateLightweightSession; Maps to: contract SessionManager.createLightweightSession.
+   * Side effects: owner signature + on-chain session creation; reloads all page data.
+   */
   const handleCreateSession = async (walletAddr: string) => {
     if (!isConnected) return;
     setShowCreateSession(false); setError(null); setSuccess(null);
@@ -188,6 +267,14 @@ export function OrganizationsPage() {
   };
 
   // Credential issuance
+  /**
+   * Issues a credential under the selected org for the dialog's wallet (budget/expiry from the form, 30-day unit fixed to days) and shows the issued secret once.
+   * @returns void; no-op when no wallet is chosen or no org is selected. On success closes the dialog and reloads; on failure sets the error.
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: REST POST /api/credentials.
+   * Side effects: creates a credential server-side; shows the credential secret once in the secret banner.
+   * Security: the credential secret is shown once — it is needed for ZK proof generation and cannot be recovered from the dashboard later.
+   */
   const handleIssueCred = async () => {
     if (!credWallet || !selectedOrg) return;
     setError(null); setSuccess(null);

@@ -47,6 +47,15 @@ const USDC_TRANSFER_TOPIC = ethers.id("Transfer(address indexed,address indexed,
 
 const protectedRoutes = new Map<string, X402RouteConfig>();
 
+/**
+ * Register a route pattern as paid, at a dollar price.
+ * The seller's price list: requests to the pattern get a 402 unless they carry proof of payment.
+ * @param pattern — "METHOD /path" (a trailing * matches a path prefix); `config` — price ("$0.01" or "0.01"), description, mimeType, scheme.
+ * @returns Nothing.
+ * @throws Throws when the price does not parse (parseDollarPrice).
+ * Maps to: REST — paid-route registration (called by registerDefaultPaidRoutes and the seller config endpoint).
+ * Side effects: adds the pattern to the in-memory protectedRoutes map (not persisted).
+ */
 export function protectRoute(
   pattern: string,
   config: Omit<X402RouteConfig, "priceAtomic"> & { price: string }
@@ -56,12 +65,28 @@ export function protectRoute(
   logger.info("x402-seller", `Protected route: ${pattern} at ${config.price}`);
 }
 
+/**
+ * Parse a dollar price string into USDC atomic units (6 decimals).
+ * The price normaliser for protectRoute: "$0.01" and "0.01" both mean 10000 atomic units.
+ * @param price — an optional-$ decimal string; anything else throws.
+ * @returns The price in atomic units (rounded to the nearest unit).
+ * @throws Throws `Invalid price format` for non-numeric input.
+ * Maps to: internal — protectRoute (price parsing).
+ */
 function parseDollarPrice(price: string): number {
   const match = price.match(/^\$?([\d.]+)$/);
   if (!match) throw new Error(`Invalid price format: ${price}. Use "$0.01" or "0.01"`);
   return Math.round(parseFloat(match[1]) * 10 ** 6);
 }
 
+/**
+ * Look up the paid-route config for one request (exact match first, then wildcard prefix).
+ * The gate check the server runs per request: a null result means the route is free.
+ * @param method — the HTTP method; `path` — the request path.
+ * @returns The route config, or null when the route is not protected.
+ * @throws Never throws.
+ * Maps to: internal — server request handling (402 gating in src/runtime/server.ts).
+ */
 export function getProtectedRoute(method: string, path: string): X402RouteConfig | null {
   const key = `${method} ${path}`;
   if (protectedRoutes.has(key)) return protectedRoutes.get(key)!;
@@ -76,6 +101,14 @@ export function getProtectedRoute(method: string, path: string): X402RouteConfig
 
 // ── Default Protected Routes ─────────────────────────────────────────────────
 
+/**
+ * Register the four built-in paid routes (proof verify $0.001, execute $0.005, trees export $0.002, diagnostics $0.01).
+ * No-op unless the seller is enabled in config with a seller address: an unconfigured seller must not start charging.
+ * @returns Nothing.
+ * @throws Never throws — a missing seller address only logs a warning.
+ * Maps to: REST POST /api/proofs/verify, POST /api/execute, GET /api/trees/export, GET /api/diagnostics (the protected routes).
+ * Side effects: populates the in-memory protectedRoutes map.
+ */
 export function registerDefaultPaidRoutes(): void {
   const config = loadConfig();
   if (!config.x402?.sellerEnabled) return;
@@ -116,17 +149,14 @@ export function registerDefaultPaidRoutes(): void {
 // ── On-Chain Payment Verification ────────────────────────────────────────────
 
 /**
- * Verify a payment by checking the on-chain transaction receipt.
- *
- * For ERC-4337 wallets, the payment flows:
- *   EntryPoint → AgentWallet.execute() → USDC.transfer(payTo, amount)
- *
- * We verify:
- *   1. The tx exists and succeeded
- *   2. A USDC Transfer event was emitted
- *   3. The transfer went to our payTo address
- *   4. The amount is >= required
- *   5. The sender (AgentWallet) matches the claimed wallet
+ * Verify a payment by checking the on-chain transaction receipt for a sufficient USDC transfer.
+ * Stronger than signature verification for smart-contract wallets: the transfer is already settled before the response is served.
+ * @param txHash — the claimed payment tx; `walletAddress` — the claimed payer wallet; `expectedPayTo`/`expectedAmount` — the merchant and minimum atomic amount.
+ * @param network — the eip155 id for the USDC address lookup; unknown networks fail verification.
+ * @returns { valid, payer, amount, txHash } or { valid: false, error } naming the failed check.
+ * @throws Never throws — every failure mode is a returned { valid: false }.
+ * Maps to: internal — server payment verification (on-chain proof for the 402 flow).
+ * Side effects: one getTransactionReceipt RPC call (network I/O).
  */
 export async function verifyPayment(
   txHash: string,
@@ -217,6 +247,14 @@ export async function verifyPayment(
 
 // ── HTTP Response Builders ───────────────────────────────────────────────────
 
+/**
+ * Build the 402 Payment Required response for a protected route.
+ * The response carries the payment requirements both as a base64 PAYMENT header and in the JSON body.
+ * @param method — the request method; `path` — the request path; `route` — the route's price/description.
+ * @returns { status: 402, headers, body } — maxAmountRequired is the route price in atomic units, timeout 60s.
+ * @throws Never throws.
+ * Maps to: REST — 402 responses for protected routes (x402 protocol).
+ */
 export function build402Response(
   method: string,
   path: string,
@@ -257,11 +295,12 @@ export function build402Response(
 }
 
 /**
- * Parse payment proof from request headers.
- * Supports three formats:
- *   1. Voucher (X-PAYMENT-VOUCHER) — instant local verification, batch settled later
- *   2. ERC-4337 tx hash (PAYMENT-TX-HASH) — on-chain verification
- *   3. Standard x402 (PAYMENT) — signature-based
+ * Classify the payment proof in request headers: voucher, on-chain tx hash, standard x402 signature, or none.
+ * Voucher wins over tx hash, which wins over the standard header — callers act on paymentType, not on individual headers.
+ * @param headers — the request headers (both casings are checked for each header).
+ * @returns The parsed proof fields plus paymentType ("voucher" | "onchain" | "standard" | "none").
+ * @throws Never throws.
+ * Maps to: internal — verifyVoucherPayment and server payment handling.
  */
 export function parsePaymentFromHeaders(headers: Record<string, string>): {
   txHash?: string;
@@ -298,6 +337,15 @@ export function parsePaymentFromHeaders(headers: Record<string, string>): {
 
 // ── Record Incoming ──────────────────────────────────────────────────────────
 
+/**
+ * Record a verified incoming payment in the seller ledger.
+ * Only call after verification: recording an unverified payment would inflate seller earnings.
+ * @param params — payer, amount (atomic units, string), resource, txHash (or "voucher:<nonce>" for vouchers).
+ * @returns Nothing.
+ * @throws Throws on DB failure.
+ * Maps to: internal — verifyVoucherPayment (seller-side bookkeeping).
+ * Side effects: inserts one row into x402_incoming_payments.
+ */
 export function recordIncomingPayment(params: {
   payer: string;
   amount: string;
@@ -317,6 +365,13 @@ export function recordIncomingPayment(params: {
 
 // ── Stats ────────────────────────────────────────────────────────────────────
 
+/**
+ * Summarise seller earnings: lifetime total, payment count, and top resources.
+ * Amounts are formatted dollars with 4 decimals; an empty ledger returns zeros, not an error.
+ * @returns { totalEarned, totalPayments, topResources[{ resource, total, count }] } (top 10 resources).
+ * @throws Throws on DB failure.
+ * Maps to: REST — seller stats endpoint (src/runtime/server.ts).
+ */
 export function getSellerStats(): {
   totalEarned: string;
   totalPayments: number;
@@ -341,6 +396,14 @@ export function getSellerStats(): {
   };
 }
 
+/**
+ * Format USDC atomic units as a dollar string (6 decimals, 4 shown).
+ * Display-only: never use the rounded string for on-chain amounts or limit math.
+ * @param atomicUnits — USDC atomic units (number; large values lose precision past 2^53).
+ * @returns The amount as "$X.XXXX".
+ * @throws Never throws.
+ * Maps to: internal — x402-seller logging and stats (seller display).
+ */
 function formatUsd(atomicUnits: number): string {
   return `$${(atomicUnits / 10 ** 6).toFixed(4)}`;
 }
@@ -348,9 +411,14 @@ function formatUsd(atomicUnits: number): string {
 export { protectedRoutes };
 
 /**
- * Verify a voucher payment from request headers.
- * Returns immediately if the voucher signature is valid (0ms, no on-chain call).
- * The voucher is recorded for batch settlement later.
+ * Verify a voucher payment from request headers and record it, with no on-chain call.
+ * The zero-latency seller path: signature + session-key verification happens locally, and the voucher settles later in a batch.
+ * @param headers — the request headers (must carry X-PAYMENT-VOUCHER); `route` — the protected route (price floor); `resource` — the resource being paid for.
+ * @returns { accepted, payer, amount } or { accepted: false, error } (no voucher, bad format, insufficient amount, or failed verification).
+ * @throws Never throws — all failure modes are returned.
+ * Maps to: REST — voucher-paid protected routes (server-side acceptance).
+ * Side effects: marks the nonce used and records the voucher for batch settlement; records the incoming payment.
+ * Security: acceptance requires a valid EIP-712 signature from an authorised session key — a forged voucher is rejected, not served.
  */
 export async function verifyVoucherPayment(
   headers: Record<string, string>,

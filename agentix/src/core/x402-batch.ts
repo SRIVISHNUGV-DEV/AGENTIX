@@ -55,12 +55,16 @@ const USDC_DECIMALS = 6;
 // ── Batch Payment Orchestrator ───────────────────────────────────────────────
 
 /**
- * Execute multiple paid requests in parallel with zero per-request latency.
- *
- * @param requests - List of URLs/endpoints to access
- * @param agentWallet - The agent's ERC-4337 smart contract wallet address
- * @param sessionKeyWallet - The session key (ethers.Wallet) that signs vouchers
- * @param opts - Options for risk checking and settlement
+ * Execute many paid requests in parallel with near-zero per-request latency (risk-check, preflight, sign all vouchers, fire all).
+ * The zero-latency agent path: instead of paying per request (3–5s each), all vouchers are signed locally up front and each server verifies its own.
+ * @param requests — the paid requests (url, method, headers, body, maxAmountUsd); `agentWallet` — the ERC-4337 wallet to pay from.
+ * @param sessionKeyWallet — the session key that signs the vouchers.
+ * @param opts — optional riskCheck (veto per request), maxTotalUsd, voucherExpirySeconds.
+ * @returns { totalRequests, succeeded, failed, totalPaidUsd, wallClockMs, results } — results are unordered (free results first, then paid).
+ * @throws Never throws for per-request failures (they are result entries); a riskCheck throw propagates.
+ * Maps to: REST — x402 batch endpoint (src/runtime/server.ts).
+ * Side effects: one preflight fetch per URL, voucher signing (local), one paid fetch per payable URL; settlement happens server-side later.
+ * Security: vouchers are signed with the session key — only call with a key whose session actually authorises these payments.
  */
 export async function executeBatchPaid(
   requests: PaidRequest[],
@@ -262,7 +266,13 @@ export async function executeBatchPaid(
 // ── Convenience: Single Paid Request (voucher-based) ─────────────────────────
 
 /**
- * Make a single paid request using a voucher (instant, no block wait).
+ * Make one paid request with a voucher (instant, no block wait).
+ * Thin wrapper over executeBatchPaid for the single-request case; returns the one result, not the batch summary.
+ * @param url — the resource; `agentWallet` — the ERC-4337 wallet; `sessionKeyWallet` — the voucher signer.
+ * @param opts — optional method, headers, body.
+ * @returns The single PaidRequestResult (status 0 + error when the request or its payment failed).
+ * @throws Never throws for request/payment failures (they are in the result); see executeBatchPaid.
+ * Maps to: internal — executeBatchPaid (single-request convenience).
  */
 export async function executeSinglePaid(
   url: string,
@@ -280,6 +290,14 @@ export async function executeSinglePaid(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Format USDC atomic units as a dollar string (6 decimals, 4 shown).
+ * Display-only: never use the rounded string for on-chain amounts or limit math.
+ * @param atomicUnits — USDC atomic units (number; large values lose precision past 2^53).
+ * @returns The amount as "$X.XXXX".
+ * @throws Never throws.
+ * Maps to: internal — x402-batch logging and batch totals (batch display).
+ */
 function formatUsd(atomicUnits: number): string {
   return `$${(atomicUnits / 10 ** USDC_DECIMALS).toFixed(4)}`;
 }

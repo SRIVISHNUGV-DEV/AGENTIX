@@ -45,11 +45,25 @@ const KNOWN_EVENTS: Record<string, string[]> = {
 };
 
 export class EventIndexer {
+  /**
+   * Wires the event indexer to the contract registry and the local event cache.
+   * @returns An EventIndexer ready to query; no chain calls happen here.
+   * Maps to: internal — AgentIX constructor.
+   */
   constructor(
     private readonly contracts: ContractRegistry,
     private readonly db: Database,
   ) {}
 
+  /**
+   * Fetches every event a contract emitted in a block range and stores them in the local cache.
+   * Use to backfill history after downtime; the range is inclusive and unbounded above by default (up to the latest block).
+   * @param contractName - Registry name (e.g. 'SessionManager'); @param toBlock - defaults to the current latest block.
+   * @returns The indexed events in chain order; an empty array when the range contains none.
+   * @throws When the RPC query fails (the provider error propagates).
+   * Maps to: event — every event listed in KNOWN_EVENTS (SessionCreated, WalletCreated, and the rest).
+   * Side effects: writes the events to the local DB; a very wide range can return a large payload from the RPC.
+   */
   async indexFrom(contractName: string, fromBlock: number, toBlock?: number): Promise<IndexedEvent[]> {
     const contract = this.contracts.get(contractName as any);
     const to = toBlock || await this.contracts.provider.getBlockNumber();
@@ -70,10 +84,22 @@ export class EventIndexer {
     return indexed;
   }
 
+  /**
+   * Returns the chain's current latest block number from the primary provider.
+   * The high-water mark callers use as the `toBlock` for indexFrom.
+   * @throws When the RPC call fails.
+   * Maps to: internal — EventIndexer.indexFrom.
+   */
   async getLatestBlock(): Promise<number> {
     return await this.contracts.provider.getBlockNumber();
   }
 
+  /**
+   * Maps a raw log's positional args to names using the KNOWN_EVENTS table for its event name.
+   * Unknown events fall back to arg0, arg1, ... and bigints are stringified so the result stays JSON-safe.
+   * @returns The named args object; an empty object when the log has no args.
+   * Maps to: internal — EventIndexer.indexFrom.
+   */
   private _parseEventArgs(event: any): Record<string, unknown> {
     const args: Record<string, unknown> = {};
     if (!event.args) return args;

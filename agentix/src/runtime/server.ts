@@ -54,6 +54,17 @@ const CORS_ALLOWLIST = (process.env.AGENTIX_DASHBOARD_ORIGINS || "http://localho
   .map((s) => s.trim())
   .filter(Boolean);
 
+/**
+ * Returns the CORS headers to reflect for one request, or none.
+ * Only allowlisted dashboard origins are reflected, so an arbitrary website cannot read API
+ * responses from a victim's browser; same-origin (proxied) requests need no CORS headers at all.
+ * @param req only its Origin header is read; a missing or non-allowlisted Origin yields no headers.
+ * @returns Allow-Origin/Methods/Headers + Vary: Origin for an allowlisted origin, otherwise {}.
+ * @throws Never.
+ * Maps to: REST — every route handler in this file (applied per request before dispatch).
+ * Security note: this is a browser-read control, not authentication — localhost binding alone
+ *   is not auth; state-changing routes additionally require the per-run local token (see the gate below).
+ */
 function corsHeadersFor(req: http.IncomingMessage): Record<string, string> {
   const origin = req.headers.origin;
   if (typeof origin === "string" && CORS_ALLOWLIST.includes(origin)) {
@@ -70,6 +81,18 @@ function corsHeadersFor(req: http.IncomingMessage): Record<string, string> {
 // handlers can reference it; assigned in the async bootstrap block below.
 let BOUND_PORT = PREFERRED_PORT;
 
+/**
+ * Sends a JSON response with the given HTTP status.
+ * The single response writer for the whole API, so error shapes stay uniform; it deliberately
+ * sets no CORS headers — the handler reflects the allowlisted Origin per request beforehand,
+ * instead of a blanket `Access-Control-Allow-Origin: *` on every response.
+ * @param data any JSON-serializable value; circular structures throw at stringify time.
+ * @param status HTTP status, default 200.
+ * @returns Nothing; ends the response.
+ * @throws On unserializable data (JSON.stringify) — the response is left half-written, so callers
+ *   must only pass plain JSON-safe values.
+ * Maps to: REST — every route handler in this file.
+ */
 function json(res: http.ServerResponse, data: any, status = 200) {
   // No CORS headers here by design (R-5): the request handler sets a
   // reflected allowlisted Origin per request via res.setHeader before
@@ -81,6 +104,18 @@ function json(res: http.ServerResponse, data: any, status = 200) {
   res.end(JSON.stringify(data));
 }
 
+/**
+ * Reads and JSON-parses a request body, enforcing the 1 MB size cap.
+ * The single body reader for POST/PUT routes; callers that need schema validation pass the
+ * result through validateBody next.
+ * @returns The parsed JSON value. Malformed JSON or an empty body resolves to {} (not an error),
+ *   so handlers must treat a missing field as absent, not as a parse failure.
+ * @throws Rejects with "Request body too large" (and destroys the request) once the body
+ *   exceeds MAX_BODY_SIZE (1 MB).
+ * Maps to: REST — every POST/PUT route handler in this file.
+ * Security note: the size cap bounds memory exhaustion from oversized bodies; the silent {}
+ *   fallback means validation schemas must mark required fields explicitly.
+ */
 function parseBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -101,10 +136,18 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
 }
 
 /**
- * Validate a request body against a canonical Zod schema (from packages/shared/schemas —
- * the single source of truth for HTTP-boundary shapes). On failure, writes a 400 with
- * field-level errors and returns null so the caller can early-return. On success, returns
- * the parsed/typed value.
+ * Validates a request body against a canonical Zod schema and returns the typed value.
+ * Schemas live in packages/shared/schemas, the single source of truth for HTTP-boundary shapes,
+ * so the wire shape and the service layer can never drift apart silently.
+ * @param schema the Zod schema for this route's body.
+ * @param body the already-parsed (untrusted) JSON value from parseBody.
+ * @returns The parsed/typed value on success; null on failure, after already writing a 400
+ *   with field-level errors — callers must early-return on null and not touch the body.
+ * @throws Never for validation failures (they are a 400 return); a schema bug itself would throw.
+ * Maps to: REST — every schema-validated POST/PUT route in this file (orgs, credentials, wallets,
+ *   sessions, capabilities, delegations, config, backups).
+ * Side effects: writes the 400 response itself on failure.
+ * Security note: this is the HTTP trust boundary — unvalidated fields must never reach services.
  */
 function validateBody<T>(res: http.ServerResponse, schema: ZodType<T>, body: unknown): T | null {
   const result = schema.safeParse(body);
@@ -1936,6 +1979,18 @@ const server = http.createServer(async (req, res) => {
 // close the SQLite handle so WAL is checkpointed cleanly. Without this, Ctrl+C
 // left the indexer interval dangling and the DB potentially mid-write.
 let _shuttingDown = false;
+/**
+ * Shuts the API server down gracefully on SIGINT/SIGTERM.
+ * Stops the event indexer and closes the SQLite handle so WAL is checkpointed cleanly — without
+ * this, Ctrl+C used to leave the indexer interval dangling and the DB potentially mid-write.
+ * @param signal "SIGINT" or "SIGTERM"; only used in the log line.
+ * @returns Nothing. Re-entrant-safe: a second signal while shutting down is ignored, and a
+ *   5-second force timer exits anyway if the close hangs (e.g. a stuck keep-alive socket).
+ * @throws Never — indexer, manifest, and DB teardown are each best-effort try/catch.
+ * Maps to: internal — the process SIGINT/SIGTERM handlers at the bottom of this file.
+ * Side effects: stops the indexer, clears the runtime manifest (stale port info), closes the
+ *   server and the database, then exits the process (0 on clean close, 1 on forced timeout).
+ */
 function shutdown(signal: string) {
   if (_shuttingDown) return;
   _shuttingDown = true;

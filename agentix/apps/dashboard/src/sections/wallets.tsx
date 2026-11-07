@@ -6,12 +6,24 @@ import { PageHeader, EmptyState, Badge, Button, Card, CardHeader, Table, StatusD
 import { fetchJSON, truncate, explorerAddress } from '@/lib/api';
 import { sendAndWaitForWalletCreation, getAccount } from '@/lib/tx-sender';
 
+/**
+ * Wallets page: ERC-4337 smart wallets (address, owner, deployed status) with create and a details panel for the selected row.
+ * @returns The wallets table + details card; a loading skeleton while fetching, an empty state when none exist.
+ * Maps to: REST GET /api/wallets; Maps to: lib/tx-sender sendAndWaitForWalletCreation.
+ */
 export function WalletsPage() {
   const [wallets, setWallets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<any>(null);
 
+  /**
+   * Reloads the wallet list from /api/wallets (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/wallets.
+   * Side effects: sets wallets/loading state.
+   */
   const fetchWallets = async () => {
     setLoading(true);
     try {
@@ -23,6 +35,13 @@ export function WalletsPage() {
 
   useEffect(() => { fetchWallets(); }, []);
 
+  /**
+   * Deploys a new AgentWallet for the connected owner and reloads the list.
+   * @returns void; a user rejection alerts "Transaction was rejected", other failures alert the error message.
+   * @throws Never — errors are caught and alerted.
+   * Maps to: lib/tx-sender sendAndWaitForWalletCreation; Maps to: contract AgentWalletFactory.createWallet.
+   * Side effects: on-chain wallet deployment (owner pays gas); reloads the wallet list.
+   */
   const createWallet = async () => {
     setCreating(true);
     try {

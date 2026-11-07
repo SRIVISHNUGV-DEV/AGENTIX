@@ -16,11 +16,32 @@ export interface BackupResult {
   details?: any;
 }
 
+/**
+ * SHA-256 hex digest of a file's bytes.
+ * Integrity stamp for the backup manifest, so a later restore can tell a
+ * corrupted or tampered backup file from a good one.
+ * @param filePath - Must exist and be readable; a missing file throws.
+ * @returns 64-char lowercase hex digest.
+ * @throws Throws (fs) if the file cannot be read; createBackup catches it.
+ * Maps to: internal — createBackup.
+ * Side effects: reads the whole file into memory; large files cost RAM.
+ */
 function checksumFile(filePath: string): string {
   const data = readFileSync(filePath);
   return createHash("sha256").update(data).digest("hex");
 }
 
+/**
+ * Snapshot the live DB, config and Merkle tree files into a new backup dir and record it.
+ * Call before destructive work (restore, migration, tree rebuild) so there is a
+ * point-in-time restore point; backups are cheap local copies, not archives.
+ * @param description - Optional label stored in the manifest; defaults to "Manual backup".
+ * @returns BackupResult with backupId, total size and manifest checksum; success:false + error on failure, never throws.
+ * @throws Never throws: all failures are caught and returned as success:false.
+ * Maps to: CLI 'agentix backup create' / MCP tool agentix_backup_create (dashboard-only).
+ * Side effects: creates ~/.agentix/backups/<backupId>/, copies DB/config/trees, inserts a row in the backups table.
+ * Security: the backup contains the full local DB (credential secrets included) — treat the backup dir as sensitive data.
+ */
 export async function createBackup(description?: string): Promise<BackupResult> {
   try {
     const backupId = `backup-${Date.now()}-${randomBytes(4).toString("hex")}`;
@@ -88,6 +109,15 @@ export async function createBackup(description?: string): Promise<BackupResult> 
   }
 }
 
+/**
+ * Every recorded backup, newest first.
+ * Use it to pick a restore or export target; it reads the backups table, not the disk,
+ * so a backup dir deleted by hand still shows up until its row is removed.
+ * @returns BackupResult[] (empty when none exist); a DB failure yields a single-element [{success:false, error}] array.
+ * @throws Never throws: failures are returned, not raised.
+ * Maps to: CLI 'agentix backup list'.
+ * Side effects: read-only DB query.
+ */
 export async function listBackups(): Promise<BackupResult[]> {
   try {
     const rows = runQuery<any>(
@@ -107,6 +137,17 @@ export async function listBackups(): Promise<BackupResult[]> {
   }
 }
 
+/**
+ * Overwrite the live DB, config and Merkle tree files from a backup dir.
+ * The recovery path after corruption or a bad migration — run doctor afterwards
+ * to confirm the restored state is consistent.
+ * @param backupId - Backup directory name under ~/.agentix/backups, e.g. backup-<ts>-<hex>.
+ * @returns BackupResult with details.restored on success; success:false if the backup is missing or a copy fails.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: CLI 'agentix backup restore <id>'.
+ * Side effects: DESTRUCTIVE — overwrites the live DB, config and tree files; not atomic, so a mid-restore disk failure can leave a half-restored state.
+ * Security: restores exactly what the backup contained, including since-revoked credentials — verify the backup's provenance before restoring.
+ */
 export async function restoreBackup(backupId: string): Promise<BackupResult> {
   try {
     const backupDir = join(AGENTIX_HOME, "backups", backupId);
@@ -150,6 +191,17 @@ export async function restoreBackup(backupId: string): Promise<BackupResult> {
   }
 }
 
+/**
+ * Copy a backup's manifest.json to an arbitrary path.
+ * Only the manifest is copied — the DB, config and tree files stay in the backup
+ * dir — so this alone does not migrate a backup to another machine.
+ * @param backupId - Backup directory name under ~/.agentix/backups.
+ * @param outputPath - Destination file; overwritten silently if it exists.
+ * @returns BackupResult with details.outputPath; success:false if the backup or its manifest is missing.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: CLI 'agentix backup export <id> --file <path>'.
+ * Side effects: writes outputPath (disk I/O).
+ */
 export async function exportBackup(backupId: string, outputPath: string): Promise<BackupResult> {
   try {
     const backupDir = join(AGENTIX_HOME, "backups", backupId);
@@ -168,6 +220,16 @@ export async function exportBackup(backupId: string, outputPath: string): Promis
   }
 }
 
+/**
+ * Register an exported manifest file as a local backup.
+ * Only the manifest is stored — the DB/config/tree files are NOT imported — so a
+ * restoreBackup of an imported backup finds no agentix.db to copy.
+ * @param inputPath - Path to a manifest JSON; its backupId is reused, or imported-<ts> when absent.
+ * @returns BackupResult with the (possibly new) backupId; success:false if the file is missing or the JSON is invalid.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: CLI 'agentix backup import --file <path>'.
+ * Side effects: creates ~/.agentix/backups/<backupId>/ and writes manifest.json.
+ */
 export async function importBackup(inputPath: string): Promise<BackupResult> {
   try {
     if (!existsSync(inputPath)) return { success: false, error: `File not found: ${inputPath}` };

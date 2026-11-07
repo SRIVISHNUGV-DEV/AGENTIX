@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { getContract, getReadonlyContract } from "../contracts";
+import { getContract } from "../contracts";
 import { runExecute, runSingle, runQuery } from "../core/database";
 import { logger } from "../core/logger";
 
@@ -14,6 +14,18 @@ export interface CapabilityResult {
   error?: string;
 }
 
+/**
+ * Register a named capability on-chain and mirror it in the local DB.
+ * Call when an org wants its agents' allowed actions discoverable on-chain;
+ * the capabilityId is keccak(orgId, name), so re-registering the same name
+ * overwrites the local row rather than creating a second capability.
+ * @param organizationId - Owning org id; name + description are hashed into the on-chain `hash`.
+ * @returns CapabilityResult with capabilityId, hash and txHash; success:false + error on revert or DB failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract CapabilityRegistry.registerCapability.
+ * Side effects: on-chain transaction (gas) + local DB insert; emits no local event.
+ * Security: the runtime signer pays and must be authorized to register for this org.
+ */
 export async function registerCapability(
   organizationId: string,
   name: string,
@@ -64,6 +76,16 @@ export async function registerCapability(
   }
 }
 
+/**
+ * One capability by id, from the local DB (no on-chain read).
+ * Use for display/validation; it reflects the last local mirror, so a capability
+ * revoked on-chain but not yet mirrored locally still shows active:true.
+ * @param capabilityId - keccak(orgId, name) hex id from registerCapability.
+ * @returns CapabilityResult; success:false + "Capability not found" when the id has no row.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_capability_get.
+ * Side effects: read-only DB query.
+ */
 export async function getCapability(capabilityId: string): Promise<CapabilityResult> {
   try {
     const row = runSingle<any>(
@@ -86,6 +108,14 @@ export async function getCapability(capabilityId: string): Promise<CapabilityRes
   }
 }
 
+/**
+ * All capabilities of one org, newest first, from the local DB.
+ * @param organizationId - Org whose capabilities to list; unknown orgs yield an empty list, not an error.
+ * @returns CapabilityResult[] (empty when none); a DB failure yields [{success:false, error}].
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_capability_list.
+ * Side effects: read-only DB query.
+ */
 export async function listCapabilities(organizationId: string): Promise<CapabilityResult[]> {
   try {
     const rows = runQuery<any>(
@@ -106,6 +136,16 @@ export async function listCapabilities(organizationId: string): Promise<Capabili
   }
 }
 
+/**
+ * Revoke a capability on-chain and mark it inactive locally.
+ * Revocation is on-chain first: if the transaction reverts (unknown id, wrong
+ * signer) the local row is left untouched, so the two stay in agreement.
+ * @param capabilityId - keccak(orgId, name) hex id from registerCapability.
+ * @returns CapabilityResult with active:false and txHash; success:false + error on revert or DB failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract CapabilityRegistry.revokeCapability.
+ * Side effects: on-chain transaction (gas) + local DB update.
+ */
 export async function revokeCapability(capabilityId: string): Promise<CapabilityResult> {
   try {
     const contract = getContract("CapabilityRegistry");

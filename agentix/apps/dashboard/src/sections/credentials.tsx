@@ -19,6 +19,12 @@ const FLOW_STEPS: { id: FlowStep; label: string }[] = [
   { id: 'root', label: 'Update Root' }, { id: 'session', label: 'Create Session' }, { id: 'fund', label: 'Fund Wallet' },
 ];
 
+/**
+ * Credentials page: the credential issuance wizard (wallet → credential → root proposal → ZK session → gas deposit) plus the credential list with per-row ZK-session actions and a live ETH/USD oracle card.
+ * Polls the oracle every 30s.
+ * @returns The credentials page; a loading skeleton while fetching, an empty state when no credentials exist.
+ * Maps to: REST GET /api/credentials, /api/credentials/orgs, /api/credentials/next-agent-id, /api/credentials/oracle; Maps to: lib/tx-sender (wallet/root/session/deposit flows).
+ */
 export function CredentialsPage() {
   const [credentials, setCredentials] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,13 @@ export function CredentialsPage() {
 
   const [flowState, setFlowState] = useState({ currentStep: null as FlowStep | null, completed: new Set<FlowStep>(), walletAddress: '', credentialSecret: '', credentialId: '', activeRoot: '', error: '' });
 
+  /**
+   * Reloads the price oracle (active root, ETH/USD, chain id, paused flag).
+   * @returns void; on failure stores the error message and leaves the previous oracle data in place.
+   * @throws Never — fetch errors are caught.
+   * Maps to: REST GET /api/credentials/oracle.
+   * Side effects: sets oracle/ethPrice/priceLoading/priceError state.
+   */
   const fetchOracle = async () => {
     setPriceLoading(true); setPriceError(null);
     try { const data = await fetchJSON<any>('/api/credentials/oracle'); setOracle(data); if (data.ethPrice) setEthPrice(data.ethPrice); }
@@ -45,6 +58,13 @@ export function CredentialsPage() {
     setPriceLoading(false);
   };
 
+  /**
+   * Reloads credentials, orgs, and the next agent id in parallel.
+   * @returns void; on failure logs the error and leaves previous state in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/credentials, /api/credentials/orgs, /api/credentials/next-agent-id.
+   * Side effects: sets credentials/orgs/nextAgentId/loading state.
+   */
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -65,12 +85,34 @@ export function CredentialsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  /**
+   * Marks one wizard flow step as completed in the flow state (adds it to the completed set).
+   * @param step - The FlowStep that just finished.
+   * @returns void.
+   * Maps to: internal — CredentialsPage issuance flow (handleStartFlow).
+   * Side effects: sets flowState.
+   */
   const completeFlowStep = (step: FlowStep) => {
     setFlowState(prev => { const completed = new Set(prev.completed); completed.add(step); return { ...prev, completed }; });
   };
 
+  /**
+   * Resets the issuance wizard flow state to its initial (no step, nothing completed, no error) state.
+   * @returns void.
+   * Maps to: internal — CredentialsPage issuance flow.
+   * Side effects: sets flowState.
+   */
   const resetFlow = () => setFlowState({ currentStep: null, completed: new Set(), walletAddress: '', credentialSecret: '', credentialId: '', activeRoot: '', error: '' });
 
+  /**
+   * Runs the full issuance flow: validates the form, deploys a wallet, issues the credential, proposes the new Merkle root, opens a ZK (standard) session — falling back to an owner-signed lightweight session when proving fails — and deposits gas to the EntryPoint.
+   * Each step updates the wizard progress; a root-proposal or gas-deposit failure is recorded in flowState.error but does not stop later steps, while a wallet/credential failure aborts the flow.
+   * @returns void; refuses with an alert when the wallet is not connected or the form (budget > 0, expiry > 0, org selected) is invalid. A user-rejected transaction (code 4001) is reported as "Transaction rejected".
+   * @throws Never — errors are caught into flowState.error.
+   * Maps to: lib/tx-sender sendAndWaitForWalletCreation, sendProposeRoot, sendCreateStandardSession, sendCreateLightweightSession, sendEntryPointDeposit; Maps to: REST POST /api/credentials.
+   * Side effects: up to five on-chain transactions (owner-signed); reveals the credential secret once; reloads credentials + oracle.
+   * Security: the credential secret is shown once — it is required for ZK proofs and is not recoverable later.
+   */
   const handleStartFlow = async () => {
     if (!isConnected) { alert('Connect your wallet first'); return; }
     const budget = parseFloat(form.budgetEth);
@@ -138,12 +180,29 @@ export function CredentialsPage() {
     setIssuing(false);
   };
 
+  /**
+   * Copies a credential secret to the clipboard and shows a checkmark on it for 2s.
+   * @param secret - The secret text to copy.
+   * @returns void.
+   * Failure modes: the clipboard write is unawaited, so a denied permission still shows the checkmark.
+   * Maps to: internal — CredentialsPage secret banner.
+   * Side effects: writes to the system clipboard; a 2s timer clears the copied marker.
+   * Security: copies a live credential secret to the clipboard — the clipboard is readable by other apps.
+   */
   const copySecret = (secret: string) => { navigator.clipboard.writeText(secret); setCopied(secret); setTimeout(() => setCopied(null), 2000); };
 
   // ZK session creation state (privacy USP path — proof authorizes, no owner signature)
   const [zkSessionBusy, setZkSessionBusy] = useState<number | null>(null);
   const [zkSessionMsg, setZkSessionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  /**
+   * Opens a ZK-proof-gated (standard) session for one credential row: the proof authorizes on-chain with no owner signature, and the org policy stays private.
+   * @param cred - The credential row (needs walletAddress, organizationId, agentId).
+   * @returns void; alerts when the wallet is not connected, and reports "Credential has no bound wallet" when the row has none. While one ZK session is being created, all other ZK buttons are disabled.
+   * @throws Never — errors are caught into the zkSessionMsg banner; a user rejection reports as "Transaction rejected".
+   * Maps to: lib/tx-sender sendCreateStandardSession; Maps to: contract SessionManager.createSession (Groth16 verifier + nullifier).
+   * Side effects: on-chain session creation via a relayed wallet.execute; reloads the credential list.
+   */
   const createZkSession = async (cred: any) => {
     if (!isConnected) { alert('Connect your wallet first'); return; }
     if (!cred.walletAddress) { setZkSessionMsg({ type: 'error', text: 'Credential has no bound wallet' }); return; }

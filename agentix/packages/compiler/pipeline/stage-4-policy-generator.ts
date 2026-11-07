@@ -6,8 +6,23 @@ import { generateId } from '@agentix/utils';
 import { CompilerConfig } from '../types/compilation';
 
 export class PolicyGenerator {
+  /**
+   * Build the policy generator.
+   * Why: rule generation needs the plugin registry (policy-rule plugins) and the maxPolicyRules cap from config.
+   * @param plugins - registry consulted for 'policy-rule' plugins.
+   * @param config - compiler config; maxPolicyRules bounds the emitted rule set.
+   * Maps to: internal — PipelineOrchestrator constructor.
+   */
   constructor(private plugins: PluginRegistry, private config: CompilerConfig) {}
 
+  /**
+   * Generate the policy graph for an intent: default, limit and constraint rules plus plugin rules, sorted by precedence.
+   * Why: stage 4 turns intent limits into enforceable rules before optimization — the policy graph is what the risk engine and the executor both read.
+   * @param intent - parsed intent.
+   * @returns PolicyGraph capped at maxPolicyRules, rules sorted highest-precedence first, root set to the first rule's id ('empty' when no rules exist).
+   * @throws Never; failing policy plugins are skipped.
+   * Maps to: policy rule spend-cap (value limit), time limit, target allowlist.
+   */
   async generate(intent: ParsedIntent): Promise<PolicyGraph> {
     const rules: PolicyRule[] = [];
     const maxRules = this.config.maxPolicyRules;
@@ -48,6 +63,13 @@ export class PolicyGenerator {
     };
   }
 
+  /**
+   * Emit the always-on baseline rules: intent expiry as a time limit, session intents barred from batch execution, and a system constraint pinning the normalized action.
+   * Why: these hold even when the intent carries no explicit limits — an unbounded session or a batch inside a session must never slip through.
+   * @param intent - parsed intent.
+   * @returns Default rules (possibly empty when the intent carries no expiry/session); the system mustHave rule is always present.
+   * Maps to: policy rule spend-cap (time limit) and constraint mustHave.
+   */
   private _generateDefaultRules(intent: ParsedIntent): PolicyRule[] {
     const rules: PolicyRule[] = [];
 
@@ -82,6 +104,13 @@ export class PolicyGenerator {
     return rules;
   }
 
+  /**
+   * Emit numeric limit rules from the intent: maxValue, maxGas, target allowlist, plus the system-wide batch cap of 20.
+   * Why: limits are the quantitative half of policy — they become the effectiveLimits the risk engine scores against.
+   * @param intent - parsed intent.
+   * @returns Limit rules; the count<=20 system rule is always present.
+   * Maps to: policy rule spend-cap (value/gas/target/batch limits).
+   */
   private _generateLimitRules(intent: ParsedIntent): PolicyRule[] {
     const rules: PolicyRule[] = [];
 
@@ -126,6 +155,13 @@ export class PolicyGenerator {
     return rules;
   }
 
+  /**
+   * Emit constraint/requirement rules from org membership and agent identity.
+   * Why: org-scoped and identity-bound intents carry requirements (credential version, permissions) that pure limits cannot express.
+   * @param intent - parsed intent.
+   * @returns Constraint/requirement rules; empty when the intent has neither organizationId nor identityId.
+   * Maps to: policy rule requirement (credential version / permissions).
+   */
   private _generateConstraintRules(intent: ParsedIntent): PolicyRule[] {
     const rules: PolicyRule[] = [];
 
@@ -156,6 +192,13 @@ export class PolicyGenerator {
     return rules;
   }
 
+  /**
+   * Fold the rule list into one EffectiveLimits record (first rule per field wins, rules are precedence-sorted).
+   * Why: downstream stages need a single number per limit, not a rule list — the risk engine compares value against maxValue here.
+   * @param rules - precedence-sorted rules; only limit-type rules with a known field contribute.
+   * @returns EffectiveLimits; defaults are maxValue/maxGas '0', expiry now+3600s, empty allowlist, maxBatchSize 20.
+   * Maps to: internal — PolicyGenerator.generate.
+   */
   private _computeEffectiveLimits(rules: PolicyRule[]): EffectiveLimits {
     const limits: EffectiveLimits = {
       maxValue: '0',

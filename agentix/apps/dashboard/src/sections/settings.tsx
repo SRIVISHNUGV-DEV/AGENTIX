@@ -5,6 +5,11 @@ import { Save, RotateCcw, ToggleLeft, ToggleRight, Eye, EyeOff } from 'lucide-re
 import { PageHeader, Button, Card, CardHeader, Input, Alert } from '@/components/ui';
 import { fetchJSON, putJSON, getLocalToken, setLocalToken } from '@/lib/api';
 
+/**
+ * Settings page: RPC URL, the per-run local API token, developer mode, storage paths, and the danger-zone config reset.
+ * @returns The settings page; the token field is initialized from dashboard-origin localStorage on mount.
+ * Maps to: REST GET /api/config and PUT /api/config; Maps to: internal — getLocalToken / setLocalToken (lib/api).
+ */
 export function SettingsPage() {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +22,13 @@ export function SettingsPage() {
   // read by the browser). Required for state-changing dashboard actions.
   const [localToken, setLocalTokenState] = useState('');
 
+  /**
+   * Persists (or clears) the per-run local API token from the token field into localStorage and reports the result.
+   * @returns void.
+   * Maps to: internal — setLocalToken (lib/api).
+   * Side effects: writes/removes localStorage; shows a success message.
+   * Security: the token is a bearer credential for the local API — it is stored only in this browser's localStorage.
+   */
   const saveLocalToken = () => {
     setLocalToken(localToken || null);
     setMessage({ type: 'success', text: localToken ? 'Local API token saved in this browser' : 'Local API token cleared' });
@@ -24,6 +36,13 @@ export function SettingsPage() {
 
   useEffect(() => { setLocalTokenState(getLocalToken() || ''); }, []);
 
+  /**
+   * Reloads the runtime config from /api/config into the form fields (RPC URL, developer mode).
+   * @returns void; on failure logs the error and leaves the previous config in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/config.
+   * Side effects: sets config/rpcUrl/devMode/loading state.
+   */
   const fetchConfig = async () => {
     setLoading(true);
     try {
@@ -37,6 +56,13 @@ export function SettingsPage() {
 
   useEffect(() => { fetchConfig(); }, []);
 
+  /**
+   * Saves the RPC URL to the server config and reloads it.
+   * @returns void; on failure shows the error message.
+   * @throws Never — errors are caught into `message` state.
+   * Maps to: REST PUT /api/config { rpcUrl }.
+   * Side effects: writes server config; reloads it.
+   */
   const saveConfig = async () => {
     setSaving(true); setMessage(null);
     try { await putJSON('/api/config', { rpcUrl }); setMessage({ type: 'success', text: 'Configuration saved' }); fetchConfig(); }
@@ -44,12 +70,26 @@ export function SettingsPage() {
     setSaving(false);
   };
 
+  /**
+   * Flips developer mode on the server (contract addresses/selectors/calldata visible in the UI when on) and updates the toggle.
+   * @returns void; on failure swallows the error silently — the toggle may then show the wrong state.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST PUT /api/config { developerMode }.
+   * Side effects: writes server config; sets devMode state.
+   */
   const toggleDevMode = async () => {
     const next = !devMode;
     try { await putJSON('/api/config', { developerMode: next }); setDevMode(next); setMessage({ type: 'success', text: `Developer mode ${next ? 'enabled' : 'disabled'}` }); }
     catch {}
   };
 
+  /**
+   * Resets all configuration to defaults (empty RPC URL, baseSepolia, chain 84532) after a native confirm() dialog, then reloads.
+   * @returns void; does nothing when the user cancels the confirm. On failure shows the error message.
+   * @throws Never — errors are caught into `message` state.
+   * Maps to: REST PUT /api/config.
+   * Side effects: overwrites server config with defaults; reloads it.
+   */
   const resetConfig = async () => {
     if (!confirm('Reset all configuration to defaults?')) return;
     setSaving(true); setMessage(null);

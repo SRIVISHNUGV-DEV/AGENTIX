@@ -5,11 +5,23 @@ import { HardDrive, Plus, RefreshCw, Check } from 'lucide-react';
 import { PageHeader, EmptyState, Button, Card, Table, Skeleton } from '@/components/ui';
 import { fetchJSON, postJSON } from '@/lib/api';
 
+/**
+ * Backups page: lists system backups and creates new ones.
+ * @returns The backups table; a loading skeleton while fetching, an empty state when none exist.
+ * Maps to: REST GET /api/backups and POST /api/backups.
+ */
 export function BackupsPage() {
   const [backups, setBackups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
+  /**
+   * Reloads the backup list from /api/backups (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/backups.
+   * Side effects: sets backups/loading state.
+   */
   const fetchBackups = async () => {
     setLoading(true);
     try {
@@ -21,6 +33,13 @@ export function BackupsPage() {
 
   useEffect(() => { fetchBackups(); }, []);
 
+  /**
+   * Creates a backup (description "Dashboard backup") and reloads the list.
+   * @returns void; on failure logs the error — the user gets no visible feedback, so a failed create looks like a no-op.
+   * @throws Never — errors are caught and logged.
+   * Maps to: REST POST /api/backups.
+   * Side effects: creates a server-side backup; sets creating state.
+   */
   const createBackup = async () => {
     setCreating(true);
     try { await postJSON<any>('/api/backups', { description: 'Dashboard backup' }); await fetchBackups(); }

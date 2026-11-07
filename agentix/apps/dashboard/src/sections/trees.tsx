@@ -5,15 +5,34 @@ import { TreePine, RefreshCw, Lock, Layers, Leaf } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, CardHeader, Skeleton } from '@/components/ui';
 import { fetchJSON } from '@/lib/api';
 
+/**
+ * Shortens a hash/root for display: first `chars` + … + last 6.
+ * @param s - The hash string; empty, '0', or '0x0' renders as "—".
+ * @param chars - Leading characters kept (default 12).
+ * @returns The truncated hash, or "—" for empty/zero values; unchanged when already short enough.
+ * Maps to: internal — TreesPage (roots, org ids).
+ */
 function truncateHash(s: string, chars = 12): string {
   if (!s || s === '0' || s === '0x0') return '—';
   return s.length > chars + 4 ? `${s.slice(0, chars)}...${s.slice(-6)}` : s;
 }
 
+/**
+ * Merkle Trees page (read-only): per-org active + revoked credential commitment trees (root, epoch, leaf counts, depth 20) with a leaf visualization capped at 24 icons.
+ * @returns The tree cards; a loading skeleton while fetching, an empty state when no trees are initialized.
+ * Maps to: REST GET /api/trees/all; Maps to: contract CredentialRegistry (active/revoked roots).
+ */
 export function TreesPage() {
   const [trees, setTrees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads the tree list from /api/trees/all (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/trees/all.
+   * Side effects: sets trees/loading state.
+   */
   const fetchTrees = async () => {
     setLoading(true);
     try {

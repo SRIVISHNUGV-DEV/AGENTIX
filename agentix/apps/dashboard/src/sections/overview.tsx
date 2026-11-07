@@ -8,6 +8,13 @@ import { fetchJSON } from '@/lib/api';
 
 // Navigate without prop-drilling — page.tsx listens for this custom event
 // (see the 'agentix:navigate' handler in app/page.tsx) and swaps the section.
+/**
+ * Navigates to another dashboard page without prop-drilling, by dispatching the `agentix:navigate` custom event that DashboardInner listens for.
+ * @param page - Page id (must be a key of PAGES in app/page.tsx; unknown ids are ignored by the listener).
+ * @returns void.
+ * Maps to: internal — DashboardInner (`agentix:navigate` handler in app/page.tsx).
+ * Side effects: dispatches a window CustomEvent.
+ */
 function navigate(page: string) {
   window.dispatchEvent(new CustomEvent('agentix:navigate', { detail: page }));
 }
@@ -28,6 +35,11 @@ const SERIES_TYPES: Record<string, string[]> = {
   sessions: ['SessionCreated', 'SessionUsed', 'SessionRevoked', 'LightSessionCreated', 'LightSessionUsed', 'LightSessionRevoked'],
 };
 
+/**
+ * Computes the 7-day window ending today: the start timestamp (midnight 6 days ago) and one short weekday/day label per day.
+ * @returns `{ start, labels }` where `start` is the window start in ms and `labels` has 7 entries in chronological order.
+ * Maps to: internal — OverviewPage (sparkline/activity buckets).
+ */
 function last7Days(): { start: number; labels: string[] } {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -40,6 +52,15 @@ function last7Days(): { start: number; labels: string[] } {
   return { start: startMs, labels };
 }
 
+/**
+ * Counts events into per-day buckets over a window starting at `startMs`.
+ * @param events - Raw events with a `timestamp` in seconds and a `type`.
+ * @param types - Event types to count, or null to count all types.
+ * @param startMs - Window start in ms.
+ * @param days - Number of daily buckets (default 7).
+ * @returns An array of `days` counts; events without a timestamp or outside the window are ignored.
+ * Maps to: internal — OverviewPage series/activity computation; event types come from the `SessionCreated`-style contract events.
+ */
 function bucketByDay(events: any[], types: string[] | null, startMs: number, days = 7): number[] {
   const out = new Array(days).fill(0);
   for (const e of events) {
@@ -52,12 +73,26 @@ function bucketByDay(events: any[], types: string[] | null, startMs: number, day
   return out;
 }
 
+/**
+ * Overview dashboard: four KPI cards with 7-day sparklines, the 7-day activity chart, network status, recent events, and quick-action shortcuts.
+ * Loads /api/stats and /api/events (limit 200) once on mount; either may fail independently (Promise.allSettled) and the page still renders with zeros/empty lists.
+ * @returns The overview page; while loading the KPI cards show skeletons and the chart area shows a skeleton.
+ * Maps to: REST GET /api/stats and GET /api/events?limit=200; Maps to: component StatCard, ActivityChart, Timeline.
+ */
 export function OverviewPage() {
   const [stats, setStats] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    /**
+     * WHAT: Loads the dashboard stats and the latest 200 events, each into its own state, then clears the loading spinner.
+     * WHY: The overview is the landing view — stats and events load independently so one failed fetch does not blank the other.
+     * @returns Nothing; sets stats/events only for the fetches that fulfilled.
+     * @throws Never throws — Promise.allSettled; a rejected fetch simply leaves its state empty.
+     * Maps to: REST GET /api/stats and GET /api/events?limit=200.
+     * Side effects: setState on mount only.
+     */
     async function load() {
       try {
         const [s, e] = await Promise.allSettled([
@@ -90,6 +125,12 @@ export function OverviewPage() {
     status: (e.type?.includes('Failed') || e.type?.includes('Error')) ? 'error' as const : 'info' as const,
   }));
 
+  /**
+   * Returns the 7-day series for a KPI key, or undefined when the series sums to zero — so a flat/no-history sparkline is hidden rather than faking data.
+   * @param key - Series key (organizations | credentials | wallets | sessions).
+   * @returns The number[] series, or undefined when it has no events.
+   * Maps to: internal — OverviewPage StatCards.
+   */
   const spark = (key: string) => {
     const s = series[key] || [];
     const sum = s.reduce((a, b) => a + b, 0);

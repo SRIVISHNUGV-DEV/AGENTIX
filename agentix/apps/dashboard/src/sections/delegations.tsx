@@ -5,10 +5,22 @@ import { GitBranch, RefreshCw, Shield, ShieldOff, ExternalLink } from 'lucide-re
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Skeleton } from '@/components/ui';
 import { fetchJSON, truncate, explorerAddress } from '@/lib/api';
 
+/**
+ * Delegations page: credential delegation chains (delegator, delegate, scope, active/inactive, expiry).
+ * @returns The delegations table; a loading skeleton while fetching, an empty state when none exist.
+ * Maps to: REST GET /api/delegations; Maps to: contract DelegationManager.
+ */
 export function DelegationsPage() {
   const [delegations, setDelegations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads delegations from /api/delegations (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/delegations.
+   * Side effects: sets delegations/loading state.
+   */
   const fetchDelegations = async () => {
     setLoading(true);
     try {

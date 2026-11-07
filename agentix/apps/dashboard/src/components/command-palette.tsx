@@ -9,6 +9,15 @@ interface CommandPaletteProps {
   onNavigate: (page: string) => void;
 }
 
+/**
+ * Cmd+K command palette: filters the sidebar pages by label/id and navigates on selection.
+ * @param open - Whether the palette is shown; closing also clears the query.
+ * @param onClose - Called on backdrop click, Escape, or Cmd/Ctrl+K while open.
+ * @param onNavigate - Called with the selected page id (the palette then closes itself).
+ * @returns null when closed; otherwise the modal overlay with a focused search input and the filtered page list (or a "No results" state).
+ * Maps to: component Sidebar (NAV_ITEMS is the searchable list); Maps to: internal — DashboardInner (which owns the open state).
+ * Side effects: focuses the input 50ms after opening; listens for window keydown.
+ */
 export function CommandPalette({ open, onClose, onNavigate }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -21,6 +30,13 @@ export function CommandPalette({ open, onClose, onNavigate }: CommandPaletteProp
     }
   }, [open]);
 
+  /**
+   * Global key handler for the palette: Cmd/Ctrl+K closes it when open, Escape closes it when open.
+   * Opening is owned by DashboardInner, not by this handler.
+   * @returns void.
+   * Maps to: internal — CommandPalette.
+   * Side effects: calls onClose() (and preventDefault on Cmd/Ctrl+K).
+   */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();

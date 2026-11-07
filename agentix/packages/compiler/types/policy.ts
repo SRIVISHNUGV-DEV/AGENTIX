@@ -1,6 +1,6 @@
 export interface PolicyRule {
   id: string;
-  type: 'limit' | 'constraint' | 'requirement' | 'delegation';
+  type: 'limit' | 'constraint' | 'requirement';
   source: string;
   precedence: number;
   limit?: {

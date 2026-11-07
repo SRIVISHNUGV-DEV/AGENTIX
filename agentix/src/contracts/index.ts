@@ -21,6 +21,15 @@ import { logger } from "../core/logger";
  */
 const ABI_DIR = join(__dirname, "abis");
 
+/**
+ * Reads one vendored ABI JSON from agentix/src/contracts/abis/ and parses it.
+ * The runtime reads this vendored copy, not contracts/abis/ directly: the shipped entry point runs from dist/, where the contracts tree does not exist. Re-vendor on recompile; never hand-edit ABIs here.
+ * @param name - Contract or interface name (without .json).
+ * @returns The parsed ABI array.
+ * @throws When the file is missing or its JSON is malformed.
+ * Maps to: internal — getAbi (cached loader).
+ * Side effects: disk read.
+ */
 function loadAbi(name: string): any[] {
   const p = join(ABI_DIR, `${name}.json`);
   if (!existsSync(p)) throw new Error(`ABI not found: ${name}`);
@@ -49,6 +58,13 @@ const KNOWN_ABIS = [
 
 const abiCache: Map<string, any[]> = new Map();
 
+/**
+ * Returns a cached ABI, loading it from disk on first use.
+ * The cache is process-global and never invalidated — a re-vendored ABI mid-process is not picked up until restart.
+ * @returns The ABI array (the same object on repeat calls — callers must not mutate it).
+ * @throws When the ABI file is missing or malformed (via loadAbi).
+ * Maps to: internal — getContract, getContractAt, and getAbiByName.
+ */
 function getAbi(name: string): any[] {
   if (abiCache.has(name)) return abiCache.get(name)!;
   const abi = loadAbi(name);
@@ -56,6 +72,15 @@ function getAbi(name: string): any[] {
   return abi;
 }
 
+/**
+ * Returns a contract instance at its configured proxy address, validated by the proxy guard.
+ * The address comes from the proxy guard's registry, not config — a proxy the guard does not know is refused.
+ * @param asSigner - True (default) connects the signer for writes; false connects the read-only provider.
+ * @returns The ethers Contract.
+ * @throws When the proxy guard rejects the address, or no signer is configured and asSigner is true.
+ * Maps to: contract — the named contract's functions (proxy address).
+ * Security: the proxy-guard validation is the only thing standing between a misconfigured address and a call to an arbitrary contract.
+ */
 export function getContract(name: string, asSigner = true): ethers.Contract {
   const guard = getProxyGuard();
   const address = guard.getProxyAddress(name);
@@ -67,6 +92,15 @@ export function getContract(name: string, asSigner = true): ethers.Contract {
   return new ethers.Contract(address, abi, signerOrProvider);
 }
 
+/**
+ * Returns a contract instance at an explicit address, validated by the proxy guard for the named contract.
+ * Use for per-instance contracts (a specific wallet or anchor) where the address is not the shared proxy.
+ * @param asSigner - True (default) connects the signer for writes; false connects the read-only provider.
+ * @returns The ethers Contract at the given address.
+ * @throws When the proxy guard rejects the address for this contract name.
+ * Maps to: contract — the named contract's functions at the given address.
+ * Security: the address is caller-supplied — the guard validates the shape, not that the address is the "right" instance.
+ */
 export function getContractAt(name: string, address: string, asSigner = true): ethers.Contract {
   const guard = getProxyGuard();
   const validation = guard.validate(address, name);
@@ -77,19 +111,46 @@ export function getContractAt(name: string, address: string, asSigner = true): e
   return new ethers.Contract(address, abi, signerOrProvider);
 }
 
+/**
+ * Returns a read-only contract instance at its configured proxy address.
+ * Shorthand for getContract(name, false); writes attempted on the result throw at call time.
+ * @returns The provider-bound ethers Contract.
+ * @throws When the proxy guard rejects the address.
+ * Maps to: contract — the named contract's view functions.
+ */
 export function getReadonlyContract(name: string): ethers.Contract {
   return getContract(name, false);
 }
 
+/**
+ * Returns the cached ABI for a contract or interface by name.
+ * The public name for getAbi, used by encoders that build raw calldata.
+ * @returns The ABI array (shared cached object — do not mutate).
+ * @throws When the ABI file is missing or malformed.
+ * Maps to: internal — blockchain adapter encode* functions.
+ */
 export function getAbiByName(name: string): any[] {
   return getAbi(name);
 }
 
+/**
+ * Lists every known proxy contract address from the proxy guard.
+ * @returns A name -> address map; empty when the guard knows none.
+ * Maps to: MCP tool agentix_contracts; CLI 'agentix contracts'.
+ */
 export function listContractAddresses(): Record<string, string> {
   const guard = getProxyGuard();
   return guard.listAllProxies();
 }
 
+/**
+ * Returns the AgentWallet contract instance for one specific wallet address.
+ * Shorthand for getContractAt('AgentWallet', walletAddress, asSigner).
+ * @param asSigner - True (default) connects the signer for writes; false connects the read-only provider.
+ * @returns The ethers Contract at the wallet address.
+ * @throws When the proxy guard rejects the address.
+ * Maps to: contract AgentWallet at the given wallet address.
+ */
 export function getWalletContract(walletAddress: string, asSigner = true): ethers.Contract {
   return getContractAt("AgentWallet", walletAddress, asSigner);
 }

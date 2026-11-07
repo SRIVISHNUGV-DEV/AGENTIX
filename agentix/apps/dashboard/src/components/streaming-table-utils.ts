@@ -8,6 +8,13 @@ import { useEffect, useRef, useState } from 'react';
 
 export type StatusTone = 'success' | 'error' | 'warning' | 'active' | 'info' | 'neutral';
 
+/**
+ * Tracks the OS `prefers-reduced-motion: reduce` setting, live.
+ * Why it exists: the streaming table must swap animations for instant updates when the user asks for reduced motion.
+ * @returns true when reduced motion is preferred, false otherwise (false before mount / when matchMedia is unavailable).
+ * Maps to: internal — StreamingTable and useAnimatedNumber (both suppress animation when this is true).
+ * Side effects: subscribes to the media-query `change` event; unsubscribes on unmount.
+ */
 export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -20,7 +27,14 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
-/** Tweens a number toward `value`; snaps instantly when `disabled`. */
+/**
+ * Tweens a displayed number toward `value` with a cubic ease-out over `duration`, so live numbers morph instead of jumping.
+ * @param value - The target number to display.
+ * @param opts - `disabled` snaps instantly (used under reduced motion / pause); `duration` defaults to 320ms.
+ * @returns The current (possibly mid-tween) display value; equals `value` immediately when disabled or unchanged.
+ * Maps to: internal — MorphNumber (streaming-table).
+ * Side effects: schedules/cancels requestAnimationFrame; cancels any pending frame on unmount.
+ */
 export function useAnimatedNumber(value: number, opts?: { disabled?: boolean; duration?: number }): number {
   const [display, setDisplay] = useState(value);
   const prevRef = useRef(value);
@@ -55,12 +69,25 @@ export function useAnimatedNumber(value: number, opts?: { disabled?: boolean; du
   return display;
 }
 
+/**
+ * Formats a number with en-US grouping (e.g. 1,234.5).
+ * @param n - The number to format.
+ * @param opts - `maximumFractionDigits`, defaults to 2.
+ * @returns The formatted string.
+ * Maps to: internal — MorphNumber and any numeric cell rendering.
+ */
 export function formatNumber(n: number, opts?: { maximumFractionDigits?: number }): string {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: opts?.maximumFractionDigits ?? 2,
   }).format(n);
 }
 
+/**
+ * Turns a machine status string (camelCase / snake_case / kebab-case) into a readable label.
+ * @param status - Raw status string; empty input returns "" (capitalized no-op).
+ * @returns The humanized label with the first letter capitalized.
+ * Maps to: internal — getStatusMeta.
+ */
 function humanize(status: string): string {
   return status
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -68,7 +95,13 @@ function humanize(status: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
-/** Map a status string to a tone + display label (color is never the only signal). */
+/**
+ * Maps a status string to a display label plus a tone, by keyword matching (error/fail/revok → error, pending/warn/expir → warning, active/running/live → active, success/paid/confirmed → success, info/queued/idle → info).
+ * Why it exists: status strings arrive from many sources in many casings, and the table needs one consistent tone per status.
+ * @param status - Raw status string; matched case-insensitively.
+ * @returns `{ label, tone }`; unknown statuses fall back to tone 'neutral' with the humanized label.
+ * Maps to: internal — StatusPill and statusVars.
+ */
 export function getStatusMeta(status: string): { label: string; tone: StatusTone } {
   const s = status.toLowerCase();
   if (/(error|fail|revok|refund|deactivat|denied|rejected)/.test(s)) return { label: humanize(status), tone: 'error' };
@@ -80,7 +113,12 @@ export function getStatusMeta(status: string): { label: string; tone: StatusTone
   return { label: humanize(status), tone: 'neutral' };
 }
 
-/** Soft background / text / border colors for a tone, from the Agentix theme tokens. */
+/**
+ * Returns soft background / text / border colors for a tone, derived from the Agentix theme tokens.
+ * @param tone - StatusTone; success/error/warning map to their tokens, active/info to --info, anything else to --muted-foreground.
+ * @returns `{ bg, color, border }` as hsl() strings (bg at 10% opacity, border at 25%).
+ * Maps to: internal — StatusPill, ChangePulse, ActionButtons.
+ */
 export function statusVars(tone: StatusTone): { bg: string; color: string; border: string } {
   const token =
     tone === 'success'

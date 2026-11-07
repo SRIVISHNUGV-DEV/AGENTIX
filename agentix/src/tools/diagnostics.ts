@@ -4,7 +4,6 @@ import { loadConfig, AGENTIX_HOME } from "../core/config";
 import { getDatabase } from "../core/database";
 import { getProxyGuard } from "../core/proxy-guard";
 import { runSingle, runQuery } from "../core/database";
-import { runHealthCheck } from "./health";
 
 export interface DiagnosticResult {
   success: boolean;
@@ -24,6 +23,15 @@ export interface DiagnosticItem {
   status?: "OK" | "WARNING" | "ERROR" | "INFO";
 }
 
+/**
+ * Full local diagnostics: system, configuration, contracts, database, organizations, storage.
+ * The `agentix doctor` entry point — read-only checks that never repair anything;
+ * each section reports its own items, and the caller decides what is actionable.
+ * @returns DiagnosticResult with all six sections and an ISO timestamp; success is always true (per-item statuses carry failures).
+ * @throws Never throws: section functions catch their own errors.
+ * Maps to: MCP tool agentix_diagnostics / CLI 'agentix doctor'.
+ * Side effects: read-only (DB reads, directory listings); no writes or network calls.
+ */
 export async function runDiagnostics(): Promise<DiagnosticResult> {
   const sections: DiagnosticSection[] = [];
 
@@ -41,6 +49,15 @@ export async function runDiagnostics(): Promise<DiagnosticResult> {
   };
 }
 
+/**
+ * System section: Node version, platform, arch, ~/.agentix presence and its six core subdirs.
+ * Note the section status is always "OK" — missing directories only show as
+ * WARNING items, so callers must read item statuses, not the section status.
+ * @returns DiagnosticSection named "System" with one item per check.
+ * @throws Never throws: pure filesystem/config reads.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only filesystem checks.
+ */
 function diagnoseSystem(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
 
@@ -58,6 +75,15 @@ function diagnoseSystem(): DiagnosticSection {
   return { name: "System", status: "OK", items };
 }
 
+/**
+ * Configuration section: version, chain id, network, RPC URLs and DB path from the loaded config.
+ * The section is WARNING when no RPC URL is set (items still list every value),
+ * which is the one diagnose* whose status actually reflects its items.
+ * @returns DiagnosticSection named "Configuration".
+ * @throws Throws if loadConfig() fails — runDiagnostics does not catch it.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only config read.
+ */
 function diagnoseConfiguration(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
   const config = loadConfig();
@@ -72,6 +98,15 @@ function diagnoseConfiguration(): DiagnosticSection {
   return { name: "Configuration", status: config.rpcUrl ? "OK" : "WARNING", items };
 }
 
+/**
+ * Contracts section: every proxy address from ProxyGuard plus every implementation address from config.
+ * Note the section status is always "OK" — an empty proxy list still reports OK,
+ * so callers must read the items.
+ * @returns DiagnosticSection named "Contracts" with one item per proxy (status OK) and per implementation (status INFO).
+ * @throws Throws if the proxy guard cannot be constructed.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only (proxy registry + config read).
+ */
 function diagnoseContracts(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
   const guard = getProxyGuard();
@@ -89,6 +124,15 @@ function diagnoseContracts(): DiagnosticSection {
   return { name: "Contracts", status: "OK", items };
 }
 
+/**
+ * Database section: application table list with row counts plus an integrity_check.
+ * Note the section status is always "OK" even when the DB open fails — the error
+ * is an ERROR item, so callers must read item statuses.
+ * @returns DiagnosticSection named "Database"; on DB failure it contains a single "Database Error" item.
+ * @throws Never throws: DB errors are caught into an item.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only DB queries (SELECT COUNT per table + PRAGMA integrity_check).
+ */
 function diagnoseDatabase(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
 
@@ -114,6 +158,15 @@ function diagnoseDatabase(): DiagnosticSection {
   return { name: "Database", status: "OK", items };
 }
 
+/**
+ * Organizations section: total org count plus the 10 newest orgs with their credential counts.
+ * Note the section status is always "OK" — inactive orgs only show as WARNING
+ * items, so callers must read item statuses.
+ * @returns DiagnosticSection named "Organizations"; on DB failure a single "Error" item.
+ * @throws Never throws: DB errors are caught into an item.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only DB queries.
+ */
 function diagnoseOrganizations(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
 
@@ -139,6 +192,15 @@ function diagnoseOrganizations(): DiagnosticSection {
   return { name: "Organizations", status: "OK", items };
 }
 
+/**
+ * Storage section: file counts for the eight per-entity dirs under ~/.agentix.
+ * Note the section status is always "OK" — a missing dir is an INFO item, not a
+ * warning, so a fresh install with no data reports clean.
+ * @returns DiagnosticSection named "Storage"; on filesystem failure a single "Error" item.
+ * @throws Never throws: filesystem errors are caught into an item.
+ * Maps to: internal — runDiagnostics.
+ * Side effects: read-only directory listings.
+ */
 function diagnoseStorage(): DiagnosticSection {
   const items: DiagnosticItem[] = [];
 

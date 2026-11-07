@@ -27,11 +27,14 @@ export interface GateDecision {
 }
 
 /**
- * Decode a wallet.execute(target,value,data) UserOp into a risk intent.
- * FAIL-CLOSED: an unparseable value throws, and the caller denies — the
- * pre-fix fallback to 0n turned a malformed relay body into a "free" op.
- * Token calldata is decoded (R-6) so the policy check sees the token move,
- * not just the ETH value (which is 0 for a token transfer).
+ * Decodes a wallet.execute(target, value, data) relay body into a priced risk intent.
+ * Exists so the gate prices the op in wei before any policy/risk check runs; callers
+ * must treat a throw here as DENY, never as a zero-value op.
+ * @param userOp.calldata accepted but NOT decoded here — token moves are decoded by
+ *   the caller via decodeTokenMove; passing calldata does not change this return value.
+ * @returns Wallet address, target, and value in wei. Never returns a defaulted 0 on bad input.
+ * @throws On an unparseable value (via parseValueToWei) — caller must deny the relay.
+ * Maps to: internal — assessBundlerOp (its only caller).
  */
 function decodeExecute(userOp: { sender: string; target: string; value: string; calldata?: string }): {
   walletAddress: string;
@@ -46,13 +49,20 @@ function decodeExecute(userOp: { sender: string; target: string; value: string; 
 }
 
 /**
- * Assess a session-signed UserOp against the risk engine + owner policy and
- * decide whether the relay may proceed.
- *
- * @param userOp        the { sender, target, value, calldata, sessionId } relay body
- * @param opts.ownerApprovalAttestation  optional owner EIP-191 signature over the
- *        userOpHash. When the risk decision is REVIEW/CHALLENGE, a valid owner
- *        attestation upgrades it to allowed (step-up). DENY is never overridable.
+ * Assesses a session-signed UserOp against owner policy + the risk engine and decides if the relay may proceed.
+ * The last safety check before on-chain execution on the bundler path — without it an agent could
+ * bypass every gateway control by calling the relay directly. Fail-closed throughout: any
+ * unparseable input, unknown/revoked/expired session, policy failure, or risk-engine error denies.
+ * @param userOp.sessionId optional; when present it must resolve to a live, unrevoked, unexpired session.
+ * @param opts.ownerApprovalAttestation owner EIP-191 signature over userOpHash; upgrades REVIEW/CHALLENGE
+ *   to allowed (step-up). DENY is never overridable by it.
+ * @param opts.userOpHash required alongside the attestation — without it the attestation is ignored.
+ * @returns A GateDecision; allowed=false with decision DENY (score 95–100) on every fail-closed path.
+ * @throws Never throws for a denied op (denials are returned); unexpected DB errors surface as a DENY return, not a throw.
+ * Maps to: REST POST /api/bundler/send (its only caller, the relay gate).
+ * Side effects: reads sessions/wallets rows and the owner policy; dynamically imports the risk engine per call.
+ * Security note: fail-closed gate on a value-transfer path; session existence is not oracled — identity is
+ *   checked by the /api/bundler/send handler before this runs. Attestations must be domain-separated per caller.
  */
 export async function assessBundlerOp(
   userOp: { sender: string; target: string; value: string; calldata?: string; sessionId?: string },
@@ -203,12 +213,16 @@ export async function assessBundlerOp(
 }
 
 /**
- * Verify that `signature` is a valid EIP-191 signature over `message` by the
- * wallet's registered owner (wallets table). Shared by the bundler step-up
- * path (message = userOpHash bytes) and the MCP plan-approval path (message
- * = a domain-separated plan-approval string) — one owner-attestation check,
- * not one per surface. Callers MUST domain-separate their messages: a plan
- * attestation must never verify as a bundler attestation or vice versa.
+ * Verifies an EIP-191 signature over a message came from a wallet's registered owner.
+ * One shared owner-attestation check for the bundler step-up path (message = userOpHash bytes)
+ * and the MCP plan-approval path — so a caller never re-implements owner recovery.
+ * @param message raw bytes that were signed; callers MUST domain-separate it — a plan attestation
+ *   must never verify as a bundler attestation or vice versa.
+ * @returns True only if the wallet has a registered owner and the recovered signer matches it (case-insensitive).
+ * @throws Never — any lookup, recovery, or malformed-signature failure returns false.
+ * Maps to: internal — assessBundlerOp (step-up) and the MCP plan-approval path.
+ * Security note: returns false (not an error) for unregistered wallets; never accept a recovered
+ *   signer without comparing it to the stored owner.
  */
 export function verifyOwnerSignature(walletAddress: string, message: Uint8Array, signature: string): boolean {
   try {

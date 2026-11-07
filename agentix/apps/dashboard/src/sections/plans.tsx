@@ -54,11 +54,23 @@ const DECISION_COLORS: Record<string, string> = {
   DENY: 'bg-red-600/10 text-red-600',
 };
 
+/**
+ * Execution Plans page: compiler-pipeline output — every intent becomes a plan with risk score/category, decision, confidence, top drivers, controls, explanation, and status; plans awaiting approval can be approved here.
+ * @returns The plans list (filtered by status tab); a loading skeleton while fetching, an empty state when no plans match.
+ * Maps to: REST GET /api/plans and POST /api/plans/approve; Maps to: policy — risk decision / controls shown per plan.
+ */
 export function PlansPage() {
   const [plans, setPlans] = useState<ExecutionPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('');
 
+  /**
+   * Reloads execution plans, filtered by the current status tab (no status param means all).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/plans[?status=...].
+   * Side effects: sets plans/loading state.
+   */
   const fetchPlans = async () => {
     setLoading(true);
     try {
@@ -71,6 +83,15 @@ export function PlansPage() {
 
   useEffect(() => { fetchPlans(); }, [filter]);
 
+  /**
+   * Approves one plan awaiting approval and reloads the list.
+   * There is no reject action in this UI — approval is the only plan decision available here.
+   * @param planId - The plan to approve.
+   * @returns void; on failure logs the error with no user feedback (the plan stays APPROVAL_REQUIRED).
+   * @throws Never — errors are caught and logged.
+   * Maps to: REST POST /api/plans/approve.
+   * Side effects: approves the plan server-side; reloads the list.
+   */
   const handleApprove = async (planId: string) => {
     try {
       await postJSON('/api/plans/approve', { planId });

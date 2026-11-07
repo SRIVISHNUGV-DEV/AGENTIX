@@ -53,6 +53,13 @@ interface ContractEntry {
   iface: ethers.Interface;
 }
 
+/**
+ * Build the list of contracts to index from config (address + ABI per contract).
+ * Contracts with no address or an unloadable ABI are skipped with a warning, not a crash.
+ * @returns The indexable contracts; [] when none are configured.
+ * @throws Never throws — per-contract failures are logged and skipped.
+ * Maps to: internal — runIndexer / reindexFromBlock (the scan set).
+ */
 function getIndexedContracts(): ContractEntry[] {
   const config = loadConfig();
   const entries: ContractEntry[] = [];
@@ -82,6 +89,14 @@ function getIndexedContracts(): ContractEntry[] {
   return entries;
 }
 
+/**
+ * Return the last fully-indexed block for a contract, never below the genesis floor.
+ * The resume point for the next scan: indexing always continues from checkpoint + 1.
+ * @param contractName — the contract key; unknown contracts start at GENESIS_BLOCK.
+ * @returns The checkpoint block (floored at GENESIS_BLOCK, 43,500,000).
+ * @throws Never throws — a missing row reads as 0 and is floored.
+ * Maps to: internal — runIndexer / reindexFromBlock (scan start).
+ */
 function getCheckpoint(contractName: string): number {
   const row = runSingle<{ last_block: number }>(
     "SELECT last_block FROM indexer_checkpoints WHERE contract_name = ?",
@@ -91,6 +106,15 @@ function getCheckpoint(contractName: string): number {
   return Math.max(row?.last_block || 0, GENESIS_BLOCK);
 }
 
+/**
+ * Advance a contract's checkpoint to a block that is fully indexed.
+ * Only call with the contiguous frontier from indexContract — checkpointing past a failed range would lose events silently.
+ * @param contractName — the contract key; `blockNumber` — the highest fully-indexed block.
+ * @returns Nothing.
+ * @throws Throws on DB failure; callers must not treat the scan as checkpointed then.
+ * Maps to: internal — runIndexer / reindexFromBlock (checkpoint advance).
+ * Side effects: upserts one row in indexer_checkpoints.
+ */
 function setCheckpoint(contractName: string, blockNumber: number): void {
   runExecute(
     `INSERT INTO indexer_checkpoints (contract_name, last_block, processed_at)
@@ -100,6 +124,15 @@ function setCheckpoint(contractName: string, blockNumber: number): void {
   );
 }
 
+/**
+ * Persist one decoded event, deduplicated on (tx_hash, log_index).
+ * Re-polling an overlapping range is a no-op: duplicates are detected up front and INSERT OR IGNORE backs that up.
+ * @param params — the event (contract, address, name, block, tx hash, log index, args, timestamp).
+ * @returns True when a new row was stored; false for duplicates or any store failure.
+ * @throws Never throws — failures are logged as warnings and return false.
+ * Maps to: internal — processLogs (the only caller).
+ * Side effects: inserts one row into indexed_events when new.
+ */
 function storeEvent(params: {
   contractName: string;
   contractAddress: string;
@@ -141,10 +174,14 @@ function storeEvent(params: {
   }
 }
 
-/** True when an eth_getLogs failure is a range cap (splitting can help),
- * as opposed to any other RPC/chain error (splitting cannot). Covers the
- * observed public-RPC form (-32614 "eth_getLogs is limited to a 200 range")
- * and generic "too large"/"limit" wordings. */
+/**
+ * Decide whether an eth_getLogs failure is a range cap (splitting can help) or something else (it cannot).
+ * Matches the observed public-RPC form (-32614 "limited to a 200 range") and generic limit/too-large wordings.
+ * @param e — the thrown error, in ethers or raw RPC shape.
+ * @returns True when the error looks like a range cap; false otherwise.
+ * @throws Never throws.
+ * Maps to: internal — queryLogsWithSplitRetry (split-or-throw decision).
+ */
 function isRangeLimitError(e: any): boolean {
   const codes = [e?.code, e?.error?.code];
   if (codes.includes(-32614) || codes.includes("-32614")) return true;
@@ -158,11 +195,14 @@ export interface LogProvider {
 }
 
 /**
- * Fetch one range, splitting it in half on range-cap errors until it
- * succeeds or reaches a single block. A single-block range that still fails
- * throws: the caller must then STOP and surface the error, never skip past
- * the failed range (a skipped range is lost event history, silently).
- * Non-range errors throw immediately — retrying them by splitting is futile.
+ * Fetch logs for one range, splitting it in half on range-cap errors until it succeeds or reaches a single block.
+ * A single-block range that still fails throws: the caller must stop and surface it, never skip past the range.
+ * @param provider — the log source; `address` — the contract to query; `topics` — the event topic hashes.
+ * @param fromBlock — first block; `toBlock` — last block (inclusive).
+ * @returns The logs for the whole range, in order.
+ * @throws Throws the original error for non-range failures and for single-block ranges that still fail.
+ * Maps to: internal — indexContract (chunk fetching).
+ * Side effects: one or more eth_getLogs RPC calls (network I/O).
  */
 export async function queryLogsWithSplitRetry(
   provider: LogProvider,
@@ -183,8 +223,15 @@ export async function queryLogsWithSplitRetry(
   }
 }
 
-/** Parse + store one batch of logs. Returns the number of events stored
- * (duplicates and unparsable logs are not counted). */
+/**
+ * Parse one batch of logs and store the decodable events.
+ * Unparsable logs and per-log failures are skipped silently; the count is events actually stored, not logs seen.
+ * @param contract — the contract (ABI for parsing); `logs` — raw logs; `provider` — for per-log block timestamps.
+ * @returns The number of events stored (duplicates and unparsable logs are not counted).
+ * @throws Never throws — per-log errors are swallowed.
+ * Maps to: internal — indexContract (per-chunk processing).
+ * Side effects: inserts rows into indexed_events; one eth_getBlock call per log (best-effort).
+ */
 async function processLogs(contract: ContractEntry, logs: any[], provider: LogProvider): Promise<number> {
   let stored = 0;
   for (const log of logs) {
@@ -230,6 +277,15 @@ export interface IndexContractResult {
   errors: string[];
 }
 
+/**
+ * Index one contract over a block range in 200-block chunks, stopping at the first chunk that cannot be fetched.
+ * The frontier rule is the point: lastBlock is the highest block such that every block up to it is fully indexed, so a failed range is retried, never skipped.
+ * @param contract — the contract to scan; `fromBlock`/`toBlock` — inclusive range.
+ * @returns { lastBlock, eventsStored, errors } — lastBlock is fromBlock - 1 when the first chunk failed.
+ * @throws Never throws — chunk failures are collected in errors and stop the scan.
+ * Maps to: event — the contract's indexed events (SessionCreated, WalletCreated, ActiveRootUpdated, …).
+ * Side effects: eth_getLogs RPC calls and indexed_events inserts.
+ */
 async function indexContract(contract: ContractEntry, fromBlock: number, toBlock: number): Promise<IndexContractResult> {
   const provider = getProvider();
 
@@ -274,6 +330,14 @@ let _lastRun = 0;
 /** Cumulative EVENTS stored by runIndexer/reindexFromBlock (not blocks scanned). */
 let _totalIndexed = 0;
 
+/**
+ * Run one incremental indexing pass: each contract from its checkpoint + 1 to the chain head.
+ * Re-entrancy-guarded (returns an "Already running" error while a pass is in flight) and first-run-capped to 200k blocks behind head.
+ * @returns { indexed, contracts, errors } — indexed counts events stored, not blocks scanned.
+ * @throws Never throws — per-contract and top-level failures are collected in errors.
+ * Maps to: internal — startIndexer poll loop (runs every 30s) and the initial run at startup.
+ * Side effects: eth_getLogs RPC calls, indexed_events inserts, checkpoint advances.
+ */
 export async function runIndexer(): Promise<{ indexed: number; contracts: number; errors: string[] }> {
   if (_running) return { indexed: 0, contracts: 0, errors: ["Already running"] };
   _running = true;
@@ -325,10 +389,13 @@ export async function runIndexer(): Promise<{ indexed: number; contracts: number
 }
 
 /**
- * Re-index from a specific block number. Useful for:
- * - Recovering lost data after database deletion
- * - Re-scanning after contract upgrades
- * - Filling gaps in event history
+ * Re-index every contract from a given block (recovery after DB loss, or re-scan after a contract upgrade).
+ * Resets each checkpoint to fromBlock - 1 first, so a failed first chunk leaves the checkpoint there for a later retry.
+ * @param fromBlock — the block to restart from; values below GENESIS_BLOCK are clamped up to it.
+ * @returns { indexed, contracts, errors } — same shape as runIndexer.
+ * @throws Never throws — per-contract failures are collected in errors; returns "Already running" while a pass is in flight.
+ * Maps to: internal — indexContract (manual re-scan driver).
+ * Side effects: eth_getLogs RPC calls, indexed_events inserts, checkpoint resets/advances.
  */
 export async function reindexFromBlock(fromBlock: number): Promise<{ indexed: number; contracts: number; errors: string[] }> {
   if (_running) return { indexed: 0, contracts: 0, errors: ["Already running"] };
@@ -378,12 +445,12 @@ export async function reindexFromBlock(fromBlock: number): Promise<{ indexed: nu
 }
 
 /**
- * Reproduce local state from indexed on-chain events.
- * This rebuilds credentials, sessions, wallets, and organizations from
- * the event history stored in indexed_events table.
- * 
- * Use case: If the local database is corrupted or deleted, this function
- * can reconstruct the essential state from on-chain events.
+ * Rebuild wallets, sessions, organizations, and credential roots from the indexed on-chain events.
+ * Disaster recovery: when the local DB is corrupted or deleted, the event history is the source of truth for these tables.
+ * @returns { wallets, sessions, credentials, organizations, errors } — counts are rows inserted (INSERT OR IGNORE), not events read.
+ * @throws Never throws — per-event failures are collected in errors.
+ * Maps to: event — WalletCreated / SessionCreated / OrganizationRegistered / ActiveRootUpdated (replayed from indexed_events).
+ * Side effects: inserts rows into wallets, sessions, organizations, credential_roots.
  */
 export async function reproduceLocalState(): Promise<{
   wallets: number;
@@ -493,6 +560,14 @@ export async function reproduceLocalState(): Promise<{
   return { wallets, sessions, credentials, organizations, errors };
 }
 
+/**
+ * Start the event indexer: one immediate pass, then a poll every 30s.
+ * Idempotent — a second call while the timer exists does nothing.
+ * @returns Nothing.
+ * @throws Never throws — run failures are logged by the poll handler, not raised.
+ * Maps to: internal — runtime startup (the indexer runs for the life of the server).
+ * Side effects: starts a 30s interval timer; triggers an immediate runIndexer pass.
+ */
 export function startIndexer(): void {
   if (_timer) return;
   logger.info("event-indexer", `Starting event indexer (poll every ${POLL_INTERVAL_MS / 1000}s)`);
@@ -505,6 +580,14 @@ export function startIndexer(): void {
   }, POLL_INTERVAL_MS);
 }
 
+/**
+ * Stop the indexer's poll timer (a pass already in flight runs to completion).
+ * Call at graceful shutdown so the process can exit.
+ * @returns Nothing; a no-op when the indexer was never started.
+ * @throws Never throws.
+ * Maps to: internal — graceful shutdown (counterpart of startIndexer).
+ * Side effects: clears the interval timer.
+ */
 export function stopIndexer(): void {
   if (_timer) {
     clearInterval(_timer);
@@ -513,10 +596,25 @@ export function stopIndexer(): void {
   }
 }
 
+/**
+ * Report the indexer's current state for health checks and the dashboard.
+ * `running` means a pass is in flight right now; `totalIndexed` is cumulative events stored since process start.
+ * @returns { running, lastRun, totalIndexed } — lastRun is a Date.now() ms timestamp (0 when never run).
+ * @throws Never throws.
+ * Maps to: internal — health/diagnostics consumers (MCP agentix_stats / agentix_diagnostics surface).
+ */
 export function getIndexerStatus(): { running: boolean; lastRun: number; totalIndexed: number } {
   return { running: _running, lastRun: _lastRun, totalIndexed: _totalIndexed };
 }
 
+/**
+ * Query stored indexed events with optional filters, newest first.
+ * The read API over the event history the indexer built; pagination is limit/offset over block-descending order.
+ * @param filters — contractName, eventName, fromBlock/toBlock, limit (default 100), offset (default 0).
+ * @returns The matching rows (raw DB rows, args as a JSON string); [] when nothing matches.
+ * @throws Throws on DB/SQL failure.
+ * Maps to: internal — dashboard / diagnostics event views (indexed_events read path).
+ */
 export function getIndexedEvents(filters: {
   contractName?: string;
   eventName?: string;
@@ -555,6 +653,13 @@ export function getIndexedEvents(filters: {
   return runQuery(sql, ...params);
 }
 
+/**
+ * Summarise the indexed event store: counts per contract, per event type, and in total.
+ * Cheap aggregation for the dashboard; returns zeros (not an error) when the store is empty.
+ * @returns { contracts, total, eventTypes } — all counts are numbers, empty maps when no events exist.
+ * @throws Throws on DB/SQL failure.
+ * Maps to: internal — dashboard / diagnostics event views (indexed_events stats).
+ */
 export function getIndexedEventStats(): { contracts: Record<string, number>; total: number; eventTypes: Record<string, number> } {
   const contractRows = runQuery<{ contract_name: string; count: number }>(
     "SELECT contract_name, COUNT(*) as count FROM indexed_events GROUP BY contract_name"

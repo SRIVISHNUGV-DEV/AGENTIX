@@ -31,6 +31,13 @@ interface WizardState {
   isProcessing: boolean;
 }
 
+/**
+ * Onboarding wizard: a 9-step full-screen flow (welcome → diagnostics → harnesses → wallet → runtime → configure → database → services → ready) shown when the runtime is uninitialized.
+ * Steps advance via onComplete or the Continue button; the last step's button marks onboarding done and navigates to "/".
+ * @returns The wizard shell with the current step's content and a progress bar; nothing else on the page while it is shown.
+ * Maps to: component StepContent (all step components in this file); Maps to: internal — DashboardInner (which decides when to show it).
+ * Side effects: writes `agentix_onboarding_done` to localStorage and navigates to "/" on completion.
+ */
 export function OnboardingWizard() {
   const [state, setState] = useState<WizardState>({
     currentStep: 0,
@@ -41,6 +48,12 @@ export function OnboardingWizard() {
 
   const currentStep = STEPS[state.currentStep];
 
+  /**
+   * Advances the wizard one step, marking the current step completed; clamps at the last step.
+   * @returns void.
+   * Maps to: internal — OnboardingWizard.
+   * Side effects: sets wizard state.
+   */
   const nextStep = useCallback(() => {
     setState((prev) => {
       const next = new Set<number>();
@@ -54,6 +67,12 @@ export function OnboardingWizard() {
     });
   }, []);
 
+  /**
+   * Goes back one wizard step; clamps at the first step. Completed marks are kept.
+   * @returns void.
+   * Maps to: internal — OnboardingWizard.
+   * Side effects: sets wizard state.
+   */
   const prevStep = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -61,6 +80,12 @@ export function OnboardingWizard() {
     }));
   }, []);
 
+  /**
+   * Finishes onboarding: records `agentix_onboarding_done` and navigates to the dashboard root.
+   * @returns void.
+   * Maps to: internal — OnboardingWizard (last-step button).
+   * Side effects: writes localStorage and sets window.location.href to "/".
+   */
   const goToDashboard = () => {
     localStorage.setItem('agentix_onboarding_done', 'true');
     if (typeof window !== "undefined") {
@@ -126,6 +151,15 @@ export function OnboardingWizard() {
   );
 }
 
+  /**
+   * Renders the content component for the current wizard step id.
+   * @param step - The current WizardStep (id selects the component).
+   * @param state - The shared wizard state (passed to steps that need it).
+   * @param setState - Wizard state setter (passed through; ConfigureStep accepts it but never calls it).
+   * @param onComplete - Advances the wizard; passed to the auto-advancing steps.
+   * @returns The step component, or null for an unknown step id.
+   * Maps to: internal — OnboardingWizard; the step components in this file.
+   */
 function StepContent({
   step,
   state,
@@ -161,6 +195,11 @@ function StepContent({
   }
 }
 
+/**
+ * Wizard welcome step: a static grid of the six headline features plus a one-line description.
+ * @returns The welcome content (no interaction; Continue advances).
+ * Maps to: internal — StepContent.
+ */
 function WelcomeStep() {
   return (
     <div className="text-center space-y-6">
@@ -178,6 +217,14 @@ function WelcomeStep() {
   );
 }
 
+/**
+ * Wizard diagnostics step: fetches /api/onboarding/diagnostics and shows each check as pass/warn/fail, then auto-advances.
+ * @param onComplete - Called after the checks resolve (or after the fallback is applied).
+ * @returns The checks list.
+ * Failure modes: when the diagnostics route fails, every check is shown as "pass" with hardcoded details — a failed backend looks healthy here, so treat a green diagnostics step as unconfirmed unless the API is known-up.
+ * Maps to: REST GET /api/onboarding/diagnostics.
+ * Side effects: fetches on mount; calls onComplete once.
+ */
 function DiagnosticsStep({ onComplete }: { onComplete: () => void }) {
   const [checks, setChecks] = useState<{ name: string; status: "pending" | "running" | "pass" | "fail" | "warn"; detail: string }[]>([
     { name: "Node.js", status: "pending", detail: "" },
@@ -189,6 +236,14 @@ function DiagnosticsStep({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Fetches the diagnostics checklist from the API and maps it into step state, then advances the wizard.
+     * WHY: The diagnostics step shows live backend checks, not hardcoded rows — but when the API is unreachable or returns nothing, it falls back to a hardcoded all-pass list, so a dead backend looks healthy (known fail-open; see the step's report).
+     * @returns Nothing; updates the checks state and calls onComplete() unless unmounted.
+     * @throws Never throws — fetch failures are caught and replaced by the hardcoded all-pass fallback.
+     * Maps to: REST GET /api/onboarding/diagnostics.
+     * Side effects: setState; no-op after unmount via the `cancelled` flag.
+     */
     async function run() {
       try {
         const result = await fetchJSON<any>("/api/onboarding/diagnostics");
@@ -243,12 +298,29 @@ function DiagnosticsStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+/**
+ * Wizard harness-detection step: scans for AI harnesses via /api/onboarding/harnesses and lists detected/connected state, with a manual skip link.
+ * Does not auto-advance — the user continues (or skips) manually.
+ * @param onComplete - Called only from the "Skip" link.
+ * @returns A spinner while scanning, then the harness list and detected/connected counts.
+ * Failure modes: when the route fails, a hardcoded all-undetected list is shown, so "none found" may mean "backend unreachable" rather than "no harnesses installed".
+ * Maps to: REST GET /api/onboarding/harnesses.
+ * Side effects: fetches on mount.
+ */
 function HarnessStep({ onComplete }: { onComplete: () => void }) {
   const [harnesses, setHarnesses] = useState<{ name: string; detected: boolean; connected: boolean }[]>([]);
   const [scanning, setScanning] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Fetches the detected harness adapters from the API and maps them into step state, then clears the spinner.
+     * WHY: The harness step lists what the backend actually found (Claude Code, MimoCode, …), so the user links a wallet to a real harness — an empty or failed response falls back to a hardcoded all-undetected list.
+     * @returns Nothing; updates the harnesses state and clears `scanning` unless unmounted.
+     * @throws Never throws — fetch failures are caught and replaced by the hardcoded fallback list.
+     * Maps to: REST GET /api/onboarding/harnesses.
+     * Side effects: setState; no-op after unmount via the `cancelled` flag.
+     */
     async function scan() {
       try {
         const result = await fetchJSON<any>("/api/onboarding/harnesses");
@@ -327,6 +399,11 @@ function HarnessStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+/**
+ * Wizard wallet step: shows the connected address, or a Connect Wallet button. Optional — the user can skip it and add a wallet later.
+ * @returns The wallet card (connected state or connect button).
+ * Maps to: component useWalletCtx (web3modal-provider).
+ */
 function WalletStep() {
   const { address, connecting, openModal } = useWalletCtx();
   return (
@@ -358,6 +435,14 @@ function WalletStep() {
   );
 }
 
+/**
+ * Wizard runtime step: animates five setup tasks (directories, database, event bus, tool registry, contracts) with fake ~300–700ms delays each, then auto-advances.
+ * The tasks are a visual progress display — no real initialization happens here; the actual init is server-side.
+ * @param onComplete - Called after the last task is marked done.
+ * @returns The task list with per-task status icons.
+ * Maps to: internal — StepContent.
+ * Side effects: timers; calls onComplete once.
+ */
 function RuntimeStep({ onComplete }: { onComplete: () => void }) {
   const [tasks, setTasks] = useState<{ name: string; status: "pending" | "running" | "done" | "fail" }[]>([
     { name: "Creating directories", status: "pending" },
@@ -369,6 +454,14 @@ function RuntimeStep({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Steps through the init task list, marking each "running" then "done", then advances the wizard.
+     * WHY: Gives the user visible progress while the runtime initializes; the pacing is simulated (300–700 ms per task), not measured.
+     * @returns Nothing; calls onComplete() once every task is marked done.
+     * @throws Never throws — no I/O, only timers.
+     * Maps to: internal — RuntimeStep onboarding sequence.
+     * Side effects: setState + timers; stops early if unmounted (`cancelled`).
+     */
     async function run() {
       for (let i = 0; i < tasks.length; i++) {
         if (cancelled) return;
@@ -394,12 +487,27 @@ function RuntimeStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+/**
+ * Wizard configure step: network + RPC endpoint form, saved via PUT /api/config.
+ * @param setState - Wizard state setter; accepted but never used by this step (the step does not advance itself — Continue does).
+ * @returns The network/RPC form with a Save button ("Saved!" on success).
+ * Failure modes: a failed save only logs to the console — the button returns to "Save Configuration" with no visible error.
+ * Maps to: REST PUT /api/config.
+ * Side effects: writes server config on save.
+ */
 function ConfigureStep({ setState }: { setState: React.Dispatch<React.SetStateAction<WizardState>> }) {
   const [network, setNetwork] = useState("baseSepolia");
   const [rpcUrl, setRpcUrl] = useState("https://sepolia.base.org");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  /**
+   * Saves the chosen network + RPC URL to the server config.
+   * @returns void; on failure logs the error and leaves `saved` false (no user-visible error).
+   * @throws Never — errors are caught and logged.
+   * Maps to: REST PUT /api/config.
+   * Side effects: writes server config; sets saving/saved state.
+   */
   const save = async () => {
     setSaving(true);
     try {
@@ -445,9 +553,25 @@ function ConfigureStep({ setState }: { setState: React.Dispatch<React.SetStateAc
   );
 }
 
+/**
+ * Wizard database step: waits ~800ms, pings /api/onboarding/status (result ignored), then shows "Database ready — 16 tables created" and auto-advances.
+ * The "16 tables" text is hardcoded — it is not read from the server response.
+ * @param onComplete - Called after the delay regardless of whether the status ping succeeded.
+ * @returns The spinner / ready indicator.
+ * Maps to: REST GET /api/onboarding/status (liveness ping only).
+ * Side effects: timer; calls onComplete once.
+ */
 function DatabaseStep({ onComplete }: { onComplete: () => void }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    /**
+     * WHAT: Pings the backend status endpoint, then marks the database step ready and advances the wizard.
+     * WHY: The step is a liveness gate — a failed ping must not block onboarding, so the failure is swallowed and the step still completes.
+     * @returns Nothing; sets ready and calls onComplete() even when the ping fails.
+     * @throws Never throws — the fetch failure is caught and ignored.
+     * Maps to: REST GET /api/onboarding/status (liveness ping only).
+     * Side effects: timer (800 ms); calls onComplete once.
+     */
     async function check() {
       try {
         await fetchJSON("/api/onboarding/status");
@@ -471,10 +595,26 @@ function DatabaseStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+/**
+ * Wizard services step: discovers the API port (via /api/runtime-info, falling back to 0 = "auto"), then lists the API Server and Dashboard as starting → running with staged delays, and auto-advances.
+ * The "running" state is timed, not probed — it does not verify the services are actually up.
+ * @param onComplete - Called after the staged sequence completes.
+ * @returns The service list (empty until the first service is discovered).
+ * Maps to: REST GET /api/runtime-info (and GET /api/health as a fallback probe whose result is ignored).
+ * Side effects: timers; calls onComplete once.
+ */
 function ServicesStep({ onComplete }: { onComplete: () => void }) {
   const [services, setServices] = useState<{ name: string; port: number; status: "starting" | "running" }[]>([]);
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Discovers the API server's real port, lists the API + Dashboard services, flips them to "running", then advances the wizard.
+     * WHY: The API port is not always the default (3001 may have been busy), so the step probes /api/runtime-info and falls back to port 0 ("auto").
+     * @returns Nothing; calls onComplete() after the staged service list is shown.
+     * @throws Never throws — fetch failures fall back to the /api/health probe, then to port 0.
+     * Maps to: REST GET /api/runtime-info (and GET /api/health as a fallback probe).
+     * Side effects: setState + timers; no-op after unmount via the `cancelled` flag.
+     */
     async function run() {
       // Discover the API's real port (it may not be the default if 3001 was
       // busy). Falls back to 0 (shown as "auto") if the info route is absent.
@@ -520,6 +660,11 @@ function ServicesStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+/**
+ * Wizard final step: "AGENTIX is ready" with links to open the dashboard ("/") and the API server ("/api/health" in a new tab).
+ * @returns The ready content (the wizard's Continue button becomes "Launch Dashboard" here).
+ * Maps to: internal — StepContent.
+ */
 function ReadyStep() {
   return (
     <div className="text-center space-y-6">
@@ -542,6 +687,13 @@ function ReadyStep() {
   );
 }
 
+/**
+ * Status icon for the wizard steps: green ✓ for pass/done/running, red ✗ for fail/error, yellow ⚠ for warn, grey ○ for anything else (including pending).
+ * Note: "running" renders the same green ✓ as "done", so a running task looks finished in the runtime step.
+ * @param status - Status string (pending | running | done | fail | pass | warn | error | ...).
+ * @returns The icon element.
+ * Maps to: internal — DiagnosticsStep, RuntimeStep, DatabaseStep.
+ */
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
     case "pass":

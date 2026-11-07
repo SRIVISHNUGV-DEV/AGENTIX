@@ -4,6 +4,12 @@ import { useId } from 'react';
 
 // Monotone cubic interpolation, so the curve never overshoots the data.
 // Ported from the 21st.dev Dashboard Shell (isaiahbjork/app-dashboard-shell).
+/**
+ * Builds a smooth SVG path through [x, y] points using monotone cubic interpolation, so the curve never overshoots the data.
+ * @param pts - Array of [x, y] pixel coordinates, in path order.
+ * @returns The SVG path `d` string; "" when fewer than 2 points are given.
+ * Maps to: internal — Sparkline and ActivityChart.
+ */
 function smoothPath(pts: number[][]) {
   if (pts.length < 2) return '';
   const n = pts.length;
@@ -34,7 +40,13 @@ function smoothPath(pts: number[][]) {
   return d;
 }
 
-/** Small area sparkline for KPI cards. `good` colors the end dot. */
+/**
+ * Small area sparkline for KPI cards, with a gradient fill and an end dot.
+ * @param values - Series to draw; fewer than 2 values renders nothing (a flat series still draws — only length matters).
+ * @param good - Colors the end dot success-green when true, destructive-red when false.
+ * @returns The 76x30 SVG sparkline, or null when `values` has fewer than 2 entries.
+ * Maps to: component StatCard (ui.tsx) and smoothPath.
+ */
 export function Sparkline({ values, good }: { values: number[]; good: boolean }) {
   const w = 76;
   const h = 30;
@@ -83,7 +95,13 @@ export function Sparkline({ values, good }: { values: number[]; good: boolean })
   );
 }
 
-/** Round a max value up to a "nice" axis number (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 × 10^n). */
+/**
+ * Rounds a max value up to a "nice" axis number (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 × 10^n).
+ * Why it exists: chart axes should end on a readable tick, not on the raw data max.
+ * @param value - The raw max; zero/negative values return 1.
+ * @returns The smallest nice number >= `value` (1 for any value <= 0).
+ * Maps to: internal — ActivityChart (y-axis scale).
+ */
 export function niceMax(value: number) {
   if (value <= 0) return 1;
   const exp = Math.pow(10, Math.floor(Math.log10(value)));

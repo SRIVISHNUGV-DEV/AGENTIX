@@ -10,6 +10,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+/**
+ * Themed button with variant/size/loading states (loading swaps the icon for a spinner and disables the button).
+ * @param variant - primary | secondary | ghost | danger (default primary).
+ * @param size - sm | md | lg (default md).
+ * @param icon - Optional leading icon node (hidden while loading).
+ * @param loading - When true, shows a Spinner and disables the button (also when `disabled` is set).
+ * @returns The <button> with the ref forwarded; all other ButtonHTMLAttributes pass through.
+ * Maps to: internal — every dashboard section's actions.
+ */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = 'primary', size = 'md', icon, loading, children, className = '', disabled, ...props }, ref) => {
     const variants = {
@@ -47,6 +56,13 @@ interface BadgeProps {
   className?: string;
 }
 
+/**
+ * Small status/label badge.
+ * @param variant - default | success | warning | danger | info (default 'default').
+ * @param size - sm | md (default sm).
+ * @returns The badge span wrapping `children`.
+ * Maps to: internal — status columns and counts across the sections.
+ */
 export function Badge({ variant = 'default', size = 'sm', children, className = '' }: BadgeProps) {
   const colors = {
     default: 'bg-secondary text-muted-foreground',
@@ -80,6 +96,15 @@ interface StatCardProps {
   sparkGood?: boolean;
 }
 
+/**
+ * KPI card: label, large value, optional trend arrow/text, and either a sparkline (when 2+ points) or the icon.
+ * @param value - Displayed value (string or number).
+ * @param trendDir - 'up' (green ↑) | 'down' (red ↓) | 'neutral' (muted, no arrow); the arrow is decorative — the trend text carries the meaning.
+ * @param loading - When true, renders a shimmer placeholder instead of the value/trend.
+ * @param sparkline - Daily series; replaces the icon when it has 2+ points. `sparkGood` colors its end dot.
+ * @returns The stat card; while loading only the label and skeleton show.
+ * Maps to: component Sparkline; used by OverviewPage, AnalyticsPage, X402Page.
+ */
 export function StatCard({ label, value, icon, trend, trendDir = 'neutral', loading, sparkline, sparkGood = true }: StatCardProps) {
   const trendColor =
     trendDir === 'up' ? 'text-success' : trendDir === 'down' ? 'text-destructive' : 'text-muted-foreground/50';
@@ -120,6 +145,11 @@ interface CardProps {
   onClick?: () => void;
 }
 
+/**
+ * Glass content card; becomes a clickable card when `hover` or `onClick` is set.
+ * @returns The card div wrapping `children`.
+ * Maps to: internal — section layouts throughout the dashboard.
+ */
 export function Card({ children, className = '', hover, onClick }: CardProps) {
   return (
     <div
@@ -131,6 +161,11 @@ export function Card({ children, className = '', hover, onClick }: CardProps) {
   );
 }
 
+/**
+ * Card header row: title + optional description on the left, optional action node on the right.
+ * @returns The header div.
+ * Maps to: internal — Card content in the sections.
+ */
 export function CardHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="flex items-start justify-between mb-4">
@@ -151,6 +186,11 @@ interface PageHeaderProps {
   action?: ReactNode;
 }
 
+/**
+ * Page header: large title + optional description, with an optional action group on the right, above a divider.
+ * @returns The header div.
+ * Maps to: internal — every section page.
+ */
 export function PageHeader({ title, description, action }: PageHeaderProps) {
   return (
     <div className="flex items-center justify-between mb-6 pb-5 border-b border-border">
@@ -165,12 +205,22 @@ export function PageHeader({ title, description, action }: PageHeaderProps) {
 
 // ── Skeleton ─────────────────────────────────────
 
+/**
+ * Shimmer placeholder block used while data loads.
+ * @returns A div with the skeleton-shimmer style; size comes from `className`.
+ * Maps to: internal — loading states in StatCard and the sections.
+ */
 export function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`skeleton-shimmer rounded-md ${className}`} />;
 }
 
 // ── Empty State ──────────────────────────────────
 
+/**
+ * Centered empty state: icon, title, optional description, and optional action.
+ * @returns The empty-state div.
+ * Maps to: internal — empty lists across the sections.
+ */
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -191,6 +241,13 @@ interface DialogProps {
   children: ReactNode;
 }
 
+/**
+ * Modal dialog with a backdrop (clicking it closes) and a title bar with an X button.
+ * @param open - When false, renders null (children are not mounted).
+ * @param onClose - Called on backdrop click or X.
+ * @returns The dialog overlay, or null when closed. Note: no focus trap and no Escape handling — callers must not rely on keyboard dismissal.
+ * Maps to: internal — create/issue dialogs in the sections.
+ */
 export function Dialog({ open, onClose, title, children }: DialogProps) {
   if (!open) return null;
   return (
@@ -215,6 +272,12 @@ interface ToastProps {
   onClose: () => void;
 }
 
+/**
+ * Fixed bottom-right toast with a dismiss button.
+ * @param type - success | error | info (default info); drives the border/background color.
+ * @returns The toast div. It does not auto-dismiss — the owner must clear it (usually via onClose).
+ * Maps to: internal — DashboardInner (which owns the toast state).
+ */
 export function Toast({ message, type = 'info', onClose }: ToastProps) {
   const colors = { success: 'border-success/30 bg-success/5 text-success', error: 'border-destructive/30 bg-destructive/5 text-destructive', info: 'border-border bg-card text-foreground' };
   return (
@@ -227,6 +290,12 @@ export function Toast({ message, type = 'info', onClose }: ToastProps) {
 
 // ── Alert ────────────────────────────────────────
 
+/**
+ * Inline alert strip (border + tinted background) for success/error/warning/info messages.
+ * @param variant - Drives the color; default 'info'.
+ * @returns The alert div wrapping `children`.
+ * Maps to: internal — error/success banners in the sections.
+ */
 export function Alert({ variant = 'info', children, className = '' }: { variant?: 'success' | 'error' | 'warning' | 'info'; children: ReactNode; className?: string }) {
   const colors = { success: 'border-success/20 bg-success/5 text-success', error: 'border-destructive/20 bg-destructive/5 text-destructive', warning: 'border-warning/20 bg-warning/5 text-warning', info: 'border-border bg-card text-foreground' };
   return <div className={`flex items-start gap-2.5 p-3 rounded-lg border text-xs ${colors[variant]} ${className}`}>{children}</div>;
@@ -234,6 +303,12 @@ export function Alert({ variant = 'info', children, className = '' }: { variant?
 
 // ── StatusDot ────────────────────────────────────
 
+/**
+ * Small status dot (pulsing when online).
+ * @param status - online | warning | error | offline; the color comes from the `status-dot` CSS class.
+ * @returns The dot span.
+ * Maps to: internal — network/wallet status indicators in OverviewPage, Sidebar, DiagnosticsPage.
+ */
 export function StatusDot({ status }: { status: 'online' | 'warning' | 'error' | 'offline' }) {
   return <span className={`status-dot ${status} ${status === 'online' ? 'animate-pulse-dot' : ''}`} />;
 }
@@ -254,6 +329,16 @@ interface TableProps<T> {
   emptyMessage?: string;
 }
 
+/**
+ * Simple (non-streaming) data table with staggered row entrance and optional row clicks.
+ * Prefer StreamingTable for live data; this one is for static lists.
+ * @param columns - { key, header, render, className? } per column; `render` must be total for every row.
+ * @param data - Rows to render; an empty array renders the empty message instead of a table.
+ * @param onRowClick - When set, rows become clickable (pointer cursor + hover) and invoke it with the row.
+ * @param emptyMessage - Shown when `data` is empty (default 'No data').
+ * @returns The scrollable table, or the centered empty message when there are no rows.
+ * Maps to: internal — list sections (Anomalies, Backups, Capabilities, Delegations, Identities, Sessions, Transactions, Wallets, Organizations, Credentials, X402).
+ */
 export function Table<T extends Record<string, any>>({ columns, data, onRowClick, emptyMessage }: TableProps<T>) {
   if (data.length === 0) {
     return <div className="text-xs text-muted-foreground/60 text-center py-8">{emptyMessage || 'No data'}</div>;
@@ -293,6 +378,12 @@ interface TimelineItem {
   status?: 'success' | 'warning' | 'error' | 'info';
 }
 
+/**
+ * Vertical timeline: time + title + optional description per item, with a status-colored dot and a connecting line.
+ * @param items - Timeline items in display order; an empty array renders an empty div.
+ * @returns The timeline div.
+ * Maps to: internal — OverviewPage recent events.
+ */
 export function Timeline({ items }: { items: TimelineItem[] }) {
   return (
     <div className="space-y-0">
@@ -317,6 +408,12 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
 
 // ── Progress ─────────────────────────────────────
 
+/**
+ * Thin progress bar.
+ * @param value - Percent; clamped to 0–100 (out-of-range values render as the nearest edge, not an error).
+ * @returns The bar div with the fill width set from `value`.
+ * Maps to: internal — CredentialsPage (flow progress display).
+ */
 export function Progress({ value, className = '' }: { value: number; className?: string }) {
   return (
     <div className={`h-1.5 rounded-full bg-secondary overflow-hidden ${className}`}>
@@ -327,6 +424,12 @@ export function Progress({ value, className = '' }: { value: number; className?:
 
 // ── Spinner ──────────────────────────────────────
 
+/**
+ * Small spinning loading indicator (0.6s rotation).
+ * @param size - Width/height in px (default 14).
+ * @returns The SVG spinner.
+ * Maps to: internal — Button (loading state).
+ */
 export function Spinner({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none" className="animate-spin" style={{ animationDuration: '0.6s' }}>
@@ -342,6 +445,12 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
 }
 
+/**
+ * Labeled text input (label above the field when given).
+ * @param label - Optional uppercase label rendered above the input.
+ * @returns The labeled input; all other InputHTMLAttributes pass through to the <input>.
+ * Maps to: internal — forms in the sections (sessions, credentials, settings, x402 policy).
+ */
 export function Input({ label, className = '', ...props }: InputProps) {
   return (
     <div>
@@ -353,6 +462,12 @@ export function Input({ label, className = '', ...props }: InputProps) {
 
 // ── Select ───────────────────────────────────────
 
+/**
+ * Labeled select dropdown (label above the field when given).
+ * @param label - Optional uppercase label rendered above the select.
+ * @returns The labeled select; all other SelectHTMLAttributes pass through.
+ * Maps to: internal — filter/form selects in the sections (Events, Credentials, Developer docs use the native select directly in places).
+ */
 export function Select({ label, children, className = '', ...props }: { label?: string; children: ReactNode; className?: string } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <div>
@@ -366,6 +481,12 @@ export function Select({ label, children, className = '', ...props }: { label?: 
 
 // ── Code Block ───────────────────────────────────
 
+/**
+ * Preformatted code block with wrapping and break-all for long tokens.
+ * @param children - The code text to display.
+ * @returns The <pre> block.
+ * Maps to: internal — DeveloperPage SDK playground.
+ */
 export function CodeBlock({ children, className = '' }: { children: string; className?: string }) {
   return (
     <pre className={`p-3 rounded-lg bg-secondary text-xs text-muted-foreground font-mono overflow-x-auto whitespace-pre-wrap break-all ${className}`}>
@@ -376,6 +497,12 @@ export function CodeBlock({ children, className = '' }: { children: string; clas
 
 // ── LoadingRows ──────────────────────────────────
 
+/**
+ * Stack of skeleton rows for loading lists.
+ * @param count - Number of skeleton rows (default 3).
+ * @returns The stacked Skeleton rows.
+ * Maps to: internal — loading states in the sections.
+ */
 export function LoadingRows({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-3">

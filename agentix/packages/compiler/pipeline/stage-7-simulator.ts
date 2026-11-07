@@ -32,8 +32,26 @@ export class Simulator {
   private simulationCache = new Map<string, { result: SimulatedStep; at: number }>();
   private readonly CACHE_TTL_MS = 30_000; // 30s — same block window
 
+  /**
+   * Build the simulator.
+   * Why: simulation needs the plugin registry (simulation-rule hooks) and the simulationEnabled flag from config.
+   * @param plugins - registry consulted for 'simulation-rule' plugins.
+   * @param config - compiler config; simulationEnabled false short-circuits every simulate() call.
+   * Maps to: internal — PipelineOrchestrator constructor.
+   */
   constructor(private plugins: PluginRegistry, private config: CompilerConfig) {}
 
+  /**
+   * Dry-run every contract_call node against the chain (eth_call + fee data) and aggregate gas.
+   * Why: stage 7 predicts reverts and gas before anything is signed — the risk engine's simulation dimension consumes this result.
+   * @param intent - parsed intent; read-only actions skip simulation entirely.
+   * @param executionGraph - graph whose contract_call nodes are simulated in parallel.
+   * @param contractAddresses - reserved for future use; node addresses come from the graph.
+   * @returns SimulationResult; success false when any step reverted or failed. Disabled config, read-only actions and missing provider all return success:true with a warning, not an error — a skipped simulation must not block compilation.
+   * @throws Never; per-node failures are captured per step via Promise.allSettled.
+   * Side effects: reads chain state via eth_call (no state changes); caches per-node results for 30s.
+   * Maps to: contract eth_call dry-run of each resolved node.
+   */
   async simulate(
     intent: ParsedIntent,
     executionGraph: ExecutionGraph,
@@ -116,6 +134,16 @@ export class Simulator {
     return { success: allSuccess, steps, totalGasEstimate: totalGas, warnings, errors };
   }
 
+  /**
+   * Simulate one execution node with a 3s timeout, consulting the 30s result cache first.
+   * Why: per-node simulation is the unit the parallel driver runs; the timeout bounds a hung RPC so one slow node cannot stall the pipeline.
+   * @param node - execution node to simulate.
+   * @param provider - ethers provider for the eth_call.
+   * @param plugins - simulation-rule plugins whose postStep hooks run after the call.
+   * @returns SimulatedStep; on timeout the step reports success:true with a timeout error recorded (a timeout is not treated as a revert). Reverts are recorded with the revert reason.
+   * Side effects: populates the simulation cache; runs plugin postStep hooks (failures swallowed).
+   * Maps to: contract eth_call dry-run for the node's call.
+   */
   private async _simulateNode(
     node: ExecutionNode,
     provider: AbstractProvider,
@@ -182,6 +210,16 @@ export class Simulator {
     return step;
   }
 
+  /**
+   * Run the actual eth_call plus a fee-data fetch for one node and derive a gas estimate.
+   * Why: gas is estimated from the node's gasLimit × live gas price (no separate gas_estimate RPC), batched into one round-trip with the call.
+   * @param node - execution node; args[0] is used as calldata only when it is a 0x hex string, otherwise '0x'.
+   * @param provider - ethers provider.
+   * @returns { gasEstimate } with gasLimit, gasPrice, estimated cost in wei and ETH.
+   * @throws Propagates eth_call failures to _simulateNode, which records them as reverts.
+   * Side effects: one eth_call + one getFeeData RPC.
+   * Maps to: contract eth_call dry-run.
+   */
   private async _executeSimulation(
     node: ExecutionNode,
     provider: AbstractProvider
@@ -222,6 +260,13 @@ export class Simulator {
     };
   }
 
+  /**
+   * Sum per-step gas estimates into one plan-level estimate (max gas price across steps).
+   * Why: the plan needs a single cost number for the explanation and risk scoring, without an extra RPC call.
+   * @param steps - simulated steps; steps without a gas estimate are skipped.
+   * @returns The summed GasEstimate, or undefined when no step produced an estimate (total limit 0).
+   * Maps to: internal — Simulator.simulate.
+   */
   private _aggregateGas(steps: SimulatedStep[]): GasEstimate | undefined {
     const { formatEther } = require('ethers');
 
@@ -248,15 +293,35 @@ export class Simulator {
     };
   }
 
+  /**
+   * Build the cache key for a node's simulation result.
+   * Why: identical calls (same address/function/value/args) share a result within the 30s TTL — repeat compiles of the same plan do not re-hit the chain.
+   * @param node - execution node; nodes without a call fall back to the node id.
+   * @returns address:function:value:args JSON key.
+   * Maps to: internal — Simulator._simulateNode.
+   */
   private _cacheKey(node: ExecutionNode): string {
     if (!node.call) return node.id;
     return `${node.call.address}:${node.call.function}:${node.call.value}:${JSON.stringify(node.call.args)}`;
   }
 
+  /**
+   * Resolve with 'TIMEOUT' after `ms` milliseconds.
+   * Why: the race partner for _executeSimulation — a hung RPC resolves as a timeout instead of hanging the pipeline.
+   * @param ms - timeout in milliseconds (3000 for simulation).
+   * @returns A promise resolving to the literal 'TIMEOUT'.
+   * Maps to: internal — Simulator._simulateNode.
+   */
   private _timeout(ms: number): Promise<'TIMEOUT'> {
     return new Promise((resolve) => setTimeout(() => resolve('TIMEOUT'), ms));
   }
 
+  /**
+   * Lazily require the runtime provider (agentix/src/core/provider).
+   * Why: the compiler must load where no provider is configured — a missing provider means "skip simulation", not a crash.
+   * @returns The provider, or null when the module cannot be resolved.
+   * Maps to: internal — Simulator.simulate.
+   */
   private _getProvider(): AbstractProvider | null {
     try {
       // Runtime provider lives at agentix/src/core/provider — from
