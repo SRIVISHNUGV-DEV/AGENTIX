@@ -5,6 +5,15 @@ export const RISK_LEVELS = {
   AUTHORITY: ["createOrganization", "deactivateOrganization", "rotateAnchors"] as const,
 } as const;
 
+/**
+ * Returns the risk tier for an action name, defaulting unknown actions to LOW.
+ * Why: the single choke point where every routed action gets its tier, so IntentEngine and SafetyEngine can never disagree about an action's risk.
+ * @param action Action name exactly as routed (case-sensitive); any name not listed in RISK_LEVELS falls through to LOW.
+ * @returns "LOW" | "MEDIUM" | "HIGH" | "AUTHORITY".
+ * @throws Nothing — pure lookup.
+ * Maps to: internal — IntentEngine.classify (ai-harness), which feeds PolicyEngine.validate and SafetyEngine.check.
+ * Security note: the LOW default is fail-open — a new or mistyped action name is treated as low-risk until someone adds it to RISK_LEVELS, so new value-moving actions must be listed here before they are routed.
+ */
 export function classifyRisk(action: string): "LOW" | "MEDIUM" | "HIGH" | "AUTHORITY" {
   if ((RISK_LEVELS.AUTHORITY as readonly string[]).includes(action)) return "AUTHORITY";
   if ((RISK_LEVELS.HIGH as readonly string[]).includes(action)) return "HIGH";
