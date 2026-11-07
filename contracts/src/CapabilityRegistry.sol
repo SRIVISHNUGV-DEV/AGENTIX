@@ -44,7 +44,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -54,7 +54,6 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice One-time initializer: wires the owner and the pause guard.
     /// @dev Runs once (initializer) from the proxy deployment. The owner is the default capability registrar and admin.
     /// @param owner_ Admin/owner of this registry (pause + upgrade rights, default registrar).
-    /// @return Nothing.
     /// @dev Reverts if called twice (`InvalidInitialization`) or with a zero owner (OZ `OwnableInvalidOwner`).
     /// Maps to: deployment script — proxy `initialize` call
     /// @dev Side effects: sets owner, clears paused flag. Security: deployer-chosen owner.
@@ -79,7 +78,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Defines a new named capability (an action an agent may be granted), identified by a caller-chosen id.
     /// @dev Owner-only. The action string is hashed, not stored — the plaintext action is recoverable only from the event. `expiresAt` of 0 means the definition itself never expires (per-grant expiries still apply in `verifyCapability`).
     /// @param capabilityId Caller-chosen id (typically a hash); must be unused. @param action Non-empty human-readable action string, e.g. "transfer_tokens". @param expiresAt Unix timestamp when the definition expires, or 0 for no expiry.
-    /// @return Nothing; emits `CapabilityRegistered` on success.
+    /// @dev Emits `CapabilityRegistered` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `CapabilityExists` (id already registered), `ActionRequired` (empty action), `EnforcedPause` (paused).
     /// Maps to: TS SDK capability.ts registerCapability; event CapabilityRegistered
     /// @dev Side effects: writes the CapabilityDef, appends to the capability list/index, emits `CapabilityRegistered`. Security: owner-only.
@@ -103,7 +102,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Revokes a capability definition, removing it from enumeration so no new grant can be verified against it.
     /// @dev Callable by the original registrar or the owner — and deliberately NOT pause-guarded, so revocation works as a kill-switch during an incident. Revocation is permanent for the definition (no un-revoke); grants already issued under it fail verification because the definition is gone from the list and `revoked` is set. Note the swap-and-pop removal: enumeration order changes.
     /// @param capabilityId Id of the capability to revoke.
-    /// @return Nothing; emits `CapabilityRevoked` on success.
+    /// @dev Emits `CapabilityRevoked` on success.
     /// @dev Reverts with `CapabilityNotFound` (never registered), `NotAuthorizedForCapability` (caller is neither registrar nor owner), `AlreadyRevokedCapability` (already revoked).
     /// Maps to: TS SDK capability.ts revokeCapability; event CapabilityRevoked
     /// @dev Side effects: sets `revoked = true`, swap-and-pop removes the id from `capabilityList`, emits `CapabilityRevoked`. Security: registrar-or-owner-only; no pause guard by design.
@@ -127,7 +126,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Publishes (or replaces) the Merkle root of the grants a grantor has given one grantee for one capability.
     /// @dev Callable by the capability's registrar or the owner; the stored root is keyed by `msg.sender` as grantor, so the caller is always the grantor — a grantor cannot publish roots for someone else. Publishing a new root supersedes the old one for future verifications; already-issued leaves under the old root stop verifying unless they are also in the new tree.
     /// @param grantee Non-zero agent receiving the grant. @param capabilityId Id of a registered capability. @param newRoot Non-zero Merkle root of the grant tree.
-    /// @return Nothing; emits `GrantRootUpdated` on success.
+    /// @dev Emits `GrantRootUpdated` on success.
     /// @dev Reverts with `InvalidRecipient` (zero grantee), `CapabilityNotFound` (unknown capability), `NotAuthorizedForCapability` (caller is neither registrar nor owner), `InvalidRoot` (zero root), `EnforcedPause` (paused).
     /// Maps to: TS SDK capability.ts updateGrantRoot; event GrantRootUpdated
     /// @dev Side effects: sets `grantRoots[msg.sender][grantee][capabilityId]`, emits `GrantRootUpdated`. Security: registrar-or-owner-only; grantor is always `msg.sender`.
@@ -144,7 +143,7 @@ contract CapabilityRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Revokes one specific grant leaf, so its Merkle proof stops verifying even though the grant root is unchanged.
     /// @dev Callable by the registrar, the owner, or the grantor named in the call — and deliberately NOT pause-guarded (kill-switch). Revocation is permanent for the leaf (no un-revoke); the grantor publishes a fresh root or re-issues instead. The leaf preimage is not checked here, so the caller must supply the exact leaf hash they mean.
     /// @param grantLeafHash Hash of the grant leaf to revoke. @param capabilityId Id of the capability the grant belongs to. @param grantor Address whose grant root the leaf sits under. @param grantee Address the grant was issued to.
-    /// @return Nothing; emits `GrantRevoked` on success.
+    /// @dev Emits `GrantRevoked` on success.
     /// @dev Reverts with `GrantNotRevocable` (caller is none of registrar/owner/grantor, or no grant root exists for this grantor/grantee/capability) or `AlreadyRevokedGrant` (leaf already revoked).
     /// Maps to: TS SDK capability.ts revokeGrant; event GrantRevoked
     /// @dev Side effects: sets `revokedGrants[grantLeafHash] = true`, emits `GrantRevoked`. Security: registrar/owner/grantor-only; no pause guard by design.

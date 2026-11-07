@@ -54,7 +54,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -64,7 +64,6 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice One-time initializer: wires the owner, the pause guard, and the anchor implementation to clone.
     /// @dev Runs once (initializer) from the proxy deployment. The anchor implementation is the template every organization's clone points at; swapping it later requires an upgrade (there is no setter — new organizations always use this implementation).
     /// @param owner_ Admin/owner (pause + upgrade + registration rights). @param anchorImplementation_ Non-zero OrganizationCredentialAnchor implementation to clone.
-    /// @return Nothing.
     /// @dev Reverts if called twice (`InvalidInitialization`) or with a zero implementation (`ZeroAddressNotAllowed`); a zero owner reverts via OZ `OwnableInvalidOwner`.
     /// Maps to: deployment script — proxy `initialize` call
     /// @dev Side effects: sets owner, `anchorImplementation`. Security: deployer-chosen owner.
@@ -91,7 +90,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice Registers a new organization and deploys its credential-anchor clone, owned by the given address.
     /// @dev Owner-only. The anchor is a deterministic EIP-1167 clone salted by the organization id, so the same id always predicts the same anchor address — and re-registering an id reverts before any deployment. The organization starts active. The anchor's owner is `owner_` (the organization owner), not the registry owner, so the registry cannot later manage the anchor's roots.
     /// @param organizationId Caller-chosen non-zero id (typically a hash); must be unused. @param name Non-empty display name. @param owner_ Non-zero organization owner who will own the anchor.
-    /// @return Nothing; emits `OrganizationRegistered` with the anchor address on success.
+    /// @dev Emits `OrganizationRegistered` with the anchor address on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `OrganizationAlreadyExists` (id taken), `InvalidOwnerAddress` (zero owner), `InvalidName` (empty name), `EnforcedPause` (paused). The clone's `initialize` can also revert on a zero id.
     /// Maps to: TS SDK organization.ts registerOrganization; contract OrganizationCredentialAnchor.initialize; event OrganizationRegistered
     /// @dev Side effects: deploys a deterministic anchor clone, initializes it, stores the Organization record, appends to the owner's list, emits `OrganizationRegistered`. Security: registry-owner-only; anchor ownership goes to `owner_`.
@@ -120,7 +119,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice Deactivates an organization, marking it inactive in the registry (the anchor itself is untouched).
     /// @dev Owner-only, no pause guard — deactivation is a containment action that must work mid-pause. Deactivation is soft: the record and anchor stay queryable, and `reactivateOrganization` restores it. Consumers must check `isActive`; this contract does not block anchor operations for deactivated organizations.
     /// @param organizationId Id of the organization to deactivate.
-    /// @return Nothing; emits `OrganizationDeactivated` on success.
+    /// @dev Emits `OrganizationDeactivated` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `OrganizationNotFound` (unknown id), `OrganizationAlreadyInactive` (already inactive).
     /// Maps to: TS SDK organization.ts deactivateOrganization; event OrganizationDeactivated
     /// @dev Side effects: sets `active = false`, emits `OrganizationDeactivated`. Security: registry-owner-only.
@@ -134,7 +133,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice Reactivates a deactivated organization.
     /// @dev Owner-only, no pause guard. Restores the registry's active flag; it does not touch the anchor or its roots.
     /// @param organizationId Id of the organization to reactivate.
-    /// @return Nothing; emits `OrganizationReactivated` on success.
+    /// @dev Emits `OrganizationReactivated` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `OrganizationNotFound` (unknown id), `OrganizationAlreadyActive` (already active).
     /// Maps to: TS SDK organization.ts reactivateOrganization; event OrganizationReactivated
     /// @dev Side effects: sets `active = true`, emits `OrganizationReactivated`. Security: registry-owner-only.
@@ -148,7 +147,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice Proposes swapping an organization's credential anchor for a new one, effective only after the 2-day timelock and `acceptCredentialAnchor`.
     /// @dev Owner-only. The new anchor must be a deployed contract (code length is checked) — an EOA or empty address cannot become an anchor. Only one proposal per organization may be pending at a time. Note there is no cancel function: a bad proposal can only be cleared by accepting it (after the timelock) and then proposing the correct anchor — leaving it pending blocks all future proposals for that organization (see report).
     /// @param organizationId Id of the organization. @param newAnchor Non-zero address of a deployed contract to become the new anchor.
-    /// @return Nothing; emits `CredentialAnchorProposed` with the activation timestamp.
+    /// @dev Emits `CredentialAnchorProposed` with the activation timestamp.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `ZeroAddressNotAllowed` (zero anchor), `InvalidAnchor` (no code at the address), `OrganizationNotFound` (unknown id), `AnchorTimelockActive` (a proposal is already pending).
     /// Maps to: TS SDK organization.ts proposeCredentialAnchor; event CredentialAnchorProposed
     /// @dev Side effects: sets `pendingAnchor[organizationId]` and `anchorActivationTime[organizationId]`, emits `CredentialAnchorProposed`. Security: registry-owner-only + 2-day timelock.
@@ -165,7 +164,7 @@ contract OrganizationRegistry is Initializable, PausableUpgradeable, UUPSUpgrade
     /// @notice Activates the pending credential anchor once the 2-day timelock has elapsed.
     /// @dev Owner-only. Calling early reverts. The old anchor is NOT decommissioned — it keeps its own roots and owner; only the registry pointer moves, so verifiers reading `getCredentialAnchor` switch immediately. The new anchor is not initialized or validated here beyond the code check at propose time — deploy and initialize it before proposing.
     /// @param organizationId Id of the organization.
-    /// @return Nothing; emits `CredentialAnchorUpdated` with old and new anchors.
+    /// @dev Emits `CredentialAnchorUpdated` with old and new anchors.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `InvalidAnchor` (no proposal pending), `AnchorTimelockNotReady` (delay not yet elapsed), `OrganizationNotFound` (unknown id).
     /// Maps to: TS SDK organization.ts acceptCredentialAnchor; event CredentialAnchorUpdated
     /// @dev Side effects: sets the organization's `credentialAnchor`, clears the pending proposal and activation time, emits `CredentialAnchorUpdated`. Security: registry-owner-only + timelock.

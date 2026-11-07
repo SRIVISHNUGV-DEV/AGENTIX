@@ -71,7 +71,7 @@ contract AgentIdentity is
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -138,7 +138,7 @@ contract AgentIdentity is
     /// @notice Links a CredentialRegistry credential to an identity, overwriting any previous link.
     /// @dev Only the wallet owner may call it; the credential itself is not validated here — validity is enforced at session creation via the ZK proof. Overwriting is intentional (credential rotation).
     /// @param credentialId Credential id from CredentialRegistry; 0 clears the link (no existence check is performed).
-    /// @return Nothing; emits `CredentialLinked` on success.
+    /// @dev Emits `CredentialLinked` on success.
     /// @dev Reverts with `IdentityNotFound` (unknown id), `IdentityInactive` (deactivated), `NotIdentityOwner` (caller is not the wallet owner), `EnforcedPause` (paused).
     /// Maps to: TS SDK identity.ts linkCredential
     /// @dev Side effects: sets `credentialId` and `updatedAt`, emits `CredentialLinked`. Security: wallet-owner-only.
@@ -154,7 +154,7 @@ contract AgentIdentity is
     /// @notice Points an identity at a new off-chain metadata root hash.
     /// @dev Only the wallet owner may call it; the root is opaque content-addressed data — this contract never reads the metadata itself, so callers must pin/verify it off-chain.
     /// @param metadataRoot Non-zero new root hash; reverts if zero or identical to the current root (no-op updates are rejected).
-    /// @return Nothing; emits `MetadataUpdated` on success.
+    /// @dev Emits `MetadataUpdated` on success.
     /// @dev Reverts with `IdentityNotFound`, `IdentityInactive`, `NotIdentityOwner`, `InvalidMetadataRoot` (zero root), `MetadataRootUnchanged` (same root), `EnforcedPause`.
     /// Maps to: TS SDK identity.ts updateMetadata
     /// @dev Side effects: sets `metadataRoot` and `updatedAt`, emits `MetadataUpdated`. Security: wallet-owner-only.
@@ -171,7 +171,7 @@ contract AgentIdentity is
 
     /// @notice Deactivates an identity, blocking owner actions on it until reactivated.
     /// @dev Only the wallet owner may call it. Deactivation is soft: the record stays queryable (`exists` stays true, `isActive` goes false) and `reactivate` restores it. Already-deactivated ids revert via `_requireActive`.
-    /// @return Nothing; emits `IdentityDeactivated` on success.
+    /// @dev Emits `IdentityDeactivated` on success.
     /// @dev Reverts with `IdentityNotFound`, `IdentityInactive` (already deactivated), `NotIdentityOwner`, `EnforcedPause`.
     /// Maps to: TS SDK identity.ts deactivate
     /// @dev Side effects: sets `active = false` and `updatedAt`, emits `IdentityDeactivated`. Security: wallet-owner-only.
@@ -186,7 +186,7 @@ contract AgentIdentity is
 
     /// @notice Reactivates a deactivated identity, restoring owner actions on it.
     /// @dev Only the wallet owner may call it. Unlike the other mutators it uses `_requireExists` (not `_requireActive`) because an inactive identity must still be reachable to reactivate.
-    /// @return Nothing; emits `IdentityReactivated` on success.
+    /// @dev Emits `IdentityReactivated` on success.
     /// @dev Reverts with `IdentityNotFound`, `IdentityAlreadyActive` (already active), `NotIdentityOwner`, `EnforcedPause`.
     /// Maps to: TS SDK identity.ts reactivate
     /// @dev Side effects: sets `active = true` and `updatedAt`, emits `IdentityReactivated`. Security: wallet-owner-only.

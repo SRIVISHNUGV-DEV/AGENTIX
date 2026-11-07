@@ -85,6 +85,14 @@ export function OverviewPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    /**
+     * WHAT: Loads the dashboard stats and the latest 200 events, each into its own state, then clears the loading spinner.
+     * WHY: The overview is the landing view — stats and events load independently so one failed fetch does not blank the other.
+     * @returns Nothing; sets stats/events only for the fetches that fulfilled.
+     * @throws Never throws — Promise.allSettled; a rejected fetch simply leaves its state empty.
+     * Maps to: REST GET /api/stats and GET /api/events?limit=200.
+     * Side effects: setState on mount only.
+     */
     async function load() {
       try {
         const [s, e] = await Promise.allSettled([

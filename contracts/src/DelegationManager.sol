@@ -84,7 +84,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -94,7 +94,6 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice One-time initializer: wires AccessControl and pause, granting the deployer both admin and root-updater rights.
     /// @dev Runs once (initializer) from the proxy deployment. `owner_` holds `DEFAULT_ADMIN_ROLE` (pause, role admin, emergency revoke) and `ROOT_UPDATER_ROLE` (root proposals on behalf of delegators).
     /// @param owner_ Admin address receiving both roles.
-    /// @return Nothing.
     /// @dev Reverts if called twice (`InvalidInitialization`).
     /// Maps to: deployment script — proxy `initialize` call
     /// @dev Side effects: grants `DEFAULT_ADMIN_ROLE` and `ROOT_UPDATER_ROLE` to `owner_`. Security: deployer-chosen admin.
@@ -130,7 +129,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Grants or revokes the ROOT_UPDATER role, letting a trusted updater propose/accept/cancel roots on any delegator's behalf.
     /// @dev Admin-only. Root updaters are powerful: they manage other delegators' trees, so grant only to operated infrastructure. Revoking the role does not cancel proposals the updater already made.
     /// @param updater Address to grant/revoke. @param allowed True grants the role, false revokes it.
-    /// @return Nothing; OZ AccessControl emits `RoleGranted`/`RoleRevoked`.
+    /// @dev OZ AccessControl emits `RoleGranted`/`RoleRevoked`.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` for non-admins.
     /// Maps to: TS SDK delegation.ts setRootUpdater
     /// @dev Side effects: grants/revokes `ROOT_UPDATER_ROLE`. Security: admin-only; grants cross-delegator root authority.
@@ -145,7 +144,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Registers a human-readable action string under its scope hash, so scope hashes stay auditable off-chain.
     /// @dev Admin-only. The scope hash is `keccak256(action)`; registration is a pure label — verification uses the hash, and an unregistered hash still verifies if a root exists for it. Re-registering the same action reverts.
     /// @param action Non-empty action string, e.g. "transfer_tokens" (empty string hashes too, but registers a meaningless scope — prefer non-empty).
-    /// @return Nothing; emits `ScopeRegistered` on success.
+    /// @dev Emits `ScopeRegistered` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` (non-admin) or `ScopeAlreadyRegistered` (action already registered).
     /// Maps to: TS SDK delegation.ts registerScope; event ScopeRegistered
     /// @dev Side effects: sets `scopeActions[scopeHash]`, emits `ScopeRegistered`. Security: admin-only.
@@ -159,7 +158,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Emergency kill-switch: revokes ALL delegation leaves for a delegator at once.
     /// @dev Admin-only, no pause guard — it must work while paused. Sets a flag checked by every verification, so existing proofs fail immediately without touching any root. There is no per-leaf undo; recovery is `reAuthorizeDelegator`, which wipes the delegator's roots and forces fresh publication.
     /// @param delegator Address whose delegations are all revoked.
-    /// @return Nothing; emits `DelegatorRevoked` on success.
+    /// @dev Emits `DelegatorRevoked` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` for non-admins. Idempotent — revoking an already-revoked delegator succeeds and re-emits.
     /// Maps to: TS SDK delegation.ts emergencyRevokeAll; event DelegatorRevoked
     /// @dev Side effects: sets `revokedDelegators[delegator] = true`, emits `DelegatorRevoked`. Security: admin-only; instant, irreversible except via re-authorization.
@@ -171,7 +170,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Re-authorizes a previously emergency-revoked delegator, clearing the revocation flag AND deleting all its live roots.
     /// @dev Admin-only. Roots are wiped deliberately: a stale root must never silently become valid again after re-authorization — the delegator must publish fresh roots (through the timelock). Per-leaf revocations are NOT cleared (they stay revoked; fresh roots with fresh leaves are the recovery path). No-op for a delegator that was never revoked except that it still wipes its roots — do not call it casually.
     /// @param delegator Address to re-authorize.
-    /// @return Nothing; emits `DelegatorReAuthorized` on success.
+    /// @dev Emits `DelegatorReAuthorized` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` for non-admins.
     /// Maps to: TS SDK delegation.ts reAuthorizeDelegator; event DelegatorReAuthorized
     /// @dev Side effects: clears `revokedDelegators[delegator]`, deletes every `delegationRoots[delegator][scope]` and its scope-set entry, emits `DelegatorReAuthorized`. Security: admin-only; destroys live roots.
@@ -196,7 +195,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Proposes a new Merkle root for a delegator under one scope, effective only after the 2-day timelock and `acceptDelegationRoot`.
     /// @dev Callable by the delegator themself or a ROOT_UPDATER_ROLE holder. The scope limit (32 scopes per delegator) is checked here and re-checked at accept, because two pending new scopes proposed while under the limit could jointly exceed it by accept time. A pending proposal must be accepted or cancelled before a new one for the same delegator+scope is proposed. Proposing a zero root is allowed here (it clears the scope at accept); proposing for a revoked delegator reverts.
     /// @param delegator Address whose tree this root belongs to. @param scopeHash Scope this root covers (`keccak256(action)`). @param newRoot Merkle root of the delegation tree (zero clears the scope). @param expiresAt Unix timestamp when the root expires, or 0 for no expiry.
-    /// @return Nothing; emits `DelegationRootProposed` with the activation timestamp.
+    /// @dev Emits `DelegationRootProposed` with the activation timestamp.
     /// @dev Reverts with `DelegatorHasBeenRevoked` (delegator emergency-revoked), `AccessControlUnauthorizedAccount` (caller is neither the delegator nor a root updater), `PendingRootActive` (a proposal is already pending), `ScopeLimitExceeded` (would exceed 32 scopes), `EnforcedPause`.
     /// Maps to: TS SDK delegation.ts proposeDelegationRoot; event DelegationRootProposed
     /// @dev Side effects: writes `pendingDelegationRoots[delegator][scopeHash]`, emits `DelegationRootProposed`. Security: delegator-or-root-updater-only + 2-day timelock.
@@ -232,7 +231,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Activates a pending delegation root after the 2-day timelock, so proofs against it verify.
     /// @dev Callable by the delegator or a ROOT_UPDATER_ROLE holder. The scope limit is re-checked here (see `proposeDelegationRoot`). A new scope is added to the delegator's scope set only when the accepted root is non-zero and no live root existed; accepting a zero root for a new scope adds nothing. Calling early reverts; the delegator being emergency-revoked between propose and accept also reverts.
     /// @param delegator Address whose tree this root belongs to. @param scopeHash Scope the pending proposal covers.
-    /// @return Nothing; emits `DelegationRootUpdated` on success.
+    /// @dev Emits `DelegationRootUpdated` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` (caller is neither the delegator nor a root updater), `NoPendingRoot` (nothing proposed), `TimelockNotReady` (delay not yet elapsed), `DelegatorHasBeenRevoked`, `ScopeLimitExceeded`, `EnforcedPause`.
     /// Maps to: TS SDK delegation.ts acceptDelegationRoot; event DelegationRootUpdated
     /// @dev Side effects: writes `delegationRoots[delegator][scopeHash]`, clears the pending proposal, updates the scope set, emits `DelegationRootUpdated`. Security: delegator-or-root-updater-only + timelock.
@@ -264,7 +263,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Cancels a pending delegation-root proposal, so the current root stays in force.
     /// @dev Callable by the delegator, a ROOT_UPDATER_ROLE holder, or an admin — and deliberately NOT pause-guarded, so a bad proposal can be killed during an incident. Any of the three roles may cancel, not just the proposer.
     /// @param delegator Address whose proposal is cancelled. @param scopeHash Scope the proposal covers.
-    /// @return Nothing; emits `DelegationRootUpdateCancelled` on success.
+    /// @dev Emits `DelegationRootUpdateCancelled` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` (caller holds none of the three roles) or `NoPendingRoot` (nothing proposed). Never reverts for pause.
     /// Maps to: TS SDK delegation.ts cancelDelegationRoot; event DelegationRootUpdateCancelled
     /// @dev Side effects: deletes `pendingDelegationRoots[delegator][scopeHash]`, emits `DelegationRootUpdateCancelled`. Security: delegator/updater/admin-only; no pause guard by design.
@@ -282,7 +281,7 @@ contract DelegationManager is Initializable, AccessControlUpgradeable, PausableU
     /// @notice Revokes one delegation leaf inside the delegator's own namespace, so its proof stops verifying immediately.
     /// @dev Revocations are keyed PER DELEGATOR, and only the delegator, a ROOT_UPDATER_ROLE holder, or the admin may write to that delegator's namespace — a self-registered attacker can only poison their OWN namespace, so cross-delegator griefing is impossible by construction without requiring a leaf preimage or Merkle proof (which would break emergency revocation). No pause guard (kill-switch), and deliberately no un-revoke path: a revoked leaf stays revoked; the delegator publishes fresh roots/leaves instead.
     /// @param delegationLeafHash Hash of the leaf to revoke. @param delegator Address whose namespace the leaf sits in.
-    /// @return Nothing; emits `DelegationRevoked` on success.
+    /// @dev Emits `DelegationRevoked` on success.
     /// @dev Reverts with `AccessControlUnauthorizedAccount` (caller is none of delegator/updater/admin) or `AlreadyRevokedDelegation` (leaf already revoked). Never reverts for pause.
     /// Maps to: TS SDK delegation.ts revokeDelegation; event DelegationRevoked
     /// @dev Side effects: sets `revokedDelegations[delegator][delegationLeafHash] = true`, emits `DelegationRevoked`. Security: namespaced revocation; no pause guard by design.

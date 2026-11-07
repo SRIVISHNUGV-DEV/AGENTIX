@@ -12,7 +12,6 @@ contract MockVerifier {
     /// @notice Sets the return value for future verifyProof calls.
     /// @dev Test-only control: flip the mock between "proofs valid" and "proofs invalid" to exercise both branches of `SessionManager.createSession`. Takes effect immediately for the next call; no event is emitted.
     /// @param _result True to simulate valid proofs, false to simulate invalid ones.
-    /// @return Nothing.
     /// Maps to: contract SessionManager.createSession (test double for `IVerifier`); test helper — `contracts/test/*.test.ts` deploy it as the verifier
     /// @dev Side effects: sets `expectedResult`. Security: test-only mock — never deploy as a production verifier; it "verifies" nothing.
     function setResult(bool _result) external {

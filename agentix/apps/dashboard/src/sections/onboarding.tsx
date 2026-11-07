@@ -236,6 +236,14 @@ function DiagnosticsStep({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Fetches the diagnostics checklist from the API and maps it into step state, then advances the wizard.
+     * WHY: The diagnostics step shows live backend checks, not hardcoded rows — but when the API is unreachable or returns nothing, it falls back to a hardcoded all-pass list, so a dead backend looks healthy (known fail-open; see the step's report).
+     * @returns Nothing; updates the checks state and calls onComplete() unless unmounted.
+     * @throws Never throws — fetch failures are caught and replaced by the hardcoded all-pass fallback.
+     * Maps to: REST GET /api/onboarding/diagnostics.
+     * Side effects: setState; no-op after unmount via the `cancelled` flag.
+     */
     async function run() {
       try {
         const result = await fetchJSON<any>("/api/onboarding/diagnostics");
@@ -305,6 +313,14 @@ function HarnessStep({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Fetches the detected harness adapters from the API and maps them into step state, then clears the spinner.
+     * WHY: The harness step lists what the backend actually found (Claude Code, MimoCode, …), so the user links a wallet to a real harness — an empty or failed response falls back to a hardcoded all-undetected list.
+     * @returns Nothing; updates the harnesses state and clears `scanning` unless unmounted.
+     * @throws Never throws — fetch failures are caught and replaced by the hardcoded fallback list.
+     * Maps to: REST GET /api/onboarding/harnesses.
+     * Side effects: setState; no-op after unmount via the `cancelled` flag.
+     */
     async function scan() {
       try {
         const result = await fetchJSON<any>("/api/onboarding/harnesses");
@@ -438,6 +454,14 @@ function RuntimeStep({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Steps through the init task list, marking each "running" then "done", then advances the wizard.
+     * WHY: Gives the user visible progress while the runtime initializes; the pacing is simulated (300–700 ms per task), not measured.
+     * @returns Nothing; calls onComplete() once every task is marked done.
+     * @throws Never throws — no I/O, only timers.
+     * Maps to: internal — RuntimeStep onboarding sequence.
+     * Side effects: setState + timers; stops early if unmounted (`cancelled`).
+     */
     async function run() {
       for (let i = 0; i < tasks.length; i++) {
         if (cancelled) return;
@@ -540,6 +564,14 @@ function ConfigureStep({ setState }: { setState: React.Dispatch<React.SetStateAc
 function DatabaseStep({ onComplete }: { onComplete: () => void }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    /**
+     * WHAT: Pings the backend status endpoint, then marks the database step ready and advances the wizard.
+     * WHY: The step is a liveness gate — a failed ping must not block onboarding, so the failure is swallowed and the step still completes.
+     * @returns Nothing; sets ready and calls onComplete() even when the ping fails.
+     * @throws Never throws — the fetch failure is caught and ignored.
+     * Maps to: REST GET /api/onboarding/status (liveness ping only).
+     * Side effects: timer (800 ms); calls onComplete once.
+     */
     async function check() {
       try {
         await fetchJSON("/api/onboarding/status");
@@ -575,6 +607,14 @@ function ServicesStep({ onComplete }: { onComplete: () => void }) {
   const [services, setServices] = useState<{ name: string; port: number; status: "starting" | "running" }[]>([]);
   useEffect(() => {
     let cancelled = false;
+    /**
+     * WHAT: Discovers the API server's real port, lists the API + Dashboard services, flips them to "running", then advances the wizard.
+     * WHY: The API port is not always the default (3001 may have been busy), so the step probes /api/runtime-info and falls back to port 0 ("auto").
+     * @returns Nothing; calls onComplete() after the staged service list is shown.
+     * @throws Never throws — fetch failures fall back to the /api/health probe, then to port 0.
+     * Maps to: REST GET /api/runtime-info (and GET /api/health as a fallback probe).
+     * Side effects: setState + timers; no-op after unmount via the `cancelled` flag.
+     */
     async function run() {
       // Discover the API's real port (it may not be the default if 3001 was
       // busy). Falls back to 0 (shown as "auto") if the info route is absent.

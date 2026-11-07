@@ -49,13 +49,11 @@ interface IEntryPoint {
     /// @notice Deposits ETH into the EntryPoint on behalf of an account, funding future user-op gas.
     /// @dev Payable; `msg.value` is credited to `account`'s deposit. Called by `AgentWallet.addDeposit`.
     /// @param account Account whose deposit is topped up.
-    /// @return Nothing.
     /// Maps to: ERC-4337 EntryPoint depositTo; contract AgentWallet.addDeposit
     function depositTo(address account) external payable;
     /// @notice Withdraws ETH from an account's EntryPoint deposit to a recipient.
     /// @dev Only the deposit owner (the wallet) may call it on-chain; withdrawing more than deposited reverts in the EntryPoint.
     /// @param withdrawAddress Recipient of the withdrawn ETH. @param amount Wei to withdraw.
-    /// @return Nothing.
     /// Maps to: ERC-4337 EntryPoint withdrawTo; contract AgentWallet.withdrawDepositTo
     function withdrawTo(address payable withdrawAddress, uint256 amount) external;
     /// @notice Returns an account's current EntryPoint deposit balance.
@@ -146,7 +144,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev EIP-1167 clones do not execute constructors — initialization happens via `initialize()`. Setting `initialized = true` here means the implementation itself can never be initialized or used as a wallet; only its clones are usable.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — AgentWallet.initialize (the real setup path); contract AgentWalletFactory (clones this implementation)
     constructor() {
         initialized = true;
@@ -187,7 +185,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice One-time initialization called by the factory right after cloning; binds owner, SessionManager, and EntryPoint.
     /// @dev EIP-1167 clones never run the constructor, so this is the real setup step. The implementation contract locks itself in its constructor (`initialized = true`), so it can never be initialized directly. ERC1820 registration is best-effort: failure is ignored because the registry may not exist on the chain.
     /// @param _owner Non-zero wallet owner. @param _sessionManager Non-zero SessionManager that validates session calls. @param _entryPoint Non-zero ERC-4337 EntryPoint.
-    /// @return Nothing; emits `WalletInitialized` on success.
+    /// @dev Emits `WalletInitialized` on success.
     /// @dev Reverts with `AlreadyInitializedError` (second call), `InvalidOwnerError` / `InvalidSessionManagerError` / `InvalidEntryPointError` (zero address).
     /// Maps to: contract AgentWalletFactory._createWallet; TS SDK wallet.ts createWallet
     /// @dev Side effects: sets `initialized`, `owner`, `sessionManager`, `entryPoint`; attempts ERC1820 registration; emits `WalletInitialized`.
@@ -239,7 +237,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Executes one arbitrary call with ETH value, owner- or EntryPoint-driven.
     /// @dev The wallet itself performs no authorization beyond the caller gate — spending limits and target rules are enforced upstream in `validateUserOp` (session path) or not at all (direct owner path). A failing target call reverts the whole transaction; no partial execution is kept.
     /// @param target Non-zero contract/EOA to call. @param value ETH (wei) forwarded with the call; must not exceed the wallet balance. @param data Calldata sent to the target.
-    /// @return Nothing; emits `ExecutionPerformed` on success.
+    /// @dev Emits `ExecutionPerformed` on success.
     /// @dev Reverts with `NotAuthorizedError` (caller is neither owner nor EntryPoint), `NotInitializedError`, `InvalidRecipientError` (zero target), `ExecutionFailedError` (target call returned false).
     /// Maps to: ERC-4337 user-op execution; contract SessionManager.validateSession (session path); event ExecutionPerformed
     /// @dev Side effects: external call with value to an arbitrary target, emits `ExecutionPerformed`. Reentrancy-guarded. Security: arbitrary call — only the owner or a validated user-op may reach it.
@@ -258,7 +256,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Executes a batch of calls atomically, owner- or EntryPoint-driven.
     /// @dev All calls run in order; any single failure reverts the entire batch (no partial state is kept). Session user-ops may never reach this function — `_validateUserOperation` rejects `executeBatch` for sessions — so batches are owner-only in practice.
     /// @param targets Non-empty array of non-zero addresses, at most `MAX_BATCH_SIZE` (20). @param values ETH (wei) per call; length must equal `targets.length`. @param data Calldata per call; length must equal `targets.length`.
-    /// @return Nothing; emits `BatchExecutionPerformed` with the call count and summed value on success.
+    /// @dev Emits `BatchExecutionPerformed` with the call count and summed value on success.
     /// @dev Reverts with `NotAuthorizedError`, `NotInitializedError`, `LengthMismatchError` (empty arrays or mismatched lengths), `BatchTooLargeError` (> 20 calls), `InvalidRecipientError` (zero target), `CallFailedError` (any sub-call failed).
     /// Maps to: ERC-4337 user-op execution; event BatchExecutionPerformed
     /// @dev Side effects: up to 20 external calls with value, emits `BatchExecutionPerformed`. Reentrancy-guarded. Security: arbitrary calls — owner/validated-user-op only.
@@ -285,7 +283,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice Deposits the sent ETH into the EntryPoint to pay for future user-op gas.
     /// @dev Anyone may call it (e.g. a paymaster topping up the wallet); `msg.value` is forwarded in full. A 0-value call is a no-op deposit that still emits the event.
-    /// @return Nothing; emits `EntryPointDepositAdded` with the deposited amount and the wallet's new EntryPoint balance.
+    /// @dev Emits `EntryPointDepositAdded` with the deposited amount and the wallet's new EntryPoint balance.
     /// @dev Reverts with `NotInitializedError`, or if the EntryPoint's `depositTo` call itself reverts.
     /// Maps to: ERC-4337 EntryPoint depositTo; event EntryPointDepositAdded
     /// @dev Side effects: transfers `msg.value` to the EntryPoint, emits `EntryPointDepositAdded`.
@@ -305,7 +303,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Withdraws part of the EntryPoint gas deposit to a recipient.
     /// @dev Owner-only. The EntryPoint itself enforces the balance — withdrawing more than deposited reverts there, not here. Note the session-path denial: a session can never call this indirectly because the EntryPoint is a denied session target.
     /// @param recipient Non-zero address receiving the ETH. @param amount Wei to withdraw; 0 is allowed by this contract (EntryPoint decides).
-    /// @return Nothing; emits `EntryPointWithdrawal` on success.
+    /// @dev Emits `EntryPointWithdrawal` on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidRecipientError` (zero recipient), or the EntryPoint's own revert on insufficient deposit.
     /// Maps to: ERC-4337 EntryPoint withdrawTo; event EntryPointWithdrawal
     /// @dev Side effects: moves ETH out of the EntryPoint deposit, emits `EntryPointWithdrawal`. Security: owner-only; moves value.
@@ -318,7 +316,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Starts a two-step ownership transfer by naming a pending owner; nothing changes until they accept.
     /// @dev 2FA-style: proposing alone never moves ownership, so a compromised owner key cannot instantly hand the wallet away. Only one transfer may be pending at a time — there is no cancel function, the pending owner must accept or the owner must wait (see report).
     /// @param newOwner Non-zero proposed owner.
-    /// @return Nothing; emits `OwnershipTransferStarted` on success.
+    /// @dev Emits `OwnershipTransferStarted` on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidOwnerError` (zero address), `OwnershipTransferPendingError` (a transfer is already pending).
     /// Maps to: TS SDK wallet.ts changeOwner; event OwnershipTransferStarted
     /// @dev Side effects: sets `pendingOwner`, emits `OwnershipTransferStarted`. Security: owner-only; ownership moves only via `acceptOwnership`.
@@ -331,7 +329,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice Completes the pending ownership transfer; only the named pending owner may call it.
     /// @dev The second step of `changeOwner`. Takes effect immediately: the old owner loses all owner rights in the same transaction, so in-flight owner operations from the old owner after this call revert.
-    /// @return Nothing; emits `OwnerChanged` on success.
+    /// @dev Emits `OwnerChanged` on success.
     /// @dev Reverts with `NotInitializedError` or `NotAuthorizedError` (caller is not the pending owner, including when no transfer is pending).
     /// Maps to: TS SDK wallet.ts acceptOwnership; event OwnerChanged
     /// @dev Side effects: sets `owner`, clears `pendingOwner`, emits `OwnerChanged`. Security: pending-owner-only; transfers full control of the wallet.
@@ -350,7 +348,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice ERC-777 `tokensReceived` hook, accepting ERC-777 token transfers into the wallet.
     /// @dev Implements `IERC777Recipient`; registration with the ERC1820 registry happens (best-effort) in `initialize()`. All parameters are intentionally ignored — receipt is unconditional, and accepting a token never grants spending authority over it.
-    /// @return Nothing; no state is changed.
+    /// @dev No state is changed.
     /// Maps to: ERC-777 tokensReceived; internal — AgentWallet.initialize (ERC1820 registration)
     function tokensReceived(
         address,
@@ -364,7 +362,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Proposes a replacement SessionManager, effective only after the 2-day timelock and `acceptSessionManager`.
     /// @dev The SessionManager is the wallet's entire authorization policy — swapping it is the highest-risk admin action, hence propose-then-accept with a delay during which the owner can spot a bad proposal (there is no cancel; a new proposal must wait for the pending one to clear — see report).
     /// @param _sessionManager Non-zero proposed SessionManager.
-    /// @return Nothing; emits `SessionManagerProposed` with the activation timestamp on success.
+    /// @dev Emits `SessionManagerProposed` with the activation timestamp on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidSessionManagerError` (zero address), `TimelockActiveError` (a proposal is already pending).
     /// Maps to: contract SessionManager (the dependency being swapped); event SessionManagerProposed
     /// @dev Side effects: sets `pendingSessionManager` and `sessionManagerActivationTime`, emits `SessionManagerProposed`. Security: owner-only; swaps who may authorize spending.
@@ -378,7 +376,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice Activates the pending SessionManager once the 2-day timelock has elapsed.
     /// @dev Calling early reverts; after activation all session validation routes to the new manager immediately, including live sessions. Old sessions are validated against the new manager's state, not migrated.
-    /// @return Nothing; emits `SessionManagerUpdated` on success.
+    /// @dev Emits `SessionManagerUpdated` on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidSessionManagerError` (no proposal pending), `TimelockNotReadyError` (delay not yet elapsed).
     /// Maps to: contract SessionManager (the dependency being swapped); event SessionManagerUpdated
     /// @dev Side effects: sets `sessionManager`, clears the pending proposal and activation time, emits `SessionManagerUpdated`. Security: owner-only; swaps who may authorize spending.
@@ -395,7 +393,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Proposes a replacement ERC-4337 EntryPoint, effective only after the 2-day timelock and `acceptEntryPoint`.
     /// @dev The EntryPoint is the only caller of `validateUserOp` — swapping it re-roots all user-op authentication, hence the same propose-then-accept delay as the SessionManager swap.
     /// @param _entryPoint Non-zero proposed EntryPoint.
-    /// @return Nothing; emits `EntryPointProposed` with the activation timestamp on success.
+    /// @dev Emits `EntryPointProposed` with the activation timestamp on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidEntryPointError` (zero address), `TimelockActiveError` (a proposal is already pending).
     /// Maps to: ERC-4337 EntryPoint; event EntryPointProposed
     /// @dev Side effects: sets `pendingEntryPoint` and `entryPointActivationTime`, emits `EntryPointProposed`. Security: owner-only; swaps who may authenticate user-ops.
@@ -409,7 +407,7 @@ contract AgentWallet is ReentrancyGuard {
 
     /// @notice Activates the pending EntryPoint once the 2-day timelock has elapsed.
     /// @dev Calling early reverts; after activation only the new EntryPoint may call `validateUserOp`, and the old EntryPoint loses all access. Gas deposits held at the old EntryPoint are NOT moved — withdraw them first.
-    /// @return Nothing; emits `EntryPointUpdated` on success.
+    /// @dev Emits `EntryPointUpdated` on success.
     /// @dev Reverts with `NotOwnerError`, `NotInitializedError`, `InvalidEntryPointError` (no proposal pending), `TimelockNotReadyError` (delay not yet elapsed).
     /// Maps to: ERC-4337 EntryPoint; event EntryPointUpdated
     /// @dev Side effects: sets `entryPoint`, clears the pending proposal and activation time, emits `EntryPointUpdated`. Security: owner-only; swaps who may authenticate user-ops.
@@ -487,7 +485,7 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Dispatches session validation to the SessionManager, routing by session type (0 = standard, 1 = lightweight).
     /// @dev Type comes from `getSessionType`; any other value (including 2 = not found) reverts as a failed validation. A `false` return from the manager is converted into a revert — this function never returns false.
     /// @param sessionId Session to validate. @param signer Recovered signer, must be the session key. @param spendValue ETH value of the call. @param target Call target. @param innerData Inner calldata of the `execute()` call (inspected for the token-selector rule).
-    /// @return Nothing; returns silently on success.
+    /// @dev Returns silently on success.
     /// @dev Reverts with `LightweightSessionValidationFailedError` (lightweight check returned false) or `SessionValidationFailedError` (standard check failed, or unknown session type).
     /// Maps to: internal — AgentWallet._validateUserOperation; contract SessionManager.validateSession / validateLightweightSession / getSessionType
     /// @dev Side effects: external calls to the SessionManager that update spend accounting. Security: unknown session types fail closed.
@@ -517,7 +515,6 @@ contract AgentWallet is ReentrancyGuard {
     /// @notice Tops up the EntryPoint deposit from the wallet's own ETH when the EntryPoint reports a shortfall.
     /// @dev Called at the end of `validateUserOp`. Sends `missingAccountFunds` to `msg.sender` — which, in the EntryPoint flow, is the EntryPoint itself. A zero amount is a no-op.
     /// @param missingAccountFunds Wei to forward; 0 skips the transfer.
-    /// @return Nothing.
     /// @dev Reverts with `FundingFailedError` if the ETH transfer to the EntryPoint fails.
     /// Maps to: internal — AgentWallet.validateUserOp; ERC-4337 EntryPoint deposit flow
     /// @dev Side effects: external ETH transfer of `missingAccountFunds`. Security: recipient is always `msg.sender` (the EntryPoint in this flow), never a caller-supplied address.

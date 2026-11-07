@@ -20,7 +20,6 @@ interface IAgentWallet {
     /// @notice One-time initializer binding owner, SessionManager, and EntryPoint to a fresh clone.
     /// @dev Called once by the factory right after cloning; a second call reverts with `AlreadyInitializedError`.
     /// @param owner Non-zero wallet owner. @param sessionManager Non-zero SessionManager. @param entryPoint Non-zero ERC-4337 EntryPoint.
-    /// @return Nothing.
     /// Maps to: contract AgentWallet.initialize; contract AgentWalletFactory._createWallet
     function initialize(address owner, address sessionManager, address entryPoint) external;
     /// @notice Returns the wallet's owner address.
@@ -88,7 +87,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -98,7 +97,6 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice One-time initializer: binds the wallet implementation, SessionManager, and EntryPoint shared by every clone.
     /// @dev Runs once (initializer) from the proxy deployment. All three addresses are validated non-zero here; `agentIdentity` is intentionally left unset and wired later via `setAgentIdentity` (identity registration is skipped until then).
     /// @param implementation_ Non-zero AgentWallet implementation to clone. @param sessionManager_ Non-zero SessionManager assigned to new wallets. @param entryPoint_ Non-zero ERC-4337 EntryPoint assigned to new wallets.
-    /// @return Nothing.
     /// @dev Reverts if called twice (`InvalidInitialization`) or with a zero address (`InvalidImplementationError`, `FactoryInvalidSessionManagerError`, `FactoryInvalidEntryPointError`).
     /// Maps to: deployment script — proxy `initialize` call
     /// @dev Side effects: sets owner to `msg.sender`, sets `implementation`/`sessionManager`/`entryPoint`. Security: deployer becomes owner.
@@ -151,7 +149,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Proposes a new AgentWallet implementation, effective only after the 2-day timelock and `acceptImplementation`.
     /// @dev Only affects wallets created after activation — already-deployed clones keep pointing at the old implementation (EIP-1167 clones are immutable). A bad implementation only harms future wallets, which is why the delay still matters.
     /// @param newImplementation Non-zero proposed implementation.
-    /// @return Nothing; emits `ImplementationProposed` with the activation timestamp.
+    /// @dev Emits `ImplementationProposed` with the activation timestamp.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `InvalidImplementationError` (zero address), `FactoryTimelockActiveError` (a proposal is already pending).
     /// Maps to: contract AgentWallet (implementation being swapped); event ImplementationProposed
     /// @dev Side effects: sets `pendingImplementation` and `implementationActivationTime`, emits `ImplementationProposed`. Security: owner-only.
@@ -165,7 +163,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Activates the pending wallet implementation once the 2-day timelock has elapsed.
     /// @dev Calling early reverts. Only future clones use the new implementation; existing wallets are unaffected.
-    /// @return Nothing; emits `ImplementationUpdated` on success.
+    /// @dev Emits `ImplementationUpdated` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `InvalidImplementationError` (no proposal pending), `FactoryTimelockNotReadyError` (delay not yet elapsed).
     /// Maps to: contract AgentWallet (implementation being swapped); event ImplementationUpdated
     /// @dev Side effects: sets `implementation`, clears the pending proposal and activation time, emits `ImplementationUpdated`. Security: owner-only.
@@ -182,7 +180,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Proposes a new SessionManager for future wallets, effective only after the 2-day timelock and `acceptSessionManager`.
     /// @dev Only affects wallets created after activation — existing wallets keep their own SessionManager (each wallet stores its own address). The SessionManager is the authorization policy for new wallets, hence the delay.
     /// @param newSessionManager Non-zero proposed SessionManager.
-    /// @return Nothing; emits `SessionManagerProposed` with the activation timestamp.
+    /// @dev Emits `SessionManagerProposed` with the activation timestamp.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `FactoryInvalidSessionManagerError` (zero address), `FactoryTimelockActiveError` (a proposal is already pending).
     /// Maps to: contract SessionManager (the dependency being swapped); event SessionManagerProposed
     /// @dev Side effects: sets `pendingSessionManager` and `sessionManagerActivationTime`, emits `SessionManagerProposed`. Security: owner-only.
@@ -196,7 +194,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Activates the pending SessionManager once the 2-day timelock has elapsed.
     /// @dev Calling early reverts. Only future wallets get the new manager; existing wallets are unaffected.
-    /// @return Nothing; emits `SessionManagerUpdated` on success.
+    /// @dev Emits `SessionManagerUpdated` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `FactoryInvalidSessionManagerError` (no proposal pending), `FactoryTimelockNotReadyError` (delay not yet elapsed).
     /// Maps to: contract SessionManager (the dependency being swapped); event SessionManagerUpdated
     /// @dev Side effects: sets `sessionManager`, clears the pending proposal and activation time, emits `SessionManagerUpdated`. Security: owner-only.
@@ -213,7 +211,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Proposes a new EntryPoint for future wallets, effective only after the 2-day timelock and `acceptEntryPoint`.
     /// @dev Only affects wallets created after activation — existing wallets keep their own EntryPoint. The EntryPoint authenticates every user-op for new wallets, hence the delay.
     /// @param newEntryPoint Non-zero proposed EntryPoint.
-    /// @return Nothing; emits `EntryPointProposed` with the activation timestamp.
+    /// @dev Emits `EntryPointProposed` with the activation timestamp.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `FactoryInvalidEntryPointError` (zero address), `FactoryTimelockActiveError` (a proposal is already pending).
     /// Maps to: ERC-4337 EntryPoint; event EntryPointProposed
     /// @dev Side effects: sets `pendingEntryPoint` and `entryPointActivationTime`, emits `EntryPointProposed`. Security: owner-only.
@@ -227,7 +225,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
 
     /// @notice Activates the pending EntryPoint once the 2-day timelock has elapsed.
     /// @dev Calling early reverts. Only future wallets get the new EntryPoint; existing wallets are unaffected.
-    /// @return Nothing; emits `EntryPointUpdated` on success.
+    /// @dev Emits `EntryPointUpdated` on success.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner), `FactoryInvalidEntryPointError` (no proposal pending), `FactoryTimelockNotReadyError` (delay not yet elapsed).
     /// Maps to: ERC-4337 EntryPoint; event EntryPointUpdated
     /// @dev Side effects: sets `entryPoint`, clears the pending proposal and activation time, emits `EntryPointUpdated`. Security: owner-only.
@@ -253,7 +251,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @notice Wires (or re-wires) the AgentIdentity registry used to register identities for new wallets.
     /// @dev Owner-only, no timelock: this only affects wallets created after the call, and setting it to a wrong-but-nonzero address would silently register identities in the wrong registry — verify the address before calling. Setting it back to address(0) is not possible here (zero reverts); identity registration is skipped while it is unset.
     /// @param agentIdentity_ Non-zero AgentIdentity contract.
-    /// @return Nothing; no event is emitted.
+    /// @dev No event is emitted.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` (non-owner) or `InvalidAgentIdentityError` (zero address).
     /// Maps to: contract AgentIdentity.registerIdentity (called for new wallets once set)
     /// @dev Side effects: sets `agentIdentity`. Security: owner-only; no timelock, so double-check the address.

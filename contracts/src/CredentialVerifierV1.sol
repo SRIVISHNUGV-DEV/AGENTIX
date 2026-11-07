@@ -85,7 +85,11 @@ contract Groth16Verifier {
     /// @dev Side effects: none (view). Security: soundness rests entirely on the embedded verification key matching the circuit — a key/circuit mismatch makes every proof fail (safe direction) or, if the key came from a different circuit, verifies the wrong statement.
     function verifyProof(uint[2] calldata _pA, uint[2][2] calldata _pB, uint[2] calldata _pC, uint[7] calldata _pubSignals) public view returns (bool) {
         assembly {
-            // checkField: returns 0 (false) when v is outside the scalar field r; every proof point and public signal is range-checked through it before pairing.
+            /// @notice Range-checks a value against the scalar field modulus r.
+            /// @dev Every proof point and public signal is checked through it before pairing. On the first out-of-range value it halts verification and the outer call returns 0 (false).
+            /// @param v The field element to check.
+            /// @returns Nothing — aborts verification on failure instead of returning a flag.
+            /// Maps to: internal — verifyProof field validation.
             function checkField(v) {
                 if iszero(lt(v, r)) {
                     mstore(0, 0)
@@ -93,8 +97,13 @@ contract Groth16Verifier {
                 }
             }
             
-            // G1 function to multiply a G1 value(x,y) to value in an address
-            // g1_mulAccC: adds s*(x,y) into the accumulator at pR via the ECADD/ECMUL precompiles (6/7); returns 0 on precompile failure.
+            /// @notice Adds s*(x, y) into the G1 accumulator at pR.
+            /// @dev Scalar-multiplies (x, y) by s via the ECMUL precompile (7), then adds the result into the accumulator via ECADD (6). Halts verification (outer call returns 0/false) if either precompile fails.
+            /// @param pR Memory pointer to the accumulator point (x at pR, y at pR+32); updated in place.
+            /// @param x X coordinate of the point to scale.
+            /// @param y Y coordinate of the point to scale.
+            /// @param s Scalar multiplier.
+            /// Maps to: internal — checkPairing vk_x accumulation.
             function g1_mulAccC(pR, x, y, s) {
                 let success
                 let mIn := mload(0x40)
@@ -120,7 +129,15 @@ contract Groth16Verifier {
                 }
             }
 
-            // checkPairing: builds vk_x as the linear combination of the IC points with the public signals, then runs the pairing precompile (8) over (-A, B, alpha, beta, vk_x, gamma, C, delta); isOk is true only when the pairing succeeds and equals 1.
+            /// @notice Runs the Groth16 pairing check over the proof and public signals.
+            /// @dev Builds vk_x as the linear combination of the IC points weighted by the public signals, then calls the pairing precompile (8) over (-A, B, alpha, beta, vk_x, gamma, C, delta). isOk is true only when the precompile succeeds and the pairing equals 1.
+            /// @param pA Proof point A (G1).
+            /// @param pB Proof point B (G2).
+            /// @param pC Proof point C (G1).
+            /// @param pubSignals Pointer to the 7 public signals in memory.
+            /// @param pMem Scratch memory base for the pairing input.
+            /// @return isOk True only when the pairing check passes.
+            /// Maps to: internal — verifyProof final check.
             function checkPairing(pA, pB, pC, pubSignals, pMem) -> isOk {
                 let _pPairing := add(pMem, pPairing)
                 let _pVk := add(pMem, pVk)

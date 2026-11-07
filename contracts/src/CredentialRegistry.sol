@@ -61,7 +61,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Locks the implementation contract so it cannot be initialized directly.
     /// @dev UUPS implementations must never be usable standalone: a directly-initialized implementation would let anyone become its owner. The proxy's `initialize` is the only setup path.
-    /// @return Nothing. Never reverts.
+    /// @dev Never reverts.
     /// Maps to: internal — OZ Initializable / UUPSUpgradeable deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -71,7 +71,6 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice One-time initializer: wires the owner, the pause guard, and makes the owner the first issuer.
     /// @dev Runs once (initializer) from the proxy deployment. Roots start at bytes32(0) — sessions cannot be created until an issuer proposes and accepts a real active root through the timelock.
     /// @param owner_ Admin/owner (pause + upgrade + issuer-admin rights) and initial issuer.
-    /// @return Nothing.
     /// @dev Reverts if called twice (`InvalidInitialization`) or with a zero owner (OZ `OwnableInvalidOwner`).
     /// Maps to: deployment script — proxy `initialize` call
     /// @dev Side effects: sets owner, sets `issuers[owner_] = true`. Security: deployer-chosen owner becomes first issuer.
@@ -97,7 +96,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Grants issuer rights to an address (it may then propose/accept roots).
     /// @dev Owner-only. Idempotent — adding an existing issuer is a no-op, not a revert. Issuers are trusted to propose roots, so grant sparingly; the 2-day timelock is the only check on a compromised issuer.
     /// @param issuer Non-zero address to trust as an issuer (no validation beyond the owner gate — a zero address grant is a harmless no-op entry).
-    /// @return Nothing; no event is emitted.
+    /// @dev No event is emitted.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` for non-owners.
     /// Maps to: TS SDK credential.ts addIssuer
     /// @dev Side effects: sets `issuers[issuer] = true`. Security: owner-only; grants root-proposal authority.
@@ -105,7 +104,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Revokes issuer rights from an address (it can no longer propose/accept roots; pending proposals it made stay pending and may still be cancelled).
     /// @dev Owner-only. Idempotent — removing a non-issuer is a no-op. Removing an issuer does not cancel its pending root proposals; cancel those separately.
     /// @param issuer Address to distrust as an issuer.
-    /// @return Nothing; no event is emitted.
+    /// @dev No event is emitted.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` for non-owners.
     /// Maps to: TS SDK credential.ts removeIssuer
     /// @dev Side effects: sets `issuers[issuer] = false`. Security: owner-only.
@@ -113,7 +112,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Allows or disallows a SessionManager to consume nullifiers (mark them used at session creation).
     /// @dev Owner-only. Only a registered SessionManager may call `markNullifierUsed`; an unregistered caller reverts there. Set this when deploying or replacing a SessionManager, and unset the old one.
     /// @param sessionManager SessionManager address to allow/disallow. @param allowed True to allow, false to disallow.
-    /// @return Nothing; no event is emitted.
+    /// @dev No event is emitted.
     /// @dev Reverts with OZ `OwnableUnauthorizedAccount` for non-owners.
     /// Maps to: contract SessionManager.createSession (nullifier consumption); TS SDK credential.ts setSessionManager
     /// @dev Side effects: sets `sessionManagers[sessionManager]`. Security: owner-only; gates who may burn nullifiers.
@@ -122,7 +121,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Proposes a new active credential root, effective only after the 2-day timelock and `acceptActiveRoot`.
     /// @dev Issuer-only. The timelock is the anti-DoS control: a compromised issuer key can no longer instantly publish a garbage root that blocks all new sessions. Only one proposal may be pending at a time.
     /// @param newRoot Non-zero Merkle root of the active credential tree.
-    /// @return Nothing; emits `ActiveRootProposed` with the activation timestamp.
+    /// @dev Emits `ActiveRootProposed` with the activation timestamp.
     /// @dev Reverts with `OnlyIssuer` (non-issuer), `RootCannotBeZero` (zero root), `PendingRootActive` (a proposal is already pending), `EnforcedPause` (paused).
     /// Maps to: TS SDK credential.ts proposeActiveRoot; event ActiveRootProposed
     /// @dev Side effects: sets `pendingActiveRoot` and `activeRootActivationTime`, emits `ActiveRootProposed`. Security: issuer-only + 2-day timelock.
@@ -136,7 +135,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Activates the pending active root after the 2-day timelock, so new sessions prove against it.
     /// @dev Issuer-only. Any issuer may accept, not just the proposer. Calling early reverts. Sessions created before activation keep proving against the old root until they are created anew — activation does not invalidate live sessions.
-    /// @return Nothing; emits `ActiveRootUpdated` with the new root.
+    /// @dev Emits `ActiveRootUpdated` with the new root.
     /// @dev Reverts with `OnlyIssuer`, `NoPendingRoot` (nothing proposed), `TimelockNotReady` (delay not yet elapsed), `EnforcedPause`.
     /// Maps to: TS SDK credential.ts acceptActiveRoot; contract SessionManager.createSession (reads `activeRoot`); event ActiveRootUpdated
     /// @dev Side effects: sets `activeRoot`, clears the pending proposal and activation time, emits `ActiveRootUpdated`. Security: issuer-only + timelock.
@@ -151,7 +150,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Cancels a pending active-root proposal, so the current root stays in force.
     /// @dev Issuer-or-owner, and deliberately NOT pause-guarded: cancellation is a defensive action that must work during an incident (e.g. a compromised issuer's garbage proposal). Any issuer may cancel, not just the proposer.
-    /// @return Nothing; emits `ActiveRootUpdateCancelled` with the cancelled root.
+    /// @dev Emits `ActiveRootUpdateCancelled` with the cancelled root.
     /// @dev Reverts with `NotIssuerOrOwner` (caller is neither issuer nor owner) or `NoPendingRoot` (nothing proposed). Never reverts for pause.
     /// Maps to: TS SDK credential.ts cancelActiveRoot; event ActiveRootUpdateCancelled
     /// @dev Side effects: clears `pendingActiveRoot` and `activeRootActivationTime`, emits `ActiveRootUpdateCancelled`. Security: issuer-or-owner-only; no pause guard by design.
@@ -167,7 +166,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Proposes a new revoked-secret root, effective only after the 2-day timelock and `acceptRevokedSecretRoot`.
     /// @dev Issuer-only. Same timelock rationale as the active root: a compromised issuer cannot instantly un-revoke credentials (by publishing an empty revoked tree) or mass-revoke them. Only one proposal may be pending at a time.
     /// @param newRoot Non-zero Merkle root of the revoked-secret sparse tree.
-    /// @return Nothing; emits `RevokedSecretRootProposed` with the activation timestamp.
+    /// @dev Emits `RevokedSecretRootProposed` with the activation timestamp.
     /// @dev Reverts with `OnlyIssuer`, `RootCannotBeZero` (zero root), `PendingRootActive` (a proposal is already pending), `EnforcedPause`.
     /// Maps to: TS SDK credential.ts proposeRevokedSecretRoot; event RevokedSecretRootProposed
     /// @dev Side effects: sets `pendingRevokedSecretRoot` and `revokedSecretRootActivationTime`, emits `RevokedSecretRootProposed`. Security: issuer-only + 2-day timelock.
@@ -181,7 +180,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Activates the pending revoked-secret root after the 2-day timelock, so new sessions prove non-revocation against it.
     /// @dev Issuer-only. Any issuer may accept, not just the proposer. Note the documented residual: revocation does not kill live sessions — only new session creation checks the revoked root (see `SessionManager.validateSession`).
-    /// @return Nothing; emits `RevokedSecretRootUpdated` with the new root.
+    /// @dev Emits `RevokedSecretRootUpdated` with the new root.
     /// @dev Reverts with `OnlyIssuer`, `NoPendingRoot`, `TimelockNotReady`, `EnforcedPause`.
     /// Maps to: TS SDK credential.ts acceptRevokedSecretRoot; contract SessionManager.createSession (reads `revokedSecretRoot`); event RevokedSecretRootUpdated
     /// @dev Side effects: sets `revokedSecretRoot`, clears the pending proposal and activation time, emits `RevokedSecretRootUpdated`. Security: issuer-only + timelock.
@@ -196,7 +195,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
 
     /// @notice Cancels a pending revoked-secret-root proposal, so the current revoked root stays in force.
     /// @dev Issuer-or-owner, and deliberately NOT pause-guarded (defensive action, must work during an incident). Any issuer may cancel, not just the proposer.
-    /// @return Nothing; emits `RevokedSecretRootUpdateCancelled` with the cancelled root.
+    /// @dev Emits `RevokedSecretRootUpdateCancelled` with the cancelled root.
     /// @dev Reverts with `NotIssuerOrOwner` or `NoPendingRoot`. Never reverts for pause.
     /// Maps to: TS SDK credential.ts cancelRevokedSecretRoot; event RevokedSecretRootUpdateCancelled
     /// @dev Side effects: clears `pendingRevokedSecretRoot` and `revokedSecretRootActivationTime`, emits `RevokedSecretRootUpdateCancelled`. Security: issuer-or-owner-only; no pause guard by design.
@@ -212,7 +211,7 @@ contract CredentialRegistry is Initializable, PausableUpgradeable, UUPSUpgradeab
     /// @notice Burns a session nullifier so the same credential proof can never create a second session (replay protection).
     /// @dev Only a registered SessionManager may call it — this is the single-use enforcement for ZK sessions. The nullifier comes from the circuit output (`publicSignals[6]`); burning happens inside `createSession` after the proof verifies, so a failed proof never burns anything. There is no un-burn path.
     /// @param nullifier The nullifier hash to mark used; zero nullifiers are rejected upstream in `createSession`, not here.
-    /// @return Nothing; no event is emitted (the SessionManager emits `SessionCreated` with the nullifier).
+    /// @dev No event is emitted (the SessionManager emits `SessionCreated` with the nullifier).
     /// @dev Reverts with `OnlySessionManager` (caller not a registered SessionManager) or `NullifierUsed` (nullifier already burned — replay attempt).
     /// Maps to: contract SessionManager.createSession; circuit CredentialCircuit nullifier output
     /// @dev Side effects: sets `usedNullifiers[nullifier] = true`. Security: registered-SessionManager-only; one-way burn.
