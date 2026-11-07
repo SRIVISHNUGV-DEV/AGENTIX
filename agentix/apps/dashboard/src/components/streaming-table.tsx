@@ -135,6 +135,11 @@ const ALIGN: Record<CellAlign, string> = {
  * a 300px column on a 1440px screen must still fall back to stacked cards, and a
  * viewport media query gets that exactly backwards. Defaults to `false` so the
  * server and first client render agree; the observer corrects it after mount.
+ * @param ref - Ref to the element whose width is measured.
+ * @param maxWidth - Width in px below which the container counts as narrow (width 0 does not count).
+ * @returns true when the measured width is > 0 and < `maxWidth`, false otherwise.
+ * Maps to: internal — StreamingTable (switches to the stacked mobile layout).
+ * Side effects: subscribes a ResizeObserver; disconnects on unmount.
  */
 function useNarrowContainer(ref: React.RefObject<HTMLElement | null>, maxWidth: number): boolean {
   const [narrow, setNarrow] = React.useState(false);
@@ -152,6 +157,13 @@ function useNarrowContainer(ref: React.RefObject<HTMLElement | null>, maxWidth: 
   return narrow;
 }
 
+/**
+ * Advances the sort state for one column click: none → asc → desc → none (per column).
+ * @param current - The current sort state, or null/undefined for unsorted.
+ * @param key - The column key that was clicked; a different key always restarts at asc.
+ * @returns The next SortState, or null when the cycle clears the sort.
+ * Maps to: internal — StreamingTable (handleSort).
+ */
 function nextSort(current: SortState | null | undefined, key: string): SortState | null {
   // Cycle: none → asc → desc → none (per column).
   if (!current || current.key !== key) return { key, dir: 'asc' };
@@ -163,14 +175,29 @@ function nextSort(current: SortState | null | undefined, key: string): SortState
 /* Sub-components                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Morphs a number between values; snaps under reduced/paused. */
+/**
+ * Renders a number that morphs toward its new value instead of jumping, snapping instantly when disabled.
+ * @param value - The target number.
+ * @param format - Optional formatter; when omitted, integers are rounded and formatted with up to 2 fraction digits.
+ * @param disabled - Snaps instantly (reduced motion / paused table).
+ * @returns The rendered number text.
+ * Maps to: internal — useAnimatedNumber; used by StreamingTable for numeric cells.
+ */
 function MorphNumber({ value, format, disabled }: { value: number; format?: (n: number) => string; disabled: boolean }) {
   const display = useAnimatedNumber(value, { disabled });
   const rounded = Number.isInteger(value) && !format ? Math.round(display) : display;
   return <>{format ? format(rounded) : formatNumber(rounded, { maximumFractionDigits: 2 })}</>;
 }
 
-/** Transient, non-flashing emphasis: a single tone-tinted fade + a ▲/▼ glyph. */
+/**
+ * Transient change emphasis for one cell: a single tone-tinted fade plus an up/down glyph, so change is never signalled by color alone and never blinks.
+ * @param pulseKey - Unique id for this pulse (re-mounts the animation per change).
+ * @param dir - Change direction: > 0 up, < 0 down, 0 no glyph.
+ * @param duration - Fade length in ms.
+ * @param tone - StatusTone driving the tint.
+ * @returns The overlay spans (background wash + optional direction glyph).
+ * Maps to: internal — StreamingTable (cell change detection).
+ */
 function ChangePulse({ pulseKey, dir, duration, tone }: { pulseKey: number; dir: number; duration: number; tone: StatusTone }) {
   const vars = statusVars(tone);
   return (
@@ -203,7 +230,12 @@ function ChangePulse({ pulseKey, dir, duration, tone }: { pulseKey: number; dir:
   );
 }
 
-/** Status pill — tone conveyed by a shape glyph + label, never color alone. */
+/**
+ * Status pill: a tone-tinted badge whose tone is conveyed by a shape glyph plus the label, never by color alone.
+ * @param status - Raw status string, mapped via getStatusMeta (unknown statuses render neutral).
+ * @returns The pill span.
+ * Maps to: internal — getStatusMeta / statusVars / ToneGlyph; used by sections for status columns.
+ */
 export function StatusPill({ status }: { status: string }) {
   const meta = getStatusMeta(status);
   const vars = statusVars(meta.tone);
@@ -218,7 +250,12 @@ export function StatusPill({ status }: { status: string }) {
   );
 }
 
-/** A distinct shape per tone so status is legible in forced-colors / greyscale. */
+/**
+ * The shape glyph for one tone (check / cross / triangle / ringed dot / "i" / plain dot), so status stays legible in forced-colors or greyscale.
+ * @param tone - The StatusTone to draw; anything unrecognized falls through to the neutral dot.
+ * @returns The 11x11 SVG glyph.
+ * Maps to: internal — StatusPill.
+ */
 function ToneGlyph({ tone }: { tone: StatusTone }) {
   const common = {
     width: 11,
@@ -269,6 +306,15 @@ function ToneGlyph({ tone }: { tone: StatusTone }) {
   }
 }
 
+/**
+ * Renders one row's action buttons (icon or label), each firing both its own onSelect and the table-level onRowAction.
+ * @param row - The row the actions act on.
+ * @param actions - RowAction list for this row (empty renders an empty span).
+ * @param onRowAction - Table-level callback receiving (actionId, row); also fired for every click.
+ * @returns The inline button group; a disabled action renders disabled and cannot be clicked.
+ * Maps to: internal — StreamingTable (hasActions column / mobile cards).
+ * Side effects: none itself — the handlers it invokes may mutate state or navigate.
+ */
 function ActionButtons<T>({ row, actions, onRowAction }: { row: T; actions: RowAction<T>[]; onRowAction?: (id: string, row: T) => void }) {
   return (
     <span className="inline-flex items-center gap-1">
@@ -321,18 +367,21 @@ const themeStyle: React.CSSProperties = {
 
 /**
  * StreamingTable — an accessible live table for operational dashboards.
- *
- * The host application owns the data; this component only presents it, animating
- * the *changes*: row insertion, removal, reposition after sort, per-cell change
- * emphasis, numeric morphs, and status transitions. It is deliberately not a
- * data-grid — no virtualization, filtering, or paging — so it stays small and is
- * meant for live *subsets*.
- *
- * Accessibility: a real semantic `<table>` with `<th scope="col">`; sortable
- * headers are `<button>`s that set `aria-sort`; change is signalled by a ▲/▼
- * glyph (and a status label), never by color alone; a rate-limited polite live
- * region summarizes activity; stable row keys mean focus is never lost on
- * update or resort. Under reduced motion every emphasis is an instant swap.
+ * The host application owns the data; this component only presents it, animating the *changes*: row insertion, removal, reposition after sort, per-cell change emphasis, numeric morphs, and status transitions. It is deliberately not a data-grid — no virtualization, filtering, or paging — so it stays small and is meant for live *subsets*.
+ * Accessibility: a real semantic <table> with <th scope="col">; sortable headers are <button>s that set `aria-sort`; change is signalled by a ▲/▼ glyph (and a status label), never by color alone; a rate-limited polite live region summarizes activity; stable row keys mean focus is never lost on update or resort. Under reduced motion every emphasis is an instant swap.
+ * @param rows - Rows to display (controlled by the host); sorting is a stable sort on a copy and never mutates this array.
+ * @param columns - Column definitions; `value` drives change detection and default sorting.
+ * @param getRowId - Stable identity per row — the key to smooth insert/update/resort; duplicate ids corrupt change tracking and pulses.
+ * @param sort - Controlled sort state; omit for uncontrolled (see `defaultSort`). Pass null to clear.
+ * @param paused - Freezes change emphasis and numeric morphs (data may still change).
+ * @param highlightDuration - Changed-cell emphasis length in ms (default 1400).
+ * @param state - Lifecycle owned by the host: `loading` shows skeletons, `error` shows the error state with Retry, `idle` + empty rows shows the empty state.
+ * @param renderMobileRow - When given, narrow containers render stacked cards instead of the table.
+ * @param mobileBreakpoint - Container width in px below which the stacked layout is used (default 640).
+ * @returns The table (or stacked mobile list); the error state when `state` is 'error'; skeleton rows while loading; the empty state when idle with no rows.
+ * @throws Never — bad host data (e.g. a throwing `value` accessor) would propagate during render, so accessors must be total.
+ * Maps to: component StatusPill; Maps to: internal — useReducedMotion, useAnimatedNumber, getStatusMeta (streaming-table-utils); used by EventsPage.
+ * Side effects: ResizeObserver on its own box; requestAnimationFrame morphs; a throttled (1600ms) screen-reader announcement of row changes.
  */
 export function StreamingTable<T>({
   rows,
@@ -365,6 +414,12 @@ export function StreamingTable<T>({
   const [internalSort, setInternalSort] = React.useState<SortState | null>(defaultSort);
   const activeSort = sort !== undefined ? sort : internalSort;
 
+  /**
+   * Handles a sortable-header click: advances the sort cycle for the column, stores it internally when uncontrolled, and always notifies onSortChange.
+   * @returns void.
+   * Maps to: internal — nextSort; StreamingTable header buttons.
+   * Side effects: sets internal sort state (uncontrolled mode only).
+   */
   const handleSort = React.useCallback(
     (key: string) => {
       const value = nextSort(activeSort, key);
@@ -723,6 +778,13 @@ export function StreamingTable<T>({
 const shellClass =
   'overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]';
 
+/**
+ * Sort-direction caret for a column header: a filled caret for the active direction, dim double-carets otherwise.
+ * The authoritative state is `aria-sort` on the <th>; this is only a visual aid.
+ * @param dir - 'asc' | 'desc' | null (unsorted).
+ * @returns The 12x12 SVG caret.
+ * Maps to: internal — StreamingTable header cells.
+ */
 function SortGlyph({ dir }: { dir: SortDir | null }) {
   // The active direction is a filled caret; inactive is a dim double-caret. The
   // authoritative state is `aria-sort` on the <th>; this is a visual aid.

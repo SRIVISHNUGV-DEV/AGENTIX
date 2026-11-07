@@ -245,6 +245,11 @@ The \`CapabilityRegistry\` contract manages on-chain capability grants.
   },
 ];
 
+/**
+ * Developer Tools page: SDK playground (copyable examples), contract browser (addresses from /api/contracts), protocol reference docs, and the environment card.
+ * @returns The developer page; the contract list shows "Loading contracts..." until /api/contracts answers.
+ * Maps to: REST GET /api/contracts; Maps to: internal — SDK_EXAMPLES / PROTOCOL_DOCS (static content in this file).
+ */
 export function DeveloperPage() {
   const [selectedExample, setSelectedExample] = useState(SDK_EXAMPLES[0]);
   const [copied, setCopied] = useState(false);
@@ -255,12 +260,26 @@ export function DeveloperPage() {
     fetchJSON<Record<string, string>>('/api/contracts').then(setContracts).catch(() => {});
   }, []);
 
+  /**
+   * Copies the selected SDK example to the clipboard and shows a checkmark for 2s.
+   * @returns void.
+   * Failure modes: the clipboard write is unawaited, so a denied permission still shows the checkmark.
+   * Maps to: internal — DeveloperPage SDK playground.
+   * Side effects: writes to the system clipboard; a 2s timer clears the copied marker.
+   */
   const copyCode = () => {
     navigator.clipboard.writeText(selectedExample.code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  /**
+   * Renders the small Markdown subset used by the protocol docs (##/###/#### headings, bullet lines, pipe-table rows as joined text, blank lines) into React elements.
+   * This is a line-based renderer, not a Markdown parser: inline formatting, links, and code fences are not rendered (fence lines are skipped, fence contents render as plain paragraphs).
+   * @param md - The Markdown source string.
+   * @returns The array of rendered elements (one per source line; `null` for fence lines).
+   * Maps to: internal — DeveloperPage protocol reference.
+   */
   const renderMarkdown = (md: string) => {
     return md.split('\n').map((line, i) => {
       if (line.startsWith('### ')) return <h4 key={i} className="text-xs font-semibold mt-4 mb-1.5 text-foreground">{line.slice(4)}</h4>;

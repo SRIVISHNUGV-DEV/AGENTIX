@@ -65,11 +65,24 @@ const PAGE_LABELS: Record<string, string> = {
   diagnostics: 'Diagnostics', anomalies: 'Anomalies', backups: 'Backups', developer: 'Developer', settings: 'Settings',
 };
 
+/**
+ * Header wallet control: a Connect button when disconnected, or the connected address with a dropdown (copy address, view on explorer, disconnect).
+ * @returns The connect button (disabled while connecting), or the address pill + dropdown when connected.
+ * Maps to: component useWalletCtx (web3modal-provider); Maps to: external — sepolia.basescan.org address page.
+ * Security: shows the connected address; Disconnect only forgets it locally (see disconnect()).
+ */
 function WalletButton() {
   const { address, isConnected, connecting, openModal, disconnect } = useWalletCtx();
   const [copied, setCopied] = useState(false);
   const [dropdown, setDropdown] = useState(false);
 
+  /**
+   * Copies the connected address to the clipboard and flashes "Copied" for 2s.
+   * @returns void; no-op when there is no connected address.
+   * Failure modes: the clipboard write is unawaited, so a denied clipboard permission still flashes "Copied" even though nothing was copied.
+   * Maps to: internal — WalletButton.
+   * Side effects: writes to the system clipboard; a 2s timer resets the copied state.
+   */
   const copyAddress = () => {
     if (address) { navigator.clipboard.writeText(address); setCopied(true); setTimeout(() => setCopied(false), 2000); }
   };
@@ -125,6 +138,13 @@ function WalletButton() {
   );
 }
 
+/**
+ * The dashboard shell: theme/sidebar state, the onboarding gate, the command palette (Cmd/Ctrl+K, "/"), and page routing.
+ * On mount it restores the theme/sidebar prefs, then asks /api/onboarding/status: uninitialized (or unreachable with onboarding incomplete) shows the wizard; initialized shows the shell, and an unreachable backend with completed onboarding shows a banner instead of the wizard.
+ * @returns A loading splash while onboarding status resolves; the OnboardingWizard when setup is incomplete; otherwise the sidebar + top bar + active page.
+ * Maps to: component Sidebar, CommandPalette, OnboardingWizard; Maps to: REST GET /api/onboarding/status.
+ * Side effects: reads/writes localStorage (agentix-theme, agentix-sidebar-collapsed, agentix_onboarding_done); listens for window keydown and the `agentix:navigate` custom event.
+ */
 function DashboardInner() {
   const [activePage, setActivePage] = useState('overview');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -152,7 +172,17 @@ function DashboardInner() {
     localStorage.setItem('agentix-sidebar-collapsed', collapsed ? 'true' : 'false');
   }, [collapsed]);
 
+  /**
+   * Flips the theme between light and dark; persistence to localStorage is done by the theme effect in DashboardInner.
+   * @returns void.
+   * Maps to: internal — DashboardInner.
+   */
   const toggleTheme = useCallback(() => setTheme(t => t === 'dark' ? 'light' : 'dark'), []);
+  /**
+   * Flips the desktop sidebar between full width and the 64px icon rail; persistence to localStorage is done by the collapsed effect in DashboardInner.
+   * @returns void.
+   * Maps to: internal — DashboardInner.
+   */
   const toggleCollapsed = useCallback(() => setCollapsed(c => !c), []);
 
   useEffect(() => {
@@ -309,6 +339,11 @@ function DashboardInner() {
   );
 }
 
+/**
+ * Dashboard entry point: wraps the shell in the wallet provider so every section can use the wallet context.
+ * @returns DashboardInner inside ClientProvider.
+ * Maps to: component ClientProvider, DashboardInner.
+ */
 export default function Dashboard() {
   return (
     <ClientProvider>

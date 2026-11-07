@@ -5,11 +5,23 @@ import { CheckCircle2, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
 import { PageHeader, Badge, Button, Card, CardHeader, StatusDot, Skeleton } from '@/components/ui';
 import { fetchJSON } from '@/lib/api';
 
+/**
+ * Diagnostics page: system health checks from /api/diagnostics, summarized as passed/warning/error counts.
+ * @returns The checks list with per-check status badges; a loading skeleton while fetching, an error card when the fetch fails.
+ * Maps to: REST GET /api/diagnostics.
+ */
 export function DiagnosticsPage() {
   const [checks, setChecks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Reloads diagnostics from /api/diagnostics (accepts `data.checks` or a bare array; non-arrays become []).
+   * @returns void; on failure stores the error message for the error card (previous checks are left in place).
+   * @throws Never — fetch errors are caught into `error` state.
+   * Maps to: REST GET /api/diagnostics.
+   * Side effects: sets checks/loading/error state.
+   */
   const fetchDiagnostics = async () => {
     setLoading(true); setError(null);
     try {
@@ -26,6 +38,12 @@ export function DiagnosticsPage() {
   const warnings = checks.filter(c => c.status === 'WARNING').length;
   const errors = checks.filter(c => c.status === 'ERROR').length;
 
+  /**
+   * Status icon for one diagnostic check: check-circle for PASS, warning triangle for WARNING, X-circle for anything else (including ERROR/unknown).
+   * @param status - The check status string ('PASS' | 'WARNING' | 'ERROR' | other).
+   * @returns The icon element.
+   * Maps to: internal — DiagnosticsPage rows.
+   */
   const StatusIcon = ({ status }: { status: string }) => {
     if (status === 'PASS') return <CheckCircle2 className="w-4 h-4 text-success" />;
     if (status === 'WARNING') return <AlertTriangle className="w-4 h-4 text-warning" />;

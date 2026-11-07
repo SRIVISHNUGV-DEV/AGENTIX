@@ -5,10 +5,22 @@ import { BarChart3, RefreshCw } from 'lucide-react';
 import { PageHeader, StatCard, Button, Card, CardHeader, Skeleton } from '@/components/ui';
 import { fetchJSON } from '@/lib/api';
 
+/**
+ * Analytics page: protocol usage counts (organizations, wallets, sessions, credentials) and network info from /api/stats.
+ * @returns The analytics page; counts show '...' while loading and 0 when the backend has no data.
+ * Maps to: REST GET /api/stats.
+ */
 export function AnalyticsPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads the protocol stats from /api/stats.
+   * @returns void; on failure logs the error and leaves the previous stats in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/stats.
+   * Side effects: sets stats/loading state.
+   */
   const loadStats = async () => {
     setLoading(true);
     try {

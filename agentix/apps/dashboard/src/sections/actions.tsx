@@ -5,10 +5,22 @@ import { Terminal, RefreshCw, ExternalLink } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, StatusDot } from '@/components/ui';
 import { fetchJSON } from '@/lib/api';
 
+/**
+ * Agent Actions page: the complete audit trail of agent activity (tool, intent, risk level, time, success).
+ * @returns The actions list; a loading skeleton while fetching, an empty state when nothing is logged.
+ * Maps to: REST GET /api/actions; Maps to: component Table (not used — custom rows here).
+ */
 export function ActionsPage() {
   const [actions, setActions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Reloads the action audit trail from /api/actions (accepts either `data.value` or a bare array).
+   * @returns void; on failure logs the error and leaves the previous list in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/actions.
+   * Side effects: sets actions/loading state.
+   */
   const fetchActions = async () => {
     setLoading(true);
     try {

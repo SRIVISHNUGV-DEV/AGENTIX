@@ -22,7 +22,7 @@ const EVENT_TYPES = [
   'DelegationRootUpdated', 'DelegationRevoked', 'DelegatorRevoked', 'DelegatorReAuthorized', 'ScopeRegistered',
   'OrganizationRegistered', 'OrganizationDeactivated', 'OrganizationReactivated', 'CredentialAnchorUpdated',
   'UserOperationValidated', 'EntryPointDepositAdded',
-  'CredentialIssued', 'CredentialRevoked', 'SessionCreated', 'SessionRevoked',
+  'CredentialIssued', 'CredentialRevoked',
 ];
 
 const SOURCE_ICONS: Record<string, any> = {
@@ -37,12 +37,25 @@ const SOURCE_COLORS: Record<string, string> = {
   bus: 'text-green-400',
 };
 
+/**
+ * Derives a stable row id for an event: `_id` when present, else txHash:logIndex, else type:timestamp:blockNumber.
+ * Why it exists: StreamingTable needs a stable key for change tracking, and events have no single canonical id.
+ * @param e - Raw event object.
+ * @returns The row id string. Two distinct events can collide when neither has `_id`/`txHash` and they share type, timestamp, and block — then the table treats them as one row.
+ * Maps to: internal — EventsPage (getRowId, row actions, expanded-event lookup).
+ */
 function eventRowId(e: any): string {
   if (e._id) return String(e._id);
   if (e.txHash) return `${e.txHash}:${e.logIndex ?? ''}`;
   return `${e.type || 'event'}:${e.timestamp ?? ''}:${e.blockNumber ?? ''}`;
 }
 
+/**
+ * Events page: paged, filterable, searchable on-chain + system event feed in a live StreamingTable, with indexer status and manual index/reindex/reproduce controls.
+ * Fetches the current page on mount and every 15s (plus indexer status); changing a filter resets to page 0.
+ * @returns The events page; an error card when the fetch fails after loading, skeleton rows while loading.
+ * Maps to: REST GET /api/events, GET /api/events/indexer/status, POST /api/events/indexer/run|reindex|reproduce; Maps to: component StreamingTable.
+ */
 export function EventsPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -57,6 +70,14 @@ export function EventsPage() {
   const [showFilters, setShowFilters] = useState(true);
   const pageSize = 50;
 
+  /**
+   * Fetches one page of events with the current contract/type filters (pageSize 50) and stores the list + total.
+   * @param isInitial - When true, also clears the loading state when done.
+   * @returns void; on failure stores the error message and leaves the previous list in place.
+   * @throws Never — fetch errors are caught into `error` state.
+   * Maps to: REST GET /api/events?limit&offset&contract&type.
+   * Side effects: sets events/total/error (and loading when initial) state.
+   */
   const fetchEvents = useCallback(async (isInitial = false) => {
     try {
       const params = new URLSearchParams();
@@ -76,6 +97,13 @@ export function EventsPage() {
     if (isInitial) setLoading(false);
   }, [contractFilter, typeFilter, page]);
 
+  /**
+   * Refreshes the indexer status bar (running/idle, total indexed, last run).
+   * @returns void; failures are swallowed — a stale/absent status bar means the status route failed, not that indexing stopped.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST GET /api/events/indexer/status.
+   * Side effects: sets indexerStatus state.
+   */
   const fetchIndexerStatus = async () => {
     try {
       const data = await fetchJSON<any>('/api/events/indexer/status');
@@ -89,6 +117,13 @@ export function EventsPage() {
     return () => clearInterval(interval);
   }, [fetchEvents]);
 
+  /**
+   * Triggers one incremental indexer run, then refreshes the events and the indexer status.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/events/indexer/run.
+   * Side effects: starts a server-side indexing pass.
+   */
   const triggerIndex = async () => {
     try {
       await postJSON('/api/events/indexer/run', {});
@@ -97,6 +132,14 @@ export function EventsPage() {
     } catch {}
   };
 
+  /**
+   * Triggers a full reindex from a hardcoded block (43500000), then refreshes events and indexer status.
+   * The fromBlock is a deployment-time constant for Base Sepolia — it goes stale if the contracts are redeployed, and reindexing is expensive; use only when the index is known-bad.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/events/indexer/reindex.
+   * Side effects: starts a full server-side reindex from block 43500000.
+   */
   const triggerReindex = async () => {
     try {
       await postJSON('/api/events/indexer/reindex', { fromBlock: 43500000 });
@@ -105,6 +148,13 @@ export function EventsPage() {
     } catch {}
   };
 
+  /**
+   * Triggers a state-reproduction pass (replays indexed events into local state), then refreshes events and indexer status.
+   * @returns void; failures are swallowed with no user feedback.
+   * @throws Never — errors are caught and ignored.
+   * Maps to: REST POST /api/events/indexer/reproduce.
+   * Side effects: server-side state rebuild.
+   */
   const triggerReproduce = async () => {
     try {
       await postJSON('/api/events/indexer/reproduce', {});
@@ -127,6 +177,12 @@ export function EventsPage() {
       })
     : events;
 
+  /**
+   * Picks the best explorer link for an event: tx hash first, then block number, then a wallet address from args/data.
+   * @param e - Raw event object.
+   * @returns The BaseScan URL, or null when the event carries no tx, block, or wallet reference.
+   * Maps to: internal — explorerTx / explorerBlock / explorerAddress (lib/api).
+   */
   const eventExplorerLink = (e: any) => {
     if (e.txHash) return explorerTx(e.txHash);
     if (e.blockNumber) return explorerBlock(e.blockNumber);
@@ -135,6 +191,12 @@ export function EventsPage() {
     return null;
   };
 
+  /**
+   * Renders an event's args object as key/value rows for the expanded-event panel, truncating string values longer than 66 chars.
+   * @param args - The args/data object; empty or missing input renders null.
+   * @returns The array of row elements, or null when there is nothing to show.
+   * Maps to: internal — EventsPage expanded-event details.
+   */
   const formatArgs = (args: Record<string, any>) => {
     if (!args || Object.keys(args).length === 0) return null;
     return Object.entries(args).map(([key, val]) => (
@@ -204,6 +266,14 @@ export function EventsPage() {
     },
   ], []);
 
+  /**
+   * Handles a StreamingTable row action: 'details' toggles the expanded-event panel for that row, 'explorer' opens its explorer link in a new tab.
+   * @param actionId - 'details' | 'explorer'.
+   * @param row - The event row.
+   * @returns void; 'explorer' does nothing when the row has no explorer link; unknown action ids are ignored.
+   * Maps to: internal — EventsPage; Maps to: external — sepolia.basescan.org (explorer action).
+   * Side effects: sets expandedEvent state; may open a new browser tab.
+   */
   const handleRowAction = (actionId: string, row: any) => {
     if (actionId === 'details') {
       const id = eventRowId(row);

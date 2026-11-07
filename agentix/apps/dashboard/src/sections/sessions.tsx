@@ -7,6 +7,11 @@ import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress } from '@/li
 import { sendCreateLightweightSession, getAccount } from '@/lib/tx-sender';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 
+/**
+ * Sessions page: lightweight sessions (session id, wallet, key, daily spend, expiry, active/revoked) with create and revoke actions.
+ * @returns The sessions table; a loading skeleton while fetching, an empty state when no sessions exist.
+ * Maps to: REST GET /api/sessions/all and /api/wallets; Maps to: lib/tx-sender sendCreateLightweightSession.
+ */
 export function SessionsPage() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [wallets, setWallets] = useState<any[]>([]);
@@ -24,6 +29,13 @@ export function SessionsPage() {
     expiryDays: '30',
   });
 
+  /**
+   * Reloads sessions and wallets in parallel; each may fail independently (Promise.allSettled). Pre-selects the first wallet in the create form when none is chosen yet.
+   * @returns void; on failure logs the error and leaves previous state in place.
+   * @throws Never — fetch errors are caught and logged.
+   * Maps to: REST GET /api/sessions/all and GET /api/wallets.
+   * Side effects: sets sessions/wallets/loading state (and the form's walletAddress default).
+   */
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -43,6 +55,14 @@ export function SessionsPage() {
 
   useEffect(() => { fetchData(); }, []);
 
+  /**
+   * Creates a lightweight session for the form's wallet with the form's limits, signed by the connected owner.
+   * @returns void; opens the wallet modal when not connected; refuses (with an error) when no wallet is selected. A user rejection reports as "Transaction was rejected in MetaMask".
+   * @throws Never — errors are caught into `error` state.
+   * Maps to: lib/tx-sender sendCreateLightweightSession; Maps to: contract SessionManager.createLightweightSession.
+   * Side effects: owner signature + on-chain session creation; closes the dialog and reloads on success.
+   * Security: the session key is the connected wallet address — the owner is authorizing that address to act within the stated limits.
+   */
   const createSession = async () => {
     if (!isConnected) { openModal(); return; }
     if (!form.walletAddress) { setError('Select a wallet first'); return; }
@@ -71,6 +91,15 @@ export function SessionsPage() {
     setCreating(false);
   };
 
+  /**
+   * Revokes a session after a native confirm() dialog.
+   * @param sessionId - The session to revoke.
+   * @param walletAddress - The wallet the session belongs to.
+   * @returns void; does nothing when the user cancels the confirm. On failure logs the error with no user feedback.
+   * @throws Never — errors are caught and logged.
+   * Maps to: REST DELETE /api/sessions.
+   * Side effects: revokes the session server-side; reloads the list.
+   */
   const revokeSession = async (sessionId: string, walletAddress: string) => {
     if (!confirm('Revoke this session? This cannot be undone.')) return;
     try {
