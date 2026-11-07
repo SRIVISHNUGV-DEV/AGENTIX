@@ -44,6 +44,13 @@ const BUNDLER_ERRORS: Record<string, string> = {
   "TargetBlocked": "ERR_TARGET_BLOCKED",
 };
 
+/**
+ * Maps a bundler/revert message to a stable machine-readable error code for MCP clients.
+ * Known contract revert names map to their ERR_* codes; an embedded `reverted with reason string 'X'` is unwrapped and looked up the same way; anything else becomes ERR_BUNDLER_FAILED with the raw message as the reason.
+ * @param message - The raw error/revert message.
+ * @returns { code, reason } — code is one of the ERR_* codes, reason is the matched revert name or the raw message.
+ * Maps to: MCP tools agentix_bundler_send / agentix_bundler_submit (structured error codes).
+ */
 function classifyBundlerError(message: string): { code: string; reason: string } {
   for (const [contractErr, code] of Object.entries(BUNDLER_ERRORS)) {
     if (message.includes(contractErr)) return { code, reason: contractErr };
@@ -1023,6 +1030,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+/**
+ * Connects the MCP server to stdio and serves tool calls until the process is killed.
+ * This module has no other entry point — the server starts on import (main() is called at the bottom of the file).
+ * @throws When the stdio transport fails to connect (the process exits via the .catch handler).
+ * Maps to: internal — MCP server bootstrap (all agentix_* tools).
+ * Side effects: connects to stdio; logs a startup line to stderr (stdout stays clean for the MCP protocol).
+ */
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

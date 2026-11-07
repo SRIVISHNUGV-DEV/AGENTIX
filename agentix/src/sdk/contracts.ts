@@ -71,7 +71,6 @@ const ABIS = {
     'function getLightSession(bytes32 sessionId) external view returns (address sessionWallet, address sessionKey, uint256 dailySpendLimit, uint256 dailyTxLimit, uint256 dailySpendUsed, uint256 dailyTxUsed, uint64 expiry, bool revoked)',
     'function getWalletSessions(address) external view returns (bytes32[])',
     'function getSessionTargets(bytes32) external view returns (address[])',
-    'function getSessionTargets(bytes32) external view returns (address[])',
     'function setSessionTargets(bytes32 sessionId, address[] targets) external',
     'function validateSession(bytes32 sessionId, address signer, uint256 value, address target, bytes data) external view returns (bool)',
     'function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target, bytes data) external view returns (bool)',
@@ -174,6 +173,13 @@ export class ContractRegistry {
   readonly fallbackProvider?: JsonRpcProvider;
   readonly signer?: Signer;
 
+  /**
+   * Connects to the configured RPC (plus fallback) and remembers the caller's signer, if any.
+   * AgentIX never holds private keys — the signer is supplied by the caller (wallet provider, JsonRpcSigner, etc.).
+   * @param signer - Optional ethers Signer for writes; omit for a read-only registry (send() then returns provider-bound contracts).
+   * Maps to: internal — AgentIX constructor.
+   * Side effects: opens JSON-RPC provider connections (no network calls yet; staticNetwork skips the chain-id probe).
+   */
   constructor(
     public readonly config: AgentIXConfig,
     signer?: Signer,
@@ -185,6 +191,14 @@ export class ContractRegistry {
     this.signer = signer;
   }
 
+  /**
+   * Runs a read against the primary RPC and retries it against the fallback RPC on failure.
+   * Use for reads where a single RPC outage should not fail the call; writes must never go through here (a retried write can double-submit).
+   * @param fallback - Optional fallback closure; without one the primary error is rethrown.
+   * @returns Whatever the successful closure returns.
+   * @throws The primary error when there is no fallback, or the fallback's error when both fail.
+   * Maps to: internal — blockchain adapter read functions (readOracleState and friends).
+   */
   async callWithFallback<T>(primary: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
     try {
       return await primary();
@@ -194,7 +208,13 @@ export class ContractRegistry {
     }
   }
 
-  /** Returns a read-only contract connected to the JSON-RPC provider. */
+  /**
+   * Returns a read-only contract connected to the JSON-RPC provider.
+   * The address comes from config (<Name>Address) unless an explicit address is passed (e.g. a per-wallet AgentWallet instance).
+   * @returns A provider-bound ethers Contract; calling a state-changing method on it throws at call time.
+   * @throws RpcError when no address is configured for the contract.
+   * Maps to: contract — the named contract's view functions.
+   */
   get<T extends Contract>(name: ContractName, address?: string): T {
     const addr = address || (this.config as any)[name + 'Address'];
     if (!addr) throw new RpcError('No address configured for ' + name);
@@ -204,6 +224,11 @@ export class ContractRegistry {
   /**
    * Returns a write-capable contract connected to the user's Signer.
    * AgentIX never holds private keys — the Signer is provided by the caller.
+   * NOTE: when no signer was supplied this silently returns a provider-bound (read-only) contract instead of throwing, so the failure only surfaces as a revert/throw when a write is attempted — prefer hasSigner() checks at the call site.
+   * @returns A signer-bound ethers Contract (or provider-bound when there is no signer).
+   * @throws RpcError when no address is configured for the contract.
+   * Maps to: contract — the named contract's state-changing functions.
+   * Security: every write this returns goes through the caller's signer; the signer is the authority.
    */
   send<T extends Contract>(name: ContractName, address?: string): T {
     const addr = address || (this.config as any)[name + 'Address'];
@@ -214,17 +239,35 @@ export class ContractRegistry {
     return new Contract(addr, ABIS[name], this.signer) as unknown as T;
   }
 
-  /** Checks whether a signer is available. */
+  /**
+   * Checks whether a signer is available.
+   * Call before any write path to fail fast with a clear error instead of hitting the silent read-only fallback in send().
+   * @returns True when a signer was supplied to the constructor.
+   * Maps to: internal — AgentIX.hasSigner.
+   */
   hasSigner(): boolean {
     return !!this.signer;
   }
 
-  /** Returns the signer's address, or throws if no signer. */
+  /**
+   * Returns the signer's address, or throws if no signer.
+   * WARNING: this is a stub — it always returns the literal '0x' when a signer exists, because a sync method cannot await Signer.getAddress(). Use getSignerAddressAsync() instead; this method has no internal callers.
+   * @returns The literal string '0x' (not a real address).
+   * @throws SignerRequiredError when no signer was supplied.
+   * Maps to: internal — superseded by getSignerAddressAsync.
+   */
   getSignerAddress(): string {
     if (!this.signer) throw new SignerRequiredError('getSignerAddress');
     return '0x';
   }
 
+  /**
+   * Returns the signer's real address (async, because ethers signers resolve it).
+   * The correct way to learn who is signing; prefer it over the sync getSignerAddress stub.
+   * @returns The checksummed signer address.
+   * @throws SignerRequiredError when no signer was supplied.
+   * Maps to: internal — AgentIX.getSignerAddress.
+   */
   async getSignerAddressAsync(): Promise<string> {
     if (!this.signer) throw new SignerRequiredError('getSignerAddress');
     return await this.signer.getAddress();
@@ -232,6 +275,10 @@ export class ContractRegistry {
 
   /**
    * Builds a human-readable signing request for display before the user signs.
+   * The risk label is a heuristic on the function name (execute/changeOwner = danger, create/update/revoke = warning, else info) — it is a UI hint, not a security verdict.
+   * @param name - Registry contract name; @param value - ETH value in wei, rendered as an ETH string when present.
+   * @returns The SigningRequest describing target contract, function, args, value, and risk.
+   * Maps to: internal — SDK signing-confirmation UI.
    */
   describe(
     name: ContractName,
