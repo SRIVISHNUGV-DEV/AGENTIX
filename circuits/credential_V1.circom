@@ -9,6 +9,17 @@ include "circomlib/circuits/smt/smtverifier.circom";
    SIMPLE MERKLE PROOF (For both active and revoked trees)
    ============================================================ */
 
+/*
+ * WHAT: Recomputes a Merkle root from a leaf and its authentication path (Poseidon(2) at each level).
+ * WHY: Both the active-membership check and (indirectly, via SMTVerifier) the revocation check need it; one shared template keeps the hash choice consistent. Used with depth = 20 by CredentialCircuit.
+ * @param levels Tree depth (number of path elements); the path arrays must have exactly this length.
+ * @param leaf The leaf hash to prove (a commitment for the active tree).
+ * @param pathElements[levels] Sibling hash at each level, bottom-up. @param pathIndices[levels] 0 = leaf is the left child at that level, 1 = right child; each index is constrained to 0/1 (`x*(1-x) === 0`), so an out-of-range index fails the proof.
+ * @returns root The recomputed root; the caller constrains it equal to the public root (`root === activeRoot`). A wrong leaf/path/indices yields a different root and the proof fails.
+ * Failure modes: proof generation fails (no satisfying witness) when any pathIndex is not 0/1; verification fails when the recomputed root differs from the claimed root.
+ * Maps to: circuit CredentialCircuit active-membership step; contract CredentialRegistry activeRoot (the root it must equal)
+ * Side effects / invariants: pure constraint template — no state. The left/right selection is arithmetic (`hash + (sibling - hash) * index`), so the constraint count is fixed per level.
+ */
 template MerkleProof(levels) {
     signal input leaf;
     signal input pathElements[levels];
@@ -32,6 +43,15 @@ template MerkleProof(levels) {
     root <== hashes[levels];
 }
 
+/*
+ * WHAT: Returns the low `bits` bits of a field element — i.e. `in mod 2^bits`.
+ * WHY: The revoked sparse tree is keyed by a 64-bit revocation key, but the secret hash is a full ~254-bit field element; truncating to the low 64 bits makes the key fit the sparse tree's key space. Collision note: two secrets whose hashes share the low 64 bits map to the same revocation key — the tree treats them as the same credential for revocation purposes, so revoking one revokes the other (fail-closed direction for the revoked party, but a real collision risk if the key space is ever attacked).
+ * @param bits Number of low bits to keep (64 at the call site). @param in Field element to truncate; decomposed with Num2Bits(254), which requires the input to fit in 254 bits (true for any bn254 field element).
+ * @returns out The truncated value, `in mod 2^bits`.
+ * Failure modes: proof generation fails when `in` cannot be represented in 254 bits (unreachable for field elements).
+ * Maps to: circuit CredentialCircuit revocation-key step (TruncateToNBits(64) on the secret hash); contract CredentialRegistry revokedSecretRoot (the tree the key is looked up in)
+ * Side effects / invariants: pure constraint template — no state. The accumulator rebuilds the value bit-by-bit, so the output is exactly the low `bits` bits of the input, never a hash of it.
+ */
 template TruncateToNBits(bits) {
     signal input in;
     signal output out;
@@ -55,6 +75,16 @@ template TruncateToNBits(bits) {
    CREDENTIAL CIRCUIT (testnet-only, unaudited — not a production version)
    ============================================================ */
 
+/*
+ * WHAT: Proves, in zero knowledge, that the prover holds a credential (agent/org/budget/expiry/version/secret) that is in the active tree, is NOT in the revoked tree, and permits the requested session (maxValue + expiry) — and outputs a session nullifier.
+ * WHY: This is the credential check behind standard sessions: the SessionManager never sees the secret, only the proof and 7 public signals. The 7-step structure is the whole trust story — commitment (step 1), revocation key (2), active membership (3), non-revocation (4), budget bound (5), expiry bound (6), nullifier (7).
+ * @param depth Tree depth for both Merkle proofs (20 at the call site). Private inputs: agentId, orgId, budgetLimit (max session value the credential allows), expiry (credential expiry), secret (never revealed), sessionNonce (fresh per session), activePathElements/Indices, revokedSiblings/OldKey/OldValue/IsOld0 (sparse-tree non-inclusion witness). Public inputs: wallet, activeRoot, revokedRoot, maxValue, sessionExpiry, credentialVersion.
+ * @returns nullifier Poseidon(orgId, secret, sessionNonce) — unique per (credential, session); the registry burns it so the same proof cannot create a second session. NOTE: reusing a sessionNonce with the same secret/org reproduces the same nullifier, so nonces must be fresh per session or the second session creation reverts as a replay.
+ * Failure modes: proof generation fails (no witness) when the commitment is not in the active tree, the revocation key IS in the revoked tree, maxValue > budgetLimit, sessionExpiry > expiry, or any bit-bound is violated (values must fit 128/64/160/16 bits as constrained). On-chain, `SessionManager.createSession` additionally reverts when the public signals disagree with the call arguments or the registry roots.
+ * Maps to: contract Groth16Verifier.verifyProof (verifies this circuit's proofs); contract SessionManager.createSession (publicSignals[0..6] = activeRoot, revokedRoot, maxValue, sessionExpiry, wallet, credentialVersion, nullifier); TS `core/zk-prover.ts` (proof generation); TS SDK credential.ts createCredential
+ * Side effects / invariants: pure constraint template — no state. Public signals on-chain are the 6 declared public inputs (in main-component order) PLUS the nullifier output = 7 signals total; the verifier's 7-signal array depends on this exact order. Bit bounds are load-bearing: budget/maxValue are 128-bit, expiries and nonce 64-bit, wallet 160-bit, version 16-bit, agent/org ids 128-bit. Revocation uses fnc=1 with value 0, i.e. a non-inclusion proof for the truncated key.
+ * Security note: the secret never leaves the prover (it is a private input, hashed into the commitment and the nullifier). The nullifier is deterministic per (orgId, secret, sessionNonce) — it does not reveal the secret, but the same credential used with the same nonce twice is linkable by identical nullifier; use fresh random nonces.
+ */
 template CredentialCircuit(depth) {
     
     /* =========================================================
