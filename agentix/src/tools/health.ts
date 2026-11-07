@@ -4,7 +4,6 @@ import { checkRpcConnection } from "../core/provider";
 import { getDatabase } from "../core/database";
 import { getProxyGuard } from "../core/proxy-guard";
 import { runSingle, runQuery } from "../core/database";
-import { logger } from "../core/logger";
 
 export interface HealthCheck {
   name: string;
@@ -19,6 +18,15 @@ export interface HealthResult {
   timestamp: string;
 }
 
+/**
+ * Overall health: runs all eight subsystem checks and rolls them up.
+ * The liveness probe for the runtime — any ERROR check makes the result
+ * UNHEALTHY, any WARNING (with no ERROR) makes it DEGRADED, otherwise HEALTHY.
+ * @returns HealthResult with overall status, one HealthCheck per subsystem, and an ISO timestamp.
+ * @throws Never throws: each check catches its own failures.
+ * Maps to: MCP tool agentix_health / CLI 'agentix doctor' (health path).
+ * Side effects: one RPC call (checkRpc); otherwise read-only DB/config/filesystem reads.
+ */
 export async function runHealthCheck(): Promise<HealthResult> {
   const checks: HealthCheck[] = [];
 
@@ -43,6 +51,12 @@ export async function runHealthCheck(): Promise<HealthResult> {
   };
 }
 
+/**
+ * RPC connectivity check: can the configured endpoint answer, on which chain, at which block.
+ * @returns HealthCheck "RPC Connectivity" — PASS with chain/block, or ERROR with the failure reason; never throws.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: one RPC call (checkRpcConnection).
+ */
 async function checkRpc(): Promise<HealthCheck> {
   try {
     const result = await checkRpcConnection();
@@ -64,6 +78,14 @@ async function checkRpc(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Contract-address check: all six required proxies configured and non-zero.
+ * Missing or zero addresses are WARNING, not ERROR — the runtime can start
+ * without them, it just cannot transact.
+ * @returns HealthCheck "Contract Status" — PASS when all six are set, WARNING listing the missing ones, ERROR only on a config-load failure.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only config read.
+ */
 async function checkContracts(): Promise<HealthCheck> {
   try {
     const config = loadConfig();
@@ -104,11 +126,19 @@ async function checkContracts(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Proxy-registry check: ProxyGuard loads and how many proxies it knows.
+ * This only proves the local registry is readable — it does not verify any
+ * address on-chain or that the proxies point at live implementations.
+ * @returns HealthCheck "Proxy Status" — PASS with the proxy count and map, ERROR if the guard fails to load.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only proxy-registry read.
+ */
 async function checkProxyStatus(): Promise<HealthCheck> {
   try {
     const guard = getProxyGuard();
     const proxies = guard.listAllProxies();
-    const implCount = Object.keys(guard.listAllProxies()).length;
+    const implCount = Object.keys(proxies).length;
 
     return {
       name: "Proxy Status",
@@ -121,6 +151,14 @@ async function checkProxyStatus(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Database check: every application table is openable and countable.
+ * A table that exists but cannot be counted fails the whole check (ERROR) — a
+ * corrupt table is not a partial pass.
+ * @returns HealthCheck "Database Integrity" — PASS with table count and per-table row counts, ERROR with the failure reason.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only DB queries (one COUNT per table).
+ */
 async function checkDatabase(): Promise<HealthCheck> {
   try {
     const db = getDatabase();
@@ -145,6 +183,14 @@ async function checkDatabase(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Merkle-tree check: every org has a latest active root and a latest revoked root in the DB.
+ * Missing roots are WARNING — a fresh org legitimately has no roots yet — and the
+ * check reads the roots tables only, never recomputing a tree.
+ * @returns HealthCheck "Tree Integrity" — PASS when every org has both roots, WARNING listing the orgs that lack one, ERROR on DB failure.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only DB queries.
+ */
 async function checkTrees(): Promise<HealthCheck> {
   try {
     const orgs = runQuery<{ id: string }>("SELECT id FROM organizations");
@@ -183,6 +229,14 @@ async function checkTrees(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Configuration completeness check: RPC URL, credential registry and session manager set.
+ * Missing values are WARNING, not ERROR — the runtime starts with defaults, it
+ * just cannot do on-chain work until they are configured.
+ * @returns HealthCheck "Configuration Integrity" — PASS when complete, WARNING listing the gaps, ERROR only on a config-load failure.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only config read.
+ */
 async function checkConfiguration(): Promise<HealthCheck> {
   try {
     const config = loadConfig();
@@ -211,6 +265,14 @@ async function checkConfiguration(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Disk check: does the configured database file exist.
+ * Deliberately shallow — it checks existence only, not free space or size, so a
+ * full disk with an existing DB still reports PASS.
+ * @returns HealthCheck "Disk Usage" — PASS when the DB file exists, WARNING when it does not, ERROR on a config-load failure.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only filesystem check.
+ */
 async function checkDiskUsage(): Promise<HealthCheck> {
   try {
     const dbPath = loadConfig().database.path;
@@ -226,6 +288,14 @@ async function checkDiskUsage(): Promise<HealthCheck> {
   }
 }
 
+/**
+ * Log-system check: does the ~/.agentix/logs directory exist.
+ * Existence only — it never opens or rotates a log file, so a present-but-
+ * unwritable log dir still reports PASS.
+ * @returns HealthCheck "Log System" — PASS when the dir exists, WARNING when it does not, ERROR only on an unexpected failure.
+ * Maps to: internal — runHealthCheck.
+ * Side effects: read-only filesystem check.
+ */
 async function checkLogs(): Promise<HealthCheck> {
   try {
     const logDir = `${AGENTIX_HOME}/logs`;

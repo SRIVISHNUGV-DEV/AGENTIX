@@ -38,6 +38,15 @@ interface StepResult {
 
 const TOTAL_STEPS = 5;
 
+/**
+ * Print a wizard step header (numbered title + progress bar) to the terminal.
+ * Cosmetic only — the step number is display text, not flow control, so calling
+ * it out of order only mislabels the output.
+ * @param n - Step number (1..TOTAL_STEPS); @param title - Step title.
+ * @returns Nothing (void).
+ * Maps to: internal — runSetupWizard step functions.
+ * Side effects: terminal output.
+ */
 function stepHeader(n: number, title: string): void {
   const label = paint(`Step ${n}/${TOTAL_STEPS}`, c.cyan + c.bold);
   console.log(`\n  ${label}  ${paint(title, c.white + c.bold)}`);
@@ -45,6 +54,15 @@ function stepHeader(n: number, title: string): void {
 }
 
 // ── Step 1: environment / dependencies ────────────────────────────────
+/**
+ * Wizard step 1: verify Node.js >= 18 and that better-sqlite3 loads.
+ * A missing native SQLite module is a soft failure (ok:true with a warning
+ * detail) — the wizard continues and the DB step will fail loudly instead.
+ * @returns StepResult {ok, detail}; ok:false only when Node < 18.
+ * @throws Never throws: require failures are caught into the result.
+ * Maps to: internal — runSetupWizard.
+ * Side effects: terminal output (spinners); ~350ms of artificial sleep for readability.
+ */
 async function checkEnvironment(): Promise<StepResult> {
   stepHeader(1, "Verifying environment");
   const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
@@ -74,6 +92,15 @@ async function checkEnvironment(): Promise<StepResult> {
 }
 
 // ── Step 2: data directories + database ───────────────────────────────
+/**
+ * Wizard step 2: create ~/.agentix directories and initialize the SQLite DB.
+ * The first step that writes anything durable — a failure here aborts the
+ * wizard (runSetupWizard returns false).
+ * @returns StepResult {ok, detail}; ok:false when directories cannot be created or the DB fails to initialize.
+ * @throws Never throws: failures are caught into the result.
+ * Maps to: internal — runSetupWizard.
+ * Side effects: creates data dirs + DB file; terminal output.
+ */
 async function initStorage(): Promise<StepResult> {
   stepHeader(2, "Initializing local storage");
   const spin = new Spinner(`Creating data directory at ${AGENTIX_HOME}...`).start();
@@ -99,6 +126,18 @@ async function initStorage(): Promise<StepResult> {
 }
 
 // ── Step 3: RPC configuration ─────────────────────────────────────────
+/**
+ * Wizard step 3: pick an RPC endpoint for Base Sepolia (chain 84532) and persist it with public fallbacks.
+ * Public endpoints are the default — no key is ever required; a provider key is
+ * only asked for when the user picks a provider, and the chosen endpoint is
+ * verified (resolveWorkingRpc falls back through the public list) before saving.
+ * @param opts.rpc - Pre-supplied URL (skips the prompt); @param opts.yes - Non-interactive mode, public endpoints with no prompt.
+ * @returns StepResult {ok:true always, detail: "<source> -> <resolved source>"}; an unverifiable endpoint only warns and saves the public default.
+ * @throws Throws if the interactive prompt fails; save failures propagate.
+ * Maps to: CLI 'agentix setup' (step 3) / config rpcUrl + rpcFallbackUrls.
+ * Side effects: writes config (primary + fallback list); network probes; terminal prompts/output.
+ * Security: a pasted provider key is embedded in the saved RPC URL — the config file then holds a secret; maskUrl hides it when echoing.
+ */
 async function configureRpc(opts: WizardOptions): Promise<StepResult> {
   stepHeader(3, "Configuring RPC endpoint");
 
@@ -173,7 +212,17 @@ async function configureRpc(opts: WizardOptions): Promise<StepResult> {
   return { ok: true, detail: `${sourceLabel} → ${resolved.source}` };
 }
 
-/** Hide an embedded API key when echoing an RPC URL back to the user. */
+/**
+ * Hide an embedded API key when echoing an RPC URL back to the user.
+ * Only the last path segment is masked (first 4 chars + … + last 2) when it is
+ * longer than 8 chars; query-string keys and short segments pass through
+ * unchanged, so this is display hygiene, not redaction.
+ * @param url - URL to display; an unparsable string is returned as-is (painted, unmasked).
+ * @returns The masked URL string (with terminal colour codes).
+ * @throws Never throws: URL parse failures return the input painted.
+ * Maps to: internal — configureRpc (echo of the chosen endpoint).
+ * Side effects: none.
+ */
 function maskUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -189,6 +238,17 @@ function maskUrl(url: string): string {
 }
 
 // ── Step 4: harness autodetect + MCP wiring ───────────────────────────
+/**
+ * Wizard step 4: scan for installed AI harnesses and wire the AgentIX MCP server into them.
+ * Detection is read-only; wiring is opt-in (prompted, or automatic with --yes /
+ * non-TTY) and always rewrites the canonical launch command for every detected
+ * harness — not just unconnected ones — to heal stale entries from older versions.
+ * @param opts.yes - Non-interactive mode, wires all detected harnesses without prompting.
+ * @returns StepResult {ok:true always, detail} — a missing harness module, zero harnesses, or a declined prompt are all ok:true with an explanatory detail.
+ * @throws Never throws: per-harness connect failures are counted, not raised.
+ * Maps to: CLI 'agentix connect' (same wiring, standalone).
+ * Side effects: scans the machine for harnesses; writes MCP entries into external IDE/agent config files when the user agrees.
+ */
 async function connectHarnesses(opts: WizardOptions): Promise<StepResult> {
   stepHeader(4, "Detecting AI harnesses");
   let manager: any;
@@ -254,6 +314,15 @@ async function connectHarnesses(opts: WizardOptions): Promise<StepResult> {
 }
 
 // ── Step 5: summary ───────────────────────────────────────────────────
+/**
+ * Wizard step 5: print the completion summary box (runtime path, network, harness + RPC results) and next steps.
+ * Pure output — it reads the step results and config but changes nothing, so
+ * calling it twice just prints twice.
+ * @param results - Map of step name to StepResult; missing keys render as "n/a" / "public".
+ * @returns Nothing (void).
+ * Maps to: internal — runSetupWizard.
+ * Side effects: terminal output.
+ */
 function finish(results: Record<string, StepResult>): void {
   stepHeader(5, "Setup complete");
   console.log(`  ${paint(progressBar(TOTAL_STEPS, TOTAL_STEPS), c.dim)}\n`);
@@ -274,9 +343,30 @@ function finish(results: Record<string, StepResult>): void {
   console.log(`\n  ${paint("Your AI harness can now call AgentIX tools directly via MCP.", c.gray)}\n`);
 }
 
+/**
+ * Tiny promise-based sleep for pacing wizard spinners.
+ * Cosmetic delay so users can read each step — never use it for timing or
+ * synchronization, it only yields the event loop.
+ * @param ms - Milliseconds to wait.
+ * @returns A promise resolving after ms.
+ * Maps to: internal — setup-wizard step functions.
+ * Side effects: none (timer only).
+ */
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Run the full interactive wizard. */
+/**
+ * Run the full interactive wizard.
+ * Five steps in order — environment, storage, RPC, harnesses, summary — stopping
+ * early (false) when the environment or storage step fails; RPC and harness
+ * steps degrade instead of failing. Safe to re-run: re-connects harnesses and
+ * re-verifies RPC.
+ * @param opts.yes - Skip all prompts, public RPC (CI / non-interactive); @param opts.rpc - Pre-supplied RPC URL (skips the RPC prompt).
+ * @returns True when setup completed (including degraded RPC/harness steps), false when the user declines to begin or env/storage fails.
+ * @throws Throws if an interactive prompt fails.
+ * Maps to: CLI 'agentix setup'.
+ * Side effects: creates dirs + DB, writes config, may write MCP entries into external harness configs, terminal I/O throughout.
+ */
 export async function runSetupWizard(opts: WizardOptions = {}): Promise<boolean> {
   banner("Local-first AI agent credential runtime  ·  Base Sepolia");
 

@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { getContract, getReadonlyContract, getWalletContract } from "../contracts";
+import { getContract, getWalletContract } from "../contracts";
 import { getProxyGuard } from "../core/proxy-guard";
 import { runExecute, runSingle } from "../core/database";
 import { getProvider, getSigner } from "../core/provider";
@@ -16,6 +16,19 @@ export interface WalletResult {
   details?: any;
 }
 
+/**
+ * Deploy an AgentWallet via the factory and record it locally.
+ * One wallet per harness: when harnessId is given, the call fails if that
+ * harness already has a wallet or the owner already has an unlinked wallet
+ * (link it from the dashboard instead). The wallet address comes from the
+ * WalletCreated event, falling back to the owner's last wallet on-chain.
+ * @param ownerAddress - Defaults to the runtime signer's address; @param harnessId - Optional harness binding (e.g. 'claude-code').
+ * @returns WalletResult with walletAddress, ownerAddress, balance and txHash; success:false + error when validation fails, the harness rule blocks, or the tx reverts.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_wallet_create / contract AgentWalletFactory.createWallet(address,bytes32) (random 32-byte salt).
+ * Side effects: on-chain deployment (gas) + local DB insert (INSERT OR REPLACE).
+ * Security: the owner address is ProxyGuard-validated first; the caller must confirm the owner — it becomes the wallet's owner.
+ */
 export async function createWallet(ownerAddress?: string, harnessId?: string): Promise<WalletResult> {
   try {
     const signer = getSigner();
@@ -91,6 +104,16 @@ export async function createWallet(ownerAddress?: string, harnessId?: string): P
   }
 }
 
+/**
+ * Live wallet info: owner, session manager, entry point, ETH balance and EntryPoint deposit, read on-chain.
+ * Five parallel reads (four contract views + balance) — all must succeed or the
+ * whole call returns success:false, so a single failing view hides the rest.
+ * @param walletAddress - Wallet to inspect; ProxyGuard-validated first (implementation addresses are rejected).
+ * @returns WalletResult with ownerAddress, balance, depositBalance and details {sessionManager, entryPoint}; success:false + error on validation or read failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_wallet_get.
+ * Side effects: read-only contract + RPC calls.
+ */
 export async function getWalletInfo(walletAddress: string): Promise<WalletResult> {
   try {
     const validation = getProxyGuard().validate(walletAddress);
@@ -120,6 +143,17 @@ export async function getWalletInfo(walletAddress: string): Promise<WalletResult
   }
 }
 
+/**
+ * Always fails: AgentWallet has NO whitelist feature.
+ * setWhiteListedParty does not exist on the contract (verified against the fresh
+ * ABI), so this returns an explicit error instead of sending a call that would
+ * revert. Authorization lives in SessionManager session allowlists.
+ * @param walletAddress - Wallet (echoed); @param partyAddress - Intended address (echoed in details); @param status - Intended flag, default true (echoed in details).
+ * @returns Always {success:false, error} explaining the missing feature and pointing at setSessionTargets / allowedTargets.
+ * @throws Never throws.
+ * Maps to: internal — SessionManager session allowlists (setSessionTargets / allowedTargets at creation).
+ * Side effects: none — no contract call is made.
+ */
 export async function whitelistAddress(
   walletAddress: string,
   partyAddress: string,
@@ -138,6 +172,17 @@ export async function whitelistAddress(
   };
 }
 
+/**
+ * Execute one call through the wallet as its owner.
+ * The owner path — this bypasses session limits entirely, so it is the owner's
+ * direct execution, not an agent action under a session.
+ * @param walletAddress - Wallet to execute from; @param to - Call destination, ProxyGuard-validated first; @param value - ETH as a decimal string; @param data - Calldata, defaults to "0x" (plain transfer).
+ * @returns WalletResult with txHash and details {to, value, blockNumber}; success:false + error on validation or revert.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract AgentWallet.execute.
+ * Side effects: on-chain transaction (gas + value transferred).
+ * Security: value transfer with the owner's authority — target and data are executed exactly as passed, with no policy check in this path.
+ */
 export async function executeTransaction(
   walletAddress: string,
   to: string,
@@ -167,6 +212,19 @@ export async function executeTransaction(
   }
 }
 
+/**
+ * Execute several calls through the wallet as its owner, atomically on-chain.
+ * One transaction for the whole batch — either all calls execute or the batch
+ * reverts. There is no local length check: mismatched targets/values/data
+ * arrays are caught only by the on-chain revert.
+ * @param walletAddress - Wallet to execute from; @param targets - Call destinations, each ProxyGuard-validated first; @param values - ETH per call, as decimal strings.
+ * @param dataArrays - Calldata per call; defaults to "0x" for every target when omitted/empty.
+ * @returns WalletResult with txHash and details {targets, values, blockNumber}; success:false + error on validation or revert.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_wallet_execute_batch (dashboard-only) / contract AgentWallet.executeBatch.
+ * Side effects: on-chain transaction (gas + values transferred).
+ * Security: value transfer with the owner's authority — every target/data pair is executed exactly as passed, with no policy check in this path.
+ */
 export async function executeBatch(
   walletAddress: string,
   targets: string[],
@@ -197,6 +255,17 @@ export async function executeBatch(
   }
 }
 
+/**
+ * Fund a wallet's EntryPoint deposit (gas for sponsored UserOps).
+ * Sends ETH with the call — the amount is value, not a contract parameter — and
+ * the deposit is what the bundler draws on for the wallet's UserOps.
+ * @param walletAddress - Wallet to fund; @param amount - ETH as a decimal string.
+ * @returns WalletResult with txHash and the new depositBalance; success:false + error on failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract AgentWallet.addDeposit.
+ * Side effects: on-chain transaction moving `amount` ETH into the EntryPoint deposit; reads the new deposit afterwards.
+ * Security: value transfer — verify the wallet address; a deposit to the wrong wallet is only recoverable via withdrawGas by that wallet's owner.
+ */
 export async function depositGas(
   walletAddress: string,
   amount: string
@@ -221,6 +290,17 @@ export async function depositGas(
   }
 }
 
+/**
+ * Withdraw from a wallet's EntryPoint deposit to a recipient.
+ * Moves deposit funds out — the reverse of depositGas — and only the wallet's
+ * owner path can call it, since it executes through the wallet contract.
+ * @param walletAddress - Wallet to withdraw from; @param recipient - Address receiving the ETH; @param amount - ETH as a decimal string.
+ * @returns WalletResult with txHash and details {recipient, amount}; success:false + error on failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract AgentWallet.withdrawDepositTo.
+ * Side effects: on-chain transaction moving `amount` ETH from the deposit to the recipient.
+ * Security: value transfer out of the wallet — verify the recipient; a wrong address sends the funds away with no recall.
+ */
 export async function withdrawGas(
   walletAddress: string,
   recipient: string,

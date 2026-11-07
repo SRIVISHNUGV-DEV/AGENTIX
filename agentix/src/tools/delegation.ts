@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { getContract, getReadonlyContract } from "../contracts";
+import { getContract } from "../contracts";
 import { runExecute, runSingle, runQuery } from "../core/database";
 import { logger } from "../core/logger";
 
@@ -20,6 +20,21 @@ export interface DelegationResult {
   error?: string;
 }
 
+/**
+ * Propose a delegation root on-chain (NOT active until accepted) and store the row as inactive.
+ * A delegation is a Merkle leaf (delegator, delegatee, scopeHash, expiry) whose root
+ * is published on-chain; since the C-5 timelock fix publishing is PROPOSE + ACCEPT,
+ * so this call only proposes — the delegation becomes effective after the 2-day
+ * timelock AND an acceptDelegation() call, and the result says "proposed", never "created".
+ * @param organizationId - Owning org; @param delegator - Address granting the scope; @param delegatee - Address receiving it.
+ * @param scope - Free-form scope string, hashed on-chain; @param maxValue - Stored locally only, not enforced on-chain here.
+ * @param expiry - Unix timestamp (seconds) after which the delegation is dead.
+ * @returns DelegationResult with delegationId, scopeHash, leaf, active:false, status:"proposed" and txHash; success:false + error on revert or DB failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract DelegationManager.proposeDelegationRoot.
+ * Side effects: on-chain transaction (gas) + local DB insert (active=0).
+ * Security: the caller must be the delegator (or their authorized signer); the leaf commits to the exact scope/expiry, so neither can be widened later.
+ */
 export async function createDelegation(
   organizationId: string,
   delegator: string,
@@ -91,6 +106,17 @@ export async function createDelegation(
   }
 }
 
+/**
+ * Revoke a delegation on-chain and mark the local row inactive.
+ * The on-chain call takes (leafHash, delegator), so the stored row is read first
+ * and the leaf recomputed exactly as createDelegation built it — a missing row is
+ * an explicit error, never a guessed call.
+ * @param delegationId - Local delegation id from createDelegation.
+ * @returns DelegationResult with active:false, status:"revoked" and txHash; success:false when the record is missing or the tx reverts.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract DelegationManager.revokeDelegation.
+ * Side effects: on-chain transaction (gas) + local DB update.
+ */
 export async function revokeDelegation(delegationId: string): Promise<DelegationResult> {
   try {
     // Revocation is 2-arg on-chain (leafHash, delegator) and namespaced
@@ -122,8 +148,14 @@ export async function revokeDelegation(delegationId: string): Promise<Delegation
 }
 
 /**
- * Complete a pending delegation-root proposal after the 2-day timelock.
- * Reverts before the delay (TimelockNotReady). Marks the local row active.
+ * Complete a pending delegation-root proposal after the 2-day timelock and mark the local row active.
+ * Only call once the timelock has elapsed — the contract reverts with
+ * TimelockNotReady before the delay — and only then is the delegation usable.
+ * @param delegationId - Local delegation id from createDelegation; the stored delegator/scope are needed to rebuild the on-chain call.
+ * @returns DelegationResult with active:true, status:"active" and txHash; success:false when the record is missing or the timelock has not elapsed.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract DelegationManager.acceptDelegationRoot.
+ * Side effects: on-chain transaction (gas) + local DB update (active=1).
  */
 export async function acceptDelegation(delegationId: string): Promise<DelegationResult> {
   try {
@@ -146,7 +178,16 @@ export async function acceptDelegation(delegationId: string): Promise<Delegation
   }
 }
 
-/** Cancel a pending delegation-root proposal. The local row stays inactive. */
+/**
+ * Cancel a pending delegation-root proposal; the local row stays inactive.
+ * Use this to abandon a proposal during the timelock window instead of letting
+ * it sit pending — cancelling is not the same as revoking an active delegation.
+ * @param delegationId - Local delegation id from createDelegation; the stored delegator/scope are needed to rebuild the on-chain call.
+ * @returns DelegationResult with active:false, status:"cancelled" and txHash; success:false when the record is missing or the tx reverts.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract DelegationManager.cancelDelegationRoot.
+ * Side effects: on-chain transaction (gas); the local DB row is left unchanged (still inactive).
+ */
 export async function cancelDelegation(delegationId: string): Promise<DelegationResult> {
   try {
     const row = runSingle<{ delegator: string; scope: string }>(
@@ -166,6 +207,14 @@ export async function cancelDelegation(delegationId: string): Promise<Delegation
   }
 }
 
+/**
+ * One delegation by id, from the local DB (no on-chain read).
+ * @param delegationId - Local delegation id from createDelegation.
+ * @returns DelegationResult; success:false + "Delegation not found" when the id has no row.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: internal — delegation CLI/MCP read path (no dedicated MCP get tool).
+ * Side effects: read-only DB query.
+ */
 export async function getDelegation(delegationId: string): Promise<DelegationResult> {
   try {
     const row = runSingle<any>(
@@ -189,6 +238,14 @@ export async function getDelegation(delegationId: string): Promise<DelegationRes
   }
 }
 
+/**
+ * All delegations of one org, newest first, from the local DB.
+ * @param organizationId - Org whose delegations to list; unknown orgs yield an empty list, not an error.
+ * @returns DelegationResult[] (empty when none); a DB failure yields [{success:false, error}].
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_delegation_list.
+ * Side effects: read-only DB query.
+ */
 export async function listDelegations(organizationId: string): Promise<DelegationResult[]> {
   try {
     const rows = runQuery<any>(

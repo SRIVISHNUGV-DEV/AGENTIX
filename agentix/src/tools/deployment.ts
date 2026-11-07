@@ -16,6 +16,18 @@ export interface DeployStep {
   message: string;
 }
 
+/**
+ * First-run initialization: directories, config, DB, contract list, optional RPC probe.
+ * Idempotent — safe to re-run; it overwrites nothing already present except the
+ * RPC URL when one is passed. Plain init stays offline-safe: the RPC probe runs
+ * ONLY when an explicit URL is given, because checkRpcConnection has no timeout
+ * and loadConfig() always fills in a default URL.
+ * @param rpcUrl - Optional RPC endpoint to persist; omit to skip the connectivity probe entirely.
+ * @returns DeployResult with per-step DONE/SKIP/ERROR statuses; success:false only when the DB step fails (other step failures are recorded but do not fail init).
+ * @throws Never throws: step failures are recorded in the steps list.
+ * Maps to: CLI 'agentix init' (via wizard initializeFullRuntime).
+ * Side effects: creates ~/.agentix/ dirs, writes config, creates/opens the SQLite DB, may probe the network when rpcUrl is given.
+ */
 export async function initializeAgentix(rpcUrl?: string): Promise<DeployResult> {
   const steps: DeployStep[] = [];
 
@@ -70,6 +82,15 @@ export async function initializeAgentix(rpcUrl?: string): Promise<DeployResult> 
   return { success: true, steps };
 }
 
+/**
+ * Current deployment state as a step list (home dir, config version/chain, network, RPC, contracts, DB table count).
+ * Read-only status snapshot for `agentix status`-style output — it never creates
+ * or repairs anything, and a missing DB is reported as an ERROR step, not thrown.
+ * @returns DeployResult with success:true and one step per subsystem; the Database step is ERROR when the DB cannot be opened.
+ * @throws Never throws: failures surface as ERROR steps.
+ * Maps to: internal — CLI status display.
+ * Side effects: read-only (opens the DB for a table count; may create the DB file if getDatabase initializes it).
+ */
 export async function showDeploymentStatus(): Promise<DeployResult> {
   const steps: DeployStep[] = [];
   const config = loadConfig();

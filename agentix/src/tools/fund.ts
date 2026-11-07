@@ -80,6 +80,18 @@ const NETWORK_NAMES: Record<string, string> = {
   polygon: "Polygon",
 };
 
+/**
+ * Ranked fiat on-ramp options for buying ETH on a network.
+ * Pure estimate — fee rates and the default $2500 ETH price are hardcoded, no live
+ * quotes are fetched, so the numbers are for comparison only and the disclaimer
+ * says to verify on the provider's site before buying. AgentIX never executes a purchase.
+ * @param request.network - Key such as "baseSepolia" (unknown keys pass through as-is); @param request.amount - Fiat amount as a decimal string; @param request.currency - Defaults to "USD"; @param request.country - When given, providers not supporting it are dropped.
+ * @param ethPrice - Optional live ETH price; defaults to 2500 when omitted.
+ * @returns FundResult with options sorted cheapest-fee-first (empty when no provider supports the currency/country) plus a verify-before-buying disclaimer.
+ * @throws Never throws for well-formed input; a non-numeric amount yields NaN-derived estimates.
+ * Maps to: MCP tool agentix_fund / CLI 'agentix fund'.
+ * Side effects: none — pure computation over a hardcoded provider list.
+ */
 export function getFundOptions(request: FundRequest, ethPrice?: number): FundResult {
   const { network, amount, currency = "USD", country } = request;
   const networkName = NETWORK_NAMES[network] || network;
@@ -131,6 +143,14 @@ export function getFundOptions(request: FundRequest, ethPrice?: number): FundRes
   };
 }
 
+/**
+ * Static metadata for a known network: display name, testnet flag, faucet URL when one exists.
+ * @param network - Key such as "baseSepolia"; unknown keys return {name: network, testnet: false}.
+ * @returns {name, testnet, faucetUrl?} — faucetUrl only for the two Sepolia testnets.
+ * @throws Never throws.
+ * Maps to: internal — getFundOptions (network display) and funding UI.
+ * Side effects: none — pure lookup.
+ */
 export function getNetworkInfo(network: string): { name: string; testnet: boolean; faucetUrl?: string } {
   const networks: Record<string, { name: string; testnet: boolean; faucetUrl?: string }> = {
     base: { name: "Base", testnet: false },

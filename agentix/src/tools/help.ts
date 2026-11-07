@@ -1,4 +1,3 @@
-import { loadConfig } from "../core/config";
 
 const PROTOCOL_DOCS = `
 AgentIX V1 — Protocol Reference for AI Agents
@@ -120,6 +119,16 @@ This shows the best fiat on-ramp options (MoonPay, Coinbase, Transak, Ramp).
 AgentIX only recommends official providers — never executes purchases.
 `;
 
+/**
+ * Protocol reference text: the full doc, or one topic section.
+ * The in-CLI manual for agents and humans — the topic texts are the canonical
+ * command examples, so keep them in sync with the actual CLI surface.
+ * @param topic - Optional exact topic key (e.g. "credential", "tree"); lookup is case-sensitive and unmatched topics return an "Unknown topic" message listing the valid keys.
+ * @returns Markdown-ish string: the full PROTOCOL_DOCS when no topic is given, otherwise the topic section.
+ * @throws Never throws.
+ * Maps to: MCP tool agentix_protocol_doc / CLI 'agentix help'.
+ * Side effects: none — pure string lookup, no I/O.
+ */
 export function getHelp(topic?: string): string {
   if (!topic) return PROTOCOL_DOCS;
 

@@ -14,8 +14,15 @@ export interface IdentityResult {
 }
 
 /**
- * Register a new identity on-chain for a wallet address.
- * This creates a new AgentIdentity NFT linked to the wallet.
+ * Register a new AgentIdentity NFT for a wallet address.
+ * One identity per wallet: if the wallet already has one, this returns
+ * success:false with the existing id instead of sending a second transaction.
+ * @param walletAddress - Wallet to bind the identity to; @param metadataRoot - Optional 32-byte metadata root, zero hash when omitted.
+ * @returns IdentityResult with identityId, wallet and txHash; success:false + error when the wallet already has an identity or the tx fails.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract AgentIdentity.registerIdentity; event IdentityRegistered.
+ * Side effects: on-chain transaction (gas) + local DB insert + event-bus emit + events-table insert.
+ * Security: the runtime signer pays; the identity is a public on-chain binding of wallet to id.
  */
 export async function registerIdentity(
   walletAddress: string,
@@ -81,7 +88,14 @@ export async function registerIdentity(
 }
 
 /**
- * Get identity information for a wallet address.
+ * Identity info for a wallet address, read on-chain.
+ * A wallet with no identity is not an error — it returns success:true with
+ * identityId undefined, so callers must check identityId, not just success.
+ * @param walletAddress - Wallet to look up.
+ * @returns IdentityResult with identityId, wallet and details {active, metadataRoot, createdAt, updatedAt}; success:false + error only on a contract/RPC failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_identity_get / agentix_wallet_get_identity.
+ * Side effects: read-only contract calls (identityOf + 4 parallel view calls).
  */
 export async function getIdentity(walletAddress: string): Promise<IdentityResult> {
   try {
@@ -116,7 +130,12 @@ export async function getIdentity(walletAddress: string): Promise<IdentityResult
 }
 
 /**
- * Get identity information by identity ID.
+ * Identity info by numeric identity id, read on-chain.
+ * @param identityId - Numeric id from registerIdentity; an id that was never minted makes the contract calls revert, surfaced as success:false.
+ * @returns IdentityResult with wallet and details {active, metadataRoot, createdAt, updatedAt}; success:false + error on failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: MCP tool agentix_identity_get_by_id.
+ * Side effects: read-only contract calls (4 parallel view calls).
  */
 export async function getIdentityById(identityId: number): Promise<IdentityResult> {
   try {
@@ -146,7 +165,15 @@ export async function getIdentityById(identityId: number): Promise<IdentityResul
 }
 
 /**
- * Update identity metadata root.
+ * Update an identity's metadata root on-chain.
+ * Only the metadata pointer changes — the identity id and wallet binding are
+ * untouched — and the new root takes effect as soon as the tx confirms.
+ * @param identityId - Numeric id to update; @param metadataRoot - New 32-byte metadata root (typically a content hash).
+ * @returns IdentityResult with identityId and txHash; success:false + error on revert or RPC failure.
+ * @throws Never throws: failures are returned as success:false.
+ * Maps to: contract AgentIdentity.updateMetadata; event MetadataUpdated.
+ * Side effects: on-chain transaction (gas) + event-bus emit.
+ * Security: the runtime signer must be authorized to update this identity; a wrong root silently points the identity at the wrong metadata.
  */
 export async function updateMetadata(
   identityId: number,
